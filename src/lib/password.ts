@@ -22,13 +22,20 @@ export async function verifyPassword(password: string, stored: string): Promise<
   const [algo, n, r, p, saltB64, hashB64] = stored.split("$");
   if (algo !== "scrypt" || !saltB64 || !hashB64) return false;
   const expected = Buffer.from(hashB64, "base64");
-  const actual = await scryptAsync(password.normalize("NFKC"), Buffer.from(saltB64, "base64"), expected.length, {
-    N: Number(n),
-    r: Number(r),
-    p: Number(p),
-    maxmem: PARAMS.maxmem,
-  });
-  return actual.length === expected.length && timingSafeEqual(actual, expected);
+  const [N, R, P] = [n, r, p].map(Number);
+  // A malformed row should fail the login, not crash it.
+  if (expected.length !== KEYLEN || ![N, R, P].every((x) => Number.isInteger(x) && x > 0)) return false;
+  try {
+    const actual = await scryptAsync(password.normalize("NFKC"), Buffer.from(saltB64, "base64"), KEYLEN, {
+      N,
+      r: R,
+      p: P,
+      maxmem: PARAMS.maxmem,
+    });
+    return timingSafeEqual(actual, expected);
+  } catch {
+    return false;
+  }
 }
 
 /** A precomputed hash to verify against when the user doesn't exist, so login timing doesn't reveal which emails are registered. */

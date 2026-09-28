@@ -1,5 +1,5 @@
 // Demo data: npm run db:seed  →  sign in as demo@kinga.test / demo-password-1
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { memberships, organizations, processingActivities, registrations, users } from "@/db/schema";
 import { addDays, addMonths, todayInKenya } from "@/lib/dates";
@@ -9,12 +9,17 @@ import { templatesForSector } from "@/lib/ropa";
 const EMAIL = "demo@kinga.test";
 const PASSWORD = "demo-password-1";
 
-const [existing] = await db.select().from(users).where(eq(users.email, EMAIL));
+const [existing] = await db.select().from(users).where(eq(sql`lower(${users.email})`, EMAIL));
 if (existing) {
   // Deleting the user leaves the org orphaned, so remove orgs they own first.
-  const owned = await db.select({ orgId: memberships.orgId }).from(memberships).where(eq(memberships.userId, existing.id));
-  for (const { orgId } of owned) await db.delete(organizations).where(eq(organizations.id, orgId));
-  await db.delete(users).where(eq(users.id, existing.id));
+  await db.transaction(async (tx) => {
+    const owned = await tx
+      .select({ orgId: memberships.orgId })
+      .from(memberships)
+      .where(and(eq(memberships.userId, existing.id), eq(memberships.role, "owner")));
+    for (const { orgId } of owned) await tx.delete(organizations).where(eq(organizations.id, orgId));
+    await tx.delete(users).where(eq(users.id, existing.id));
+  });
 }
 
 const today = todayInKenya();

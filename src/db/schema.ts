@@ -147,7 +147,10 @@ export const processingActivities = pgTable(
     templateId: text("template_id"),
     ...timestamps,
   },
-  (t) => [index("processing_activities_org_idx").on(t.orgId)],
+  (t) => [
+    index("processing_activities_org_idx").on(t.orgId),
+    uniqueIndex("processing_activities_org_template_idx").on(t.orgId, t.templateId),
+  ],
 );
 
 export const organizationsRelations = relations(organizations, ({ many }) => ({

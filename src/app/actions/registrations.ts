@@ -93,7 +93,9 @@ export async function saveRegistration(_prev: FormState, formData: FormData): Pr
 
 export async function deleteRegistration(id: string): Promise<void> {
   const { org } = await requireOrgContext();
-  await db.delete(registrations).where(and(eq(registrations.id, id), eq(registrations.orgId, org.id)));
+  if (typeof id === "string" && isUuid(id)) {
+    await db.delete(registrations).where(and(eq(registrations.id, id), eq(registrations.orgId, org.id)));
+  }
   revalidatePath("/", "layout");
   redirect("/registrations");
 }

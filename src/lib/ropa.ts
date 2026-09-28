@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { LAWFUL_BASES, LAWFUL_BASIS_KEYS, type LawfulBasis, type Sector } from "./dpa";
+import { LAWFUL_BASES, LAWFUL_BASIS_KEYS, SENSITIVE_CATEGORIES, type LawfulBasis, type Sector } from "./dpa";
 
 /** One entry in a Record of Processing Activities. */
 export interface ActivityInput {
@@ -45,7 +45,10 @@ export const activityFormSchema = z
     }),
     dataSubjects: list.pipe(z.array(z.string()).min(1, { error: "List at least one category of data subject." })),
     dataCategories: list.pipe(z.array(z.string()).min(1, { error: "List at least one category of personal data." })),
-    sensitiveCategories: z.array(z.string()).default([]),
+    sensitiveCategories: z
+      .array(z.enum(SENSITIVE_CATEGORIES, { error: "Choose from the listed categories." }))
+      .max(SENSITIVE_CATEGORIES.length)
+      .default([]),
     recipients: z.string().trim().max(2000).default(""),
     crossBorder: checkbox,
     transferCountries: z.string().trim().max(500).default(""),

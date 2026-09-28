@@ -41,9 +41,11 @@ export async function saveActivity(_prev: FormState, formData: FormData): Promis
 
 export async function deleteActivity(id: string): Promise<void> {
   const { org } = await requireOrgContext();
-  await db
-    .delete(processingActivities)
-    .where(and(eq(processingActivities.id, id), eq(processingActivities.orgId, org.id)));
+  if (typeof id === "string" && isUuid(id)) {
+    await db
+      .delete(processingActivities)
+      .where(and(eq(processingActivities.id, id), eq(processingActivities.orgId, org.id)));
+  }
   revalidatePath("/", "layout");
   redirect("/ropa");
 }
@@ -70,7 +72,8 @@ export async function addTemplates(formData: FormData): Promise<void> {
     const rows = chosen
       .filter((t) => !have.has(t.id))
       .map(({ id, sectors: _sectors, ...t }) => ({ ...t, orgId: org.id, templateId: id }));
-    if (rows.length > 0) await db.insert(processingActivities).values(rows);
+    // The unique (org_id, template_id) index makes concurrent submissions safe.
+    if (rows.length > 0) await db.insert(processingActivities).values(rows).onConflictDoNothing();
   }
   revalidatePath("/", "layout");
   redirect("/ropa");

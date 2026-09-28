@@ -10,6 +10,9 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
       <aside className="no-print border-b border-stone-200 bg-white md:sticky md:top-0 md:flex md:h-screen md:w-60 md:flex-col md:border-r md:border-b-0">
         <div className="flex items-center justify-between px-4 py-4 md:block md:px-5 md:py-6">
           <Logo href="/dashboard" />
+          <form action={logout} className="md:hidden">
+            <button className="text-sm font-medium text-stone-600 hover:text-stone-900">Sign out</button>
+          </form>
           <p className="mt-1 hidden truncate text-xs text-stone-500 md:block" title={org.name}>
             {org.name}
           </p>

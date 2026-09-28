@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "processing_activities_org_template_idx" ON "processing_activities" USING btree ("org_id","template_id");

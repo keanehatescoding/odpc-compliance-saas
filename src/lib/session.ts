@@ -9,8 +9,6 @@ import { memberships, organizations, sessions, users } from "@/db/schema";
 
 const COOKIE = "session";
 const SESSION_DAYS = 30;
-// Extend a session once it has less than this much life left.
-const REFRESH_WITHIN_MS = 15 * 24 * 60 * 60 * 1000;
 
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
@@ -45,21 +43,14 @@ export const getCurrentUser = cache(async () => {
   if (!token) return null;
   const id = hashToken(token);
   const [row] = await db
-    .select({ user: users, expiresAt: sessions.expiresAt })
+    .select({ user: users })
     .from(sessions)
     .innerJoin(users, eq(users.id, sessions.userId))
     .where(and(eq(sessions.id, id), gt(sessions.expiresAt, new Date())))
     .limit(1);
   if (!row) return null;
-
-  // Sliding expiry. Cookies can't be written during render, so only the DB
-  // row is extended; the cookie is refreshed on the next sign-in.
-  if (row.expiresAt.getTime() - Date.now() < REFRESH_WITHIN_MS) {
-    await db
-      .update(sessions)
-      .set({ expiresAt: new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000) })
-      .where(eq(sessions.id, id));
-  }
+  // Sessions last a fixed SESSION_DAYS, matching the cookie's expiry. (Cookies
+  // can't be rewritten during render, so a DB-only sliding expiry would be moot.)
   const { passwordHash: _omit, ...user } = row.user;
   return user;
 });

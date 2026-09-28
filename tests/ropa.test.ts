@@ -53,6 +53,11 @@ describe("parseActivityForm", () => {
     expect(r.error!.issues.map((i) => i.path.join("."))).toContain("transferCountries");
   });
 
+  it("rejects sensitive categories outside the statutory list", () => {
+    const r = parseActivityForm(form({ ...valid, sensitiveCategories: ["Health status", "Shoe size"] }));
+    expect(r.success).toBe(false);
+  });
+
   it("reports the transfer error alongside other field errors", () => {
     const r = parseActivityForm(form({ ...valid, retentionPeriod: "", crossBorder: "on" }));
     expect(r.error!.issues.map((i) => i.path.join("."))).toEqual(

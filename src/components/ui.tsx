@@ -150,6 +150,7 @@ export function TextArea({
         rows={3}
         defaultValue={valueOf(name, values, initial)}
         aria-invalid={Boolean(errors?.[name]) || undefined}
+        aria-describedby={errors?.[name] ? `${name}-error` : undefined}
         className={inputClass}
         {...input}
       />
@@ -174,6 +175,7 @@ export function SelectField({
         name={name}
         defaultValue={valueOf(name, values, initial)}
         aria-invalid={Boolean(errors?.[name]) || undefined}
+        aria-describedby={errors?.[name] ? `${name}-error` : undefined}
         className={inputClass}
       >
         {placeholder && <option value="">{placeholder}</option>}

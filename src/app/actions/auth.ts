@@ -21,6 +21,16 @@ const signupSchema = z.object({
   size: z.enum(ORG_SIZE_KEYS as [OrgSize, ...OrgSize[]], { error: "Choose a size." }),
 });
 
+const EMAIL_TAKEN = "An account with this email already exists. Sign in instead.";
+
+/** Postgres unique_violation, possibly wrapped by drizzle in `cause`. */
+function isUniqueViolation(err: unknown): boolean {
+  for (let e = err; e && typeof e === "object"; e = (e as { cause?: unknown }).cause) {
+    if ((e as { code?: unknown }).code === "23505") return true;
+  }
+  return false;
+}
+
 export async function signup(_prev: FormState, formData: FormData): Promise<FormState> {
   const values = formValues(formData);
   delete values.password;
@@ -33,21 +43,28 @@ export async function signup(_prev: FormState, formData: FormData): Promise<Form
     .from(users)
     .where(eq(sql`lower(${users.email})`, d.email))
     .limit(1);
-  if (existing) return { errors: { email: ["An account with this email already exists. Sign in instead."] }, values };
+  if (existing) return { errors: { email: [EMAIL_TAKEN] }, values };
 
   const passwordHash = await hashPassword(d.password);
-  const userId = await db.transaction(async (tx) => {
-    const [user] = await tx
-      .insert(users)
-      .values({ email: d.email, name: d.name, passwordHash })
-      .returning({ id: users.id });
-    const [org] = await tx
-      .insert(organizations)
-      .values({ name: d.orgName, sector: d.sector, size: d.size })
-      .returning({ id: organizations.id });
-    await tx.insert(memberships).values({ userId: user.id, orgId: org.id, role: "owner" });
-    return user.id;
-  });
+  let userId: string;
+  try {
+    userId = await db.transaction(async (tx) => {
+      const [user] = await tx
+        .insert(users)
+        .values({ email: d.email, name: d.name, passwordHash })
+        .returning({ id: users.id });
+      const [org] = await tx
+        .insert(organizations)
+        .values({ name: d.orgName, sector: d.sector, size: d.size })
+        .returning({ id: organizations.id });
+      await tx.insert(memberships).values({ userId: user.id, orgId: org.id, role: "owner" });
+      return user.id;
+    });
+  } catch (err) {
+    // A concurrent signup with the same email won the race to the unique index.
+    if (isUniqueViolation(err)) return { errors: { email: [EMAIL_TAKEN] }, values };
+    throw err;
+  }
 
   await createSession(userId);
   redirect("/dashboard");
