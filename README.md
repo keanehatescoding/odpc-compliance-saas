@@ -18,5 +18,3 @@
 Customers are the newly-obligated SMEs from the ODPC's 2025–2026 registration expansion (schools, clinics, SACCOs, retailers) — most have no in-house compliance function. Price a simple monthly subscription, e.g., KSh 3,000–8,000/month depending on company size, positioned as cheaper than hiring a consultant every time a renewal or DPIA is needed. MVP: a dashboard that just tracks registration status and renewal deadlines, plus a RoPA template generator. First steps: reach out to the entities on the ODPC's published list of expired/renewal-due certificates — they are, right now, the most motivated possible first customers.
 
 ---
-
-Source: `PROJECTS.md` (Online Business Models: Proven Abroad, Underdeveloped in Kenya).
