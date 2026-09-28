@@ -1,22 +1,93 @@
-# Data-protection (ODPC) compliance-as-a-service
+# Kinga: ODPC compliance for Kenyan SMEs
 
-- **Concept:** A workflow tool for Kenyan SMEs to manage ongoing Data Protection Act compliance — ODPC registration and renewal tracking, a Records of Processing Activities (RoPA) generator, DPIA templates, and a 72-hour breach-notification workflow.
-- **Origin:** Global — "compliance-as-a-service" for privacy law (the OneTrust/Vanta/Drata category) is a multi-billion-dollar SaaS space built around GDPR and its many national equivalents.
-- **Examples:** OneTrust and similar platforms built entire businesses on exactly this workflow for GDPR; no direct Kenya-specific equivalent was found.
-- **Evidence of demand:** Kenya's ODPC issued a notice on 28 August 2026 giving data controllers/processors with expired certificates 14 days (to 11 September 2026) to renew or face enforcement; in 2025 the ODPC also flagged 13 previously exempt sectors (bars, restaurants, schools, dispensaries) as newly required to register. Fines run up to KSh 5 million or 1% of turnover.
-- **Kenya landscape:** The ODPC's own registration portal is a manual government system; global consent-management tools (CookieHub, ConsentStack) cover cookie-consent banners only, not the ongoing registration/RoPA/breach workflow; law firms offer compliance training and consulting but not software.
-- **Opportunity:** A wave of newly-obligated SMEs (many with no compliance staff) now need ongoing, not one-off, compliance management — exactly the gap this kind of SaaS fills elsewhere.
-- **Target customers:** SMEs and mid-size companies now required to register — fintechs, clinics, schools, SACCOs, retail chains — typically bought by a founder, finance manager, or the person doing compliance as a side duty.
-- **Revenue model:** Tiered monthly/annual subscription by company size or number of data-processing activities tracked; an add-on one-time DPIA/audit service fee.
-- **Difficulty:** Medium — straightforward SaaS engineering, but credibility likely requires a compliance/legal co-founder or advisory partnership.
-- **Scalability:** High — Nigeria's NDPA, Uganda's Data Protection Act, Rwanda's law and South Africa's POPIA all follow comparable structures, so the product logic ports across the region.
-- **Risks:** Regulatory guidance changes; a still-small market of compliance-literate buyers; competing against "we'll just hire a consultant once" habits.
-- **MVP:** A dashboard tracking ODPC registration status + renewal reminders + a RoPA template generator, piloted with \~20 SMEs.
+Kinga ("protection" in Swahili; a placeholder name) helps small organisations meet their obligations under the Data Protection Act, 2019:
 
-## Deep dive
+- **Registration tracker.** Record your ODPC data controller and/or processor certificates. Each one gets a status (not started, application pending, active, renewal due, expiring soon, expired) calculated in Nairobi time, plus the indicative renewal fee for your organisation size.
+- **Renewal reminders.** A daily job emails reminders 90, 60, 30, 14, 7 and 1 days before expiry, on the day itself, and 7, 14 and 30 days after. Each reminder is sent once per certificate cycle. Reminders stop once you record a renewal application.
+- **RoPA builder.** A record of processing activities: purpose, s.30 lawful basis, data subjects, categories, sensitive data, cross-border transfers, retention and security. It includes sector templates (schools, clinics, SACCOs, fintech, retail, hospitality), DPIA screening, CSV export and a printable view.
 
-Customers are the newly-obligated SMEs from the ODPC's 2025–2026 registration expansion (schools, clinics, SACCOs, retailers) — most have no in-house compliance function. Price a simple monthly subscription, e.g., KSh 3,000–8,000/month depending on company size, positioned as cheaper than hiring a consultant every time a renewal or DPIA is needed. MVP: a dashboard that just tracks registration status and renewal deadlines, plus a RoPA template generator. First steps: reach out to the entities on the ODPC's published list of expired/renewal-due certificates — they are, right now, the most motivated possible first customers.
+See [BRIEF.md](BRIEF.md) for the product brief.
 
----
+## Stack
 
-Source: `PROJECTS.md` (Online Business Models: Proven Abroad, Underdeveloped in Kenya).
+Next.js 16 (App Router, server actions), TypeScript, Tailwind 4, Postgres with Drizzle ORM, zod, and vitest (with PGlite for database tests).
+
+## Getting started
+
+```bash
+cp .env.example .env
+docker compose up -d        # or point DATABASE_URL at any Postgres 14+
+npm install
+npm run db:migrate
+npm run db:seed             # optional demo data
+npm run dev
+```
+
+Open http://localhost:3000. The seed creates a school, "Sunrise Academy", whose controller certificate expires in 20 days and whose processor certificate expired 17 days ago. Sign in as `demo@kinga.test` / `demo-password-1`.
+
+## Scripts
+
+| Command | What it does |
+| --- | --- |
+| `npm run dev` / `build` / `start` | Next.js |
+| `npm test` | Unit and database tests (no running Postgres needed) |
+| `npm run typecheck` | `next typegen` + `tsc` |
+| `npm run lint` | ESLint |
+| `npm run db:generate` | Generate a migration after editing `src/db/schema.ts` |
+| `npm run db:migrate` | Apply migrations |
+| `npm run db:seed` | Reset the demo organisation |
+| `npm run reminders` | Run the reminder job once |
+
+## Environment
+
+| Variable | Required | Notes |
+| --- | --- | --- |
+| `DATABASE_URL` | yes | Postgres connection string |
+| `APP_URL` | yes | Base URL used in email links |
+| `CRON_SECRET` | for the cron endpoint | Bearer token for `/api/cron/reminders` |
+| `SMTP_URL` | no | Without it, emails are printed to the log |
+| `EMAIL_FROM` | no | Sender address |
+
+## Scheduling reminders
+
+Run the job once a day, either as a script:
+
+```bash
+npm run reminders
+```
+
+or over HTTP (for Vercel Cron, GitHub Actions and similar):
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET" https://your-host/api/cron/reminders
+```
+
+The job is safe to run more than once. Each (certificate, expiry date, threshold) is claimed in `reminder_log` before sending and released if the send fails. After downtime it sends only the most recent missed reminder, not every one.
+
+## Layout
+
+```
+src/lib/          domain logic (dates, registration status, RoPA, reminders, auth)
+src/db/           Drizzle schema and client
+src/app/actions/  server actions
+src/app/(app)/    signed-in pages
+src/app/(auth)/   login and signup
+scripts/          migrate, seed, reminder job
+tests/            vitest
+```
+
+Forms work before JavaScript loads (progressive enhancement). Record IDs travel as hidden fields and are always checked against the signed-in organisation.
+
+## Caveats (verify before launch)
+
+This is an MVP, not legal advice. Check these against current ODPC guidance:
+
+- **Fees** in `src/lib/dpa.ts` are indicative, and the org-size bands have no thresholds attached.
+- **24-month certificate validity** is assumed as the default expiry. Users can override it per certificate.
+- **KRA PIN format** is validated as `A/P + 9 digits + letter`.
+- The **penalty wording** in reminder emails (up to KSh 5M or 1% of turnover).
+- **DPIA screening** is a simple heuristic, not the ODPC's official criteria.
+
+## Not built yet
+
+Team invitations and roles UI, breach notification (72-hour) workflow, DPIA templates, data-subject request tracking, rate limiting on login and signup, password reset, and billing.
