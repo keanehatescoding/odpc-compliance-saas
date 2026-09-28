@@ -21,6 +21,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
           <NavLink href="/dashboard">Dashboard</NavLink>
           <NavLink href="/registrations">ODPC registration</NavLink>
           <NavLink href="/ropa">Records of processing</NavLink>
+          <NavLink href="/breaches">Data breaches</NavLink>
           <NavLink href="/settings">Settings</NavLink>
         </nav>
         <div className="hidden border-t border-stone-200 px-5 py-4 md:block">

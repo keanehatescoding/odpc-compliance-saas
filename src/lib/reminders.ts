@@ -80,7 +80,8 @@ export async function runReminders(
   return result;
 }
 
-async function reminderRecipients(db: Db, org: typeof organizations.$inferSelect): Promise<string[]> {
+/** Where compliance emails go: the organisation's reminder address, else its owners. */
+export async function reminderRecipients(db: Db, org: typeof organizations.$inferSelect): Promise<string[]> {
   if (org.reminderEmail) {
     return org.reminderEmail
       .split(",")

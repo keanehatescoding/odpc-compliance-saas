@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { buttonClass, Card, PageHeader, StatusBadge } from "@/components/ui";
-import { formatDate, todayInKenya } from "@/lib/dates";
+import { Countdown } from "@/components/countdown";
+import { BreachStatusBadge, buttonClass, Card, cx, PageHeader, StatusBadge } from "@/components/ui";
+import { breachStatus, notificationDeadline, NOTIFY_WHOM, outstandingTasks } from "@/lib/breach";
+import { formatDate, formatDateTime, todayInKenya } from "@/lib/dates";
 import { ODPC_FEES, REGISTRATION_ROLES, formatKsh, type OrgSize, type RegistrationRole } from "@/lib/dpa";
-import { listActivities, listRegistrations, recentReminders } from "@/lib/queries";
+import { listActivities, listBreaches, listRegistrations, recentReminders } from "@/lib/queries";
 import { daysUntilExpiry, registrationStatus, STATUS_SEVERITY, worstStatus } from "@/lib/registration";
 import { dpiaRecommended } from "@/lib/ropa";
 import { requireOrgContext } from "@/lib/session";
@@ -13,11 +15,17 @@ export const metadata: Metadata = { title: "Dashboard" };
 export default async function DashboardPage() {
   const { org } = await requireOrgContext();
   const today = todayInKenya();
-  const [regs, activities, reminders] = await Promise.all([
+  const now = new Date();
+  const [regs, activities, reminders, breaches] = await Promise.all([
     listRegistrations(org.id),
     listActivities(org.id),
     recentReminders(org.id),
+    listBreaches(org.id),
   ]);
+  const urgentBreaches = breaches
+    .map((b) => ({ ...b, status: breachStatus(b, now), deadline: notificationDeadline(b) }))
+    .filter((b) => b.status === "open" || b.status === "overdue")
+    .sort((a, b) => a.deadline.getTime() - b.deadline.getTime());
 
   const regRows = regs
     .map((r) => ({ ...r, status: registrationStatus(r, today), daysLeft: daysUntilExpiry(r, today) }))
@@ -28,6 +36,10 @@ export default async function DashboardPage() {
   const crossBorder = activities.filter((a) => a.crossBorder);
 
   const todos: { text: string; href: string }[] = [];
+  for (const b of breaches) {
+    if (urgentBreaches.some((u) => u.id === b.id)) continue; // shown in the banner
+    for (const task of outstandingTasks(b)) todos.push({ text: `${task}: ${b.title}`, href: `/breaches/${b.id}` });
+  }
   if (regRows.length === 0) todos.push({ text: "Add your ODPC registration certificate", href: "/registrations/new" });
   for (const r of regRows) {
     const role = REGISTRATION_ROLES[r.role as RegistrationRole].toLowerCase();
@@ -43,6 +55,30 @@ export default async function DashboardPage() {
   return (
     <>
       <PageHeader title="Compliance overview" description={`${org.name} · as of ${formatDate(today)}`} />
+
+      {urgentBreaches.length > 0 && (
+        <Card className="mb-4 border-red-300 bg-red-50">
+          <h2 className="font-semibold text-red-900">Breach notification deadline running</h2>
+          <ul className="mt-3 divide-y divide-red-200">
+            {urgentBreaches.map((b) => (
+              <li key={b.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                <div>
+                  <Link href={`/breaches/${b.id}`} className="font-medium hover:underline">
+                    {b.title}
+                  </Link>
+                  <p className="text-sm text-stone-700">Notify {NOTIFY_WHOM[b.role as RegistrationRole]} by {formatDateTime(b.deadline)}</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className={cx("text-sm font-semibold", b.status === "overdue" ? "text-red-800" : "text-orange-900")}>
+                    <Countdown deadline={b.deadline.toISOString()} now={now.toISOString()} />
+                  </span>
+                  <BreachStatusBadge status={b.status} />
+                </div>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card className="md:col-span-2">

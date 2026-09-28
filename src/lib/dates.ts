@@ -57,3 +57,36 @@ export function formatDate(date: string | null | undefined): string {
     timeZone: "UTC",
   }).format(new Date(toUtcMs(date)));
 }
+
+// ---------------------------------------------------------------------------
+// Date-times. Breach deadlines run in hours, so they need a time as well as a
+// date. Kenya has no daylight saving, so Nairobi is always UTC+3.
+// ---------------------------------------------------------------------------
+
+const KENYA_OFFSET = "+03:00";
+const LOCAL_DATETIME = /^(\d{4}-\d{2}-\d{2})T([01]\d|2[0-3]):[0-5]\d$/;
+
+/** Parses a `datetime-local` value ("YYYY-MM-DDTHH:mm") as Nairobi time. */
+export function parseKenyaDateTime(value: string): Date | null {
+  const m = LOCAL_DATETIME.exec(value);
+  if (!m || !isIsoDate(m[1])) return null;
+  return new Date(`${value}:00${KENYA_OFFSET}`);
+}
+
+/** The `datetime-local` value for an instant, in Nairobi time. */
+export function toKenyaDateTimeLocal(date: Date): string {
+  return new Date(date.getTime() + 3 * 3_600_000).toISOString().slice(0, 16);
+}
+
+export function formatDateTime(date: Date | null | undefined): string {
+  if (!date) return "—";
+  return new Intl.DateTimeFormat("en-KE", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: KENYA_TZ,
+  }).format(date);
+}

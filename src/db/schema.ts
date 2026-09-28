@@ -12,6 +12,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import { BREACH_KIND_KEYS, BREACH_RISK_KEYS } from "../lib/breach";
 import { LAWFUL_BASIS_KEYS, ORG_SIZE_KEYS, SECTOR_KEYS } from "../lib/dpa";
 
 export const sectorEnum = pgEnum("sector", SECTOR_KEYS as [string, ...string[]]);
@@ -19,6 +20,8 @@ export const orgSizeEnum = pgEnum("org_size", ORG_SIZE_KEYS as [string, ...strin
 export const memberRoleEnum = pgEnum("member_role", ["owner", "admin", "member"]);
 export const registrationRoleEnum = pgEnum("registration_role", ["controller", "processor"]);
 export const lawfulBasisEnum = pgEnum("lawful_basis", LAWFUL_BASIS_KEYS as [string, ...string[]]);
+export const breachKindEnum = pgEnum("breach_kind", BREACH_KIND_KEYS as [string, ...string[]]);
+export const breachRiskEnum = pgEnum("breach_risk", BREACH_RISK_KEYS as [string, ...string[]]);
 
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -153,10 +156,100 @@ export const processingActivities = pgTable(
   ],
 );
 
+/**
+ * A personal data breach (s.43 of the Act). The notification clock starts at
+ * `discoveredAt`: 72 hours to notify the ODPC when the organisation is the
+ * controller, 48 hours to notify the controller when it is a processor.
+ */
+export const breaches = pgTable(
+  "breaches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    kind: breachKindEnum("kind").notNull(),
+    // Whether the organisation holds this data as controller or processor.
+    role: registrationRoleEnum("role").notNull().default("controller"),
+    description: text("description").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }),
+    discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull(),
+    dataSubjects: text("data_subjects").notNull().default(""),
+    approxSubjects: integer("approx_subjects"),
+    dataCategories: text("data_categories").notNull().default(""),
+    sensitiveCategories: text("sensitive_categories").array().notNull().default(sql`'{}'::text[]`),
+    // Encrypted or otherwise unintelligible to whoever got it.
+    dataUnintelligible: boolean("data_unintelligible").notNull().default(false),
+    risk: breachRiskEnum("risk").notNull().default("unassessed"),
+    riskNotes: text("risk_notes").notNull().default(""),
+    measures: text("measures").notNull().default(""),
+    subjectAdvice: text("subject_advice").notNull().default(""),
+    unauthorisedParty: text("unauthorised_party").notNull().default(""),
+    contactPerson: text("contact_person").notNull().default(""),
+    // The ODPC (as controller) or the controller (as processor).
+    notifiedAt: timestamp("notified_at", { withTimezone: true }),
+    notificationRef: text("notification_ref").notNull().default(""),
+    delayReason: text("delay_reason").notNull().default(""),
+    subjectsNotifiedAt: timestamp("subjects_notified_at", { withTimezone: true }),
+    subjectsNotifiedHow: text("subjects_notified_how").notNull().default(""),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    lessons: text("lessons").notNull().default(""),
+    reportedBy: uuid("reported_by").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [index("breaches_org_idx").on(t.orgId)],
+);
+
+/** RoPA activities a breach affected. */
+export const breachActivities = pgTable(
+  "breach_activities",
+  {
+    breachId: uuid("breach_id")
+      .notNull()
+      .references(() => breaches.id, { onDelete: "cascade" }),
+    activityId: uuid("activity_id")
+      .notNull()
+      .references(() => processingActivities.id, { onDelete: "cascade" }),
+  },
+  (t) => [primaryKey({ columns: [t.breachId, t.activityId] })],
+);
+
+/** The incident log: timestamped notes on what was found and done. */
+export const breachUpdates = pgTable(
+  "breach_updates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    breachId: uuid("breach_id")
+      .notNull()
+      .references(() => breaches.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    note: text("note").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("breach_updates_breach_idx").on(t.breachId, t.createdAt)],
+);
+
+/** One row per breach alert email, so each kind goes out once per breach. */
+export const breachAlertLog = pgTable(
+  "breach_alert_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    breachId: uuid("breach_id")
+      .notNull()
+      .references(() => breaches.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    recipients: text("recipients").array().notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("breach_alert_log_unique_idx").on(t.breachId, t.kind)],
+);
+
 export const organizationsRelations = relations(organizations, ({ many }) => ({
   memberships: many(memberships),
   registrations: many(registrations),
   activities: many(processingActivities),
+  breaches: many(breaches),
 }));
 
 export const membershipsRelations = relations(memberships, ({ one }) => ({
@@ -180,3 +273,4 @@ export type User = typeof users.$inferSelect;
 export type Organization = typeof organizations.$inferSelect;
 export type Registration = typeof registrations.$inferSelect;
 export type ProcessingActivity = typeof processingActivities.$inferSelect;
+export type Breach = typeof breaches.$inferSelect;

@@ -1,7 +1,16 @@
 // Demo data: npm run db:seed  →  sign in as demo@kinga.test / demo-password-1
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { memberships, organizations, processingActivities, registrations, users } from "@/db/schema";
+import {
+  breachActivities,
+  breaches,
+  breachUpdates,
+  memberships,
+  organizations,
+  processingActivities,
+  registrations,
+  users,
+} from "@/db/schema";
 import { addDays, addMonths, todayInKenya } from "@/lib/dates";
 import { hashPassword } from "@/lib/password";
 import { templatesForSector } from "@/lib/ropa";
@@ -57,10 +66,50 @@ await db.insert(registrations).values([
 ]);
 
 const templates = templatesForSector("education");
-await db
+const activities = await db
   .insert(processingActivities)
-  .values(templates.map(({ id, sectors: _s, ...t }) => ({ ...t, orgId: org.id, templateId: id })));
+  .values(templates.map(({ id, sectors: _s, ...t }) => ({ ...t, orgId: org.id, templateId: id })))
+  .returning();
 
-console.log(`Seeded "${org.name}" with ${templates.length} RoPA entries.`);
+// A breach discovered 30 hours ago, assessed but not yet notified: 42 hours left on the clock.
+const HOUR = 3_600_000;
+const discoveredAt = new Date(Date.now() - 30 * HOUR);
+const [breach] = await db
+  .insert(breaches)
+  .values({
+    orgId: org.id,
+    title: "Fee balance list sent to wrong WhatsApp group",
+    kind: "misdirected",
+    description:
+      "The bursar's assistant shared a spreadsheet of Form 2 fee balances, with parents' names and phone numbers, in the school's public alumni WhatsApp group instead of the finance team group. It was up for about 40 minutes before being deleted.",
+    occurredAt: new Date(discoveredAt.getTime() - HOUR),
+    discoveredAt,
+    dataSubjects: "Parents and guardians of Form 2 students",
+    approxSubjects: 142,
+    dataCategories: "Names, phone numbers, fee balances",
+    risk: "real_risk",
+    riskNotes:
+      "The alumni group has about 600 members. Fee arrears are financially sensitive and phone numbers could be used for fee-payment scams targeting parents.",
+    measures:
+      "Message deleted for everyone. Group admins asked members to delete any downloaded copies. Staff reminded to share finance files only through the school management system.",
+    subjectAdvice:
+      "Ignore any message asking you to pay fees to a number other than the school's paybill. Call the bursar's office to confirm any payment request.",
+    contactPerson: `${user.name}, Deputy Principal, ${EMAIL}`,
+    reportedBy: user.id,
+  })
+  .returning();
+const feeActivity = activities.find((a) => a.templateId === "school-fees");
+if (feeActivity) await db.insert(breachActivities).values({ breachId: breach.id, activityId: feeActivity.id });
+await db.insert(breachUpdates).values([
+  { breachId: breach.id, userId: user.id, note: "Breach logged.", createdAt: discoveredAt },
+  {
+    breachId: breach.id,
+    userId: user.id,
+    note: "Risk assessed: Real risk of harm to data subjects.",
+    createdAt: new Date(discoveredAt.getTime() + 4 * HOUR),
+  },
+]);
+
+console.log(`Seeded "${org.name}" with ${templates.length} RoPA entries and one open breach.`);
 console.log(`Sign in as ${EMAIL} / ${PASSWORD}`);
 process.exit(0);
