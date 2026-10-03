@@ -6,6 +6,7 @@ Kinga ("protection" in Swahili; a placeholder name) helps small organisations me
 - **Renewal reminders.** A daily job emails reminders 90, 60, 30, 14, 7 and 1 days before expiry, on the day itself, and 7, 14 and 30 days after. Each reminder is sent once per certificate cycle. Reminders stop once you record a renewal application.
 - **Breach response.** Log a personal data breach the moment you learn of it. A live countdown tracks the s.43 deadline: 72 hours to notify the ODPC as a controller, or 48 hours to notify the controller as a processor. The clock stops when you record the notification, or when a controller records why harm is unlikely. You record the risk assessment, affected RoPA activities, containment steps and a dated incident log, then generate draft notifications for the ODPC and for affected people. The team gets an email when a breach is logged, with 24 hours left, and when it becomes overdue.
 - **RoPA builder.** A record of processing activities: purpose, s.30 lawful basis, data subjects, categories, sensitive data, cross-border transfers, retention and security. It includes sector templates (schools, clinics, SACCOs, fintech, retail, hospitality), DPIA screening, CSV export and a printable view.
+- **Impact assessments.** Full s.31 DPIAs: describe the processing, justify necessity and proportionality, then score each risk before and after mitigation on a likelihood × severity matrix. Start from a flagged RoPA activity, which pre-fills the facts and the matching sector template, or from a template for new processing (CCTV, student and patient records, KYC, credit scoring, marketing, biometric attendance). A DPIA can't be approved while sections are empty or a risk remains high without a recorded ODPC consultation. Approved DPIAs are due for review after 12 months, and each one has a printable report.
 
 See [BRIEF.md](BRIEF.md) for the product brief.
 
@@ -24,7 +25,7 @@ npm run db:seed             # optional demo data
 npm run dev
 ```
 
-Open http://localhost:3000. The seed creates a school, "Sunrise Academy", whose controller certificate expires in 20 days and whose processor certificate expired 17 days ago, and an open breach with 42 hours left to notify the ODPC. Sign in as `demo@kinga.test` / `demo-password-1`.
+Open http://localhost:3000. The seed creates a school, "Sunrise Academy", whose controller certificate expires in 20 days and whose processor certificate expired 17 days ago, an open breach with 42 hours left to notify the ODPC, an approved DPIA for student records, and CCTV flagged as needing a DPIA. Sign in as `demo@kinga.test` / `demo-password-1`.
 
 ## Scripts
 
@@ -88,8 +89,9 @@ This is an MVP, not legal advice. Check these against current ODPC guidance:
 - **KRA PIN format** is validated as `A/P + 9 digits + letter`.
 - The **penalty wording** in reminder emails (up to KSh 5M or 1% of turnover).
 - **DPIA screening** is a simple heuristic, not the ODPC's official criteria.
+- **DPIAs**: the risk matrix and its high/medium/low bands are a heuristic. Treating "high risk after mitigation" as the trigger for s.31 prior consultation, the 12-month review default and the template contents are our reading. Check them against the ODPC's DPIA guidance, including any rule requiring the DPIA to be submitted to the ODPC before processing starts.
 - **Breach rules**: the 72-hour and 48-hour deadlines, the "real risk of harm" test, the exemption from telling affected people when the data was unintelligible, and the particulars in the draft notification are summarised from s.43. Check them, and the ODPC's current submission channel, against the Act and the ODPC's guidance.
 
 ## Not built yet
 
-Team invitations and roles UI, DPIA templates, data-subject request tracking, rate limiting on login and signup, password reset, and billing.
+Team invitations and roles UI, data-subject request tracking, rate limiting on login and signup, password reset, and billing.

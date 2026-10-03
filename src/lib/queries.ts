@@ -5,6 +5,8 @@ import {
   breachActivities,
   breaches,
   breachUpdates,
+  dpiaRisks,
+  dpias,
   processingActivities,
   registrations,
   reminderLog,
@@ -89,4 +91,49 @@ export function listBreachUpdates(breachId: string) {
     .leftJoin(users, eq(users.id, breachUpdates.userId))
     .where(eq(breachUpdates.breachId, breachId))
     .orderBy(desc(breachUpdates.createdAt));
+}
+
+export function listDpias(orgId: string) {
+  return db
+    .select({ dpia: dpias, activityName: processingActivities.name })
+    .from(dpias)
+    .leftJoin(processingActivities, eq(processingActivities.id, dpias.activityId))
+    .where(eq(dpias.orgId, orgId))
+    .orderBy(asc(dpias.title));
+}
+
+export async function getDpia(orgId: string, id: string) {
+  const [row] = await db
+    .select()
+    .from(dpias)
+    .where(and(eq(dpias.orgId, orgId), eq(dpias.id, id)))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function getDpiaForActivity(orgId: string, activityId: string) {
+  const [row] = await db
+    .select()
+    .from(dpias)
+    .where(and(eq(dpias.orgId, orgId), eq(dpias.activityId, activityId)))
+    .limit(1);
+  return row ?? null;
+}
+
+/** A DPIA's risks in table order (already org-scoped via the DPIA). */
+export function listDpiaRisks(dpiaId: string) {
+  return db.select().from(dpiaRisks).where(eq(dpiaRisks.dpiaId, dpiaId)).orderBy(asc(dpiaRisks.position));
+}
+
+/** Every DPIA risk in the organisation, for summarising residual risk per DPIA. */
+export function listOrgDpiaRisks(orgId: string) {
+  return db
+    .select({
+      dpiaId: dpiaRisks.dpiaId,
+      residualLikelihood: dpiaRisks.residualLikelihood,
+      residualSeverity: dpiaRisks.residualSeverity,
+    })
+    .from(dpiaRisks)
+    .innerJoin(dpias, eq(dpias.id, dpiaRisks.dpiaId))
+    .where(eq(dpias.orgId, orgId));
 }

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/db";
 import { memberships, organizations, users } from "@/db/schema";
+import { isUniqueViolation } from "@/lib/db-errors";
 import { ORG_SIZE_KEYS, SECTOR_KEYS, type OrgSize, type Sector } from "@/lib/dpa";
 import { fieldErrors, formValues, type FormState } from "@/lib/forms";
 import { getDummyHash, hashPassword, verifyPassword } from "@/lib/password";
@@ -22,14 +23,6 @@ const signupSchema = z.object({
 });
 
 const EMAIL_TAKEN = "An account with this email already exists. Sign in instead.";
-
-/** Postgres unique_violation, possibly wrapped by drizzle in `cause`. */
-function isUniqueViolation(err: unknown): boolean {
-  for (let e = err; e && typeof e === "object"; e = (e as { cause?: unknown }).cause) {
-    if ((e as { code?: unknown }).code === "23505") return true;
-  }
-  return false;
-}
 
 export async function signup(_prev: FormState, formData: FormData): Promise<FormState> {
   const values = formValues(formData);

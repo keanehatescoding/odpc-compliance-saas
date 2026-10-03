@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ComponentProps, ReactNode } from "react";
 import { BREACH_STATUS_LABEL, type BreachStatus } from "@/lib/breach";
+import { DPIA_STATUS_LABEL, RISK_LEVEL_LABEL, type DpiaStatus, type RiskLevel } from "@/lib/dpia";
 import type { FormValues } from "@/lib/forms";
 import { STATUS_LABEL, type RegistrationStatus } from "@/lib/registration";
 
@@ -63,6 +64,34 @@ export function BreachStatusBadge({ status }: { status: BreachStatus }) {
   return (
     <span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset", BREACH_STATUS_STYLE[status])}>
       {BREACH_STATUS_LABEL[status]}
+    </span>
+  );
+}
+
+const DPIA_STATUS_STYLE: Record<DpiaStatus, string> = {
+  draft: "bg-stone-100 text-stone-700 ring-stone-300",
+  approved: "bg-emerald-50 text-emerald-800 ring-emerald-200",
+  review_due: "bg-amber-50 text-amber-800 ring-amber-200",
+};
+
+export function DpiaStatusBadge({ status }: { status: DpiaStatus }) {
+  return (
+    <span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset", DPIA_STATUS_STYLE[status])}>
+      {DPIA_STATUS_LABEL[status]}
+    </span>
+  );
+}
+
+const RISK_LEVEL_STYLE: Record<RiskLevel, string> = {
+  low: "bg-emerald-50 text-emerald-800 ring-emerald-200",
+  medium: "bg-amber-50 text-amber-800 ring-amber-200",
+  high: "bg-red-50 text-red-800 ring-red-300",
+};
+
+export function RiskLevelBadge({ level }: { level: RiskLevel }) {
+  return (
+    <span className={cx("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset", RISK_LEVEL_STYLE[level])}>
+      {RISK_LEVEL_LABEL[level]}
     </span>
   );
 }

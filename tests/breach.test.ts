@@ -167,11 +167,17 @@ describe("parseBreachForm", () => {
   });
 
   it("won't close a breach with a notification outstanding", () => {
-    expect(errors(form({ risk: "real_risk", closedAt: "2026-09-28T09:00" })).closedAt).toMatch(/notified the ODPC/);
+    const closing = { risk: "real_risk", closedAt: "2026-09-28T09:00" };
+    const closeErrors = (r: ReturnType<typeof form>) =>
+      (r.error?.issues ?? []).filter((i) => i.path[0] === "closedAt").map((i) => i.message);
+    expect(closeErrors(form(closing))).toEqual([
+      expect.stringMatching(/notified the ODPC/),
+      expect.stringMatching(/told the people affected/),
+    ]);
     expect(errors(form({ closedAt: "2026-09-28T09:00" })).closedAt).toBeDefined();
-    expect(
-      form({ risk: "real_risk", notifiedAt: "2026-09-27T20:00", closedAt: "2026-09-28T09:00" }).success,
-    ).toBe(true);
+    const notified = { ...closing, notifiedAt: "2026-09-27T20:00" };
+    expect(closeErrors(form(notified))).toEqual([expect.stringMatching(/told the people affected/)]);
+    expect(form({ ...notified, subjectsNotifiedAt: "2026-09-27T21:00" }).success).toBe(true);
   });
 
   it("validates the head count and sensitive categories", () => {
