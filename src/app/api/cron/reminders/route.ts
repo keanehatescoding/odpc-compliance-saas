@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { db } from "@/db";
+import { runBreachAlerts } from "@/lib/breach-alerts";
 import { createEmailSender } from "@/lib/email";
 import { runReminders } from "@/lib/reminders";
 
@@ -15,6 +16,9 @@ export async function GET(request: Request) {
     timingSafeEqual(Buffer.from(given), Buffer.from(expected));
   if (!ok) return new Response("Unauthorized", { status: 401 });
 
-  const result = await runReminders(db, createEmailSender());
-  return Response.json(result, { status: result.failed.length > 0 ? 500 : 200 });
+  const send = createEmailSender();
+  const reminders = await runReminders(db, send);
+  const breaches = await runBreachAlerts(db, send);
+  const failed = reminders.failed.length + breaches.failed.length > 0;
+  return Response.json({ reminders, breaches }, { status: failed ? 500 : 200 });
 }

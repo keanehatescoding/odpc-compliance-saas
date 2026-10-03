@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ComponentProps, ReactNode } from "react";
+import { BREACH_STATUS_LABEL, type BreachStatus } from "@/lib/breach";
 import type { FormValues } from "@/lib/forms";
 import { STATUS_LABEL, type RegistrationStatus } from "@/lib/registration";
 
@@ -46,6 +47,22 @@ export function StatusBadge({ status }: { status: RegistrationStatus }) {
   return (
     <span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset", STATUS_STYLE[status])}>
       {STATUS_LABEL[status]}
+    </span>
+  );
+}
+
+const BREACH_STATUS_STYLE: Record<BreachStatus, string> = {
+  open: "bg-orange-50 text-orange-800 ring-orange-300",
+  overdue: "bg-red-50 text-red-800 ring-red-300",
+  notified: "bg-sky-50 text-sky-800 ring-sky-200",
+  not_required: "bg-stone-100 text-stone-700 ring-stone-300",
+  closed: "bg-emerald-50 text-emerald-800 ring-emerald-200",
+};
+
+export function BreachStatusBadge({ status }: { status: BreachStatus }) {
+  return (
+    <span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset", BREACH_STATUS_STYLE[status])}>
+      {BREACH_STATUS_LABEL[status]}
     </span>
   );
 }
