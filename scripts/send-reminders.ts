@@ -2,6 +2,8 @@
 import { db } from "@/db";
 import { runBreachAlerts } from "@/lib/breach-alerts";
 import { createEmailSender } from "@/lib/email";
+import { pruneResetTokens } from "@/lib/password-reset";
+import { pruneRateLimits } from "@/lib/rate-limit";
 import { runReminders } from "@/lib/reminders";
 
 const send = createEmailSender();
@@ -16,5 +18,9 @@ console.log(
   `Checked ${breaches.checked} open breaches; sent ${breaches.sent.length} alerts; ${breaches.failed.length} failed.`,
 );
 for (const f of breaches.failed) console.error(`  ${f.breachId}: ${f.error}`);
+
+// Housekeeping: drop stale login counters and expired reset links.
+await pruneRateLimits(db);
+await pruneResetTokens(db);
 
 process.exit(result.failed.length + breaches.failed.length > 0 ? 1 : 0);

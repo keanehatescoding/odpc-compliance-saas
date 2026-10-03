@@ -7,6 +7,7 @@ Kinga ("protection" in Swahili; a placeholder name) helps small organisations me
 - **Breach response.** Log a personal data breach the moment you learn of it. A live countdown tracks the s.43 deadline: 72 hours to notify the ODPC as a controller, or 48 hours to notify the controller as a processor. The clock stops when you record the notification, or when a controller records why harm is unlikely. You record the risk assessment, affected RoPA activities, containment steps and a dated incident log, then generate draft notifications for the ODPC and for affected people. The team gets an email when a breach is logged, with 24 hours left, and when it becomes overdue.
 - **RoPA builder.** A record of processing activities: purpose, s.30 lawful basis, data subjects, categories, sensitive data, cross-border transfers, retention and security. It includes sector templates (schools, clinics, SACCOs, fintech, retail, hospitality), DPIA screening, CSV export and a printable view.
 - **Impact assessments.** Full s.31 DPIAs: describe the processing, justify necessity and proportionality, then score each risk before and after mitigation on a likelihood × severity matrix. Start from a flagged RoPA activity, which pre-fills the facts and the matching sector template, or from a template for new processing (CCTV, student and patient records, KYC, credit scoring, marketing, biometric attendance). A DPIA can't be approved while sections are empty or a risk remains high without a recorded ODPC consultation. Approved DPIAs are due for review after 12 months, and each one has a printable report.
+- **Account security.** Password reset by emailed link (single use, expires in 1 hour, signs you out on every device). Login, signup and reset attempts are rate-limited per IP address, and sign-in attempts per email address (cleared when you sign in), with counters kept in Postgres so every app instance shares them.
 
 See [BRIEF.md](BRIEF.md) for the product brief.
 
@@ -38,7 +39,7 @@ Open http://localhost:3000. The seed creates a school, "Sunrise Academy", whose 
 | `npm run db:generate` | Generate a migration after editing `src/db/schema.ts` |
 | `npm run db:migrate` | Apply migrations |
 | `npm run db:seed` | Reset the demo organisation |
-| `npm run reminders` | Run the reminder and breach-alert job once |
+| `npm run reminders` | Run the reminder and breach-alert job once (also prunes stale rate-limit counters and expired reset links) |
 
 ## Environment
 
@@ -80,6 +81,12 @@ tests/            vitest
 
 Forms work before JavaScript loads (progressive enhancement). Record IDs travel as hidden fields and are always checked against the signed-in organisation.
 
+## Deploying
+
+Run the app behind a reverse proxy that sets `X-Real-IP` or appends the client address to `X-Forwarded-For` (Vercel, nginx and Caddy all do). Rate limiting reads the client IP from those headers. If `next start` is exposed directly, clients can send their own `X-Forwarded-For` and dodge the per-IP limits. The per-email login limit still applies.
+
+`APP_URL` must be the public URL, because password reset links are built from it.
+
 ## Caveats (verify before launch)
 
 This is an MVP, not legal advice. Check these against current ODPC guidance:
@@ -94,4 +101,4 @@ This is an MVP, not legal advice. Check these against current ODPC guidance:
 
 ## Not built yet
 
-Team invitations and roles UI, data-subject request tracking, rate limiting on login and signup, password reset, and billing.
+Team invitations and roles UI, data-subject request tracking, changing your password while signed in, and billing.
