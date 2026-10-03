@@ -5,11 +5,14 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/db";
 import { dpiaRisks, dpias, processingActivities } from "@/db/schema";
+import { isUniqueViolation } from "@/lib/db-errors";
 import { draftDpia, getDpiaTemplate, type RiskInput } from "@/lib/dpia";
 import { parseDpiaForm } from "@/lib/dpia-form";
 import { fieldErrors, formValues, type FormState } from "@/lib/forms";
 import { requireOrgContext } from "@/lib/session";
 import { isUuid } from "@/lib/uuid";
+
+const ACTIVITY_TAKEN = "That activity already has its own DPIA.";
 
 const riskRows = (dpiaId: string, risks: RiskInput[]) => risks.map((r, position) => ({ ...r, dpiaId, position }));
 
@@ -93,23 +96,28 @@ export async function saveDpia(_prev: FormState, formData: FormData): Promise<Fo
       .from(dpias)
       .where(and(eq(dpias.activityId, activity.id), ne(dpias.id, id)))
       .limit(1);
-    if (taken) {
-      return { errors: { activityId: ["That activity already has its own DPIA."] }, values: formValues(formData) };
-    }
+    if (taken) return { errors: { activityId: [ACTIVITY_TAKEN] }, values: formValues(formData) };
     activityId = activity.id;
   }
 
-  const saved = await db.transaction(async (tx) => {
-    const updated = await tx
-      .update(dpias)
-      .set({ ...data, activityId })
-      .where(and(eq(dpias.id, id), eq(dpias.orgId, org.id)))
-      .returning({ id: dpias.id });
-    if (updated.length === 0) return false;
-    await tx.delete(dpiaRisks).where(eq(dpiaRisks.dpiaId, id));
-    if (risks.length > 0) await tx.insert(dpiaRisks).values(riskRows(id, risks));
-    return true;
-  });
+  let saved: boolean;
+  try {
+    saved = await db.transaction(async (tx) => {
+      const updated = await tx
+        .update(dpias)
+        .set({ ...data, activityId })
+        .where(and(eq(dpias.id, id), eq(dpias.orgId, org.id)))
+        .returning({ id: dpias.id });
+      if (updated.length === 0) return false;
+      await tx.delete(dpiaRisks).where(eq(dpiaRisks.dpiaId, id));
+      if (risks.length > 0) await tx.insert(dpiaRisks).values(riskRows(id, risks));
+      return true;
+    });
+  } catch (err) {
+    // Another save linked the same activity between the check above and this update.
+    if (isUniqueViolation(err)) return { errors: { activityId: [ACTIVITY_TAKEN] }, values: formValues(formData) };
+    throw err;
+  }
   if (!saved) return { message: "DPIA not found." };
 
   revalidatePath("/", "layout");
