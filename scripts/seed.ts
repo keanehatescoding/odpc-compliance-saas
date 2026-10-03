@@ -5,6 +5,8 @@ import {
   breachActivities,
   breaches,
   breachUpdates,
+  dpiaRisks,
+  dpias,
   memberships,
   organizations,
   processingActivities,
@@ -12,6 +14,7 @@ import {
   users,
 } from "@/db/schema";
 import { addDays, addMonths, todayInKenya } from "@/lib/dates";
+import { defaultReviewDate, draftDpia } from "@/lib/dpia";
 import { hashPassword } from "@/lib/password";
 import { templatesForSector } from "@/lib/ropa";
 
@@ -110,6 +113,33 @@ await db.insert(breachUpdates).values([
   },
 ]);
 
-console.log(`Seeded "${org.name}" with ${templates.length} RoPA entries and one open breach.`);
+// An approved DPIA for student records. CCTV is left flagged as needing one.
+const studentRecords = activities.find((a) => a.templateId === "student-records");
+if (studentRecords) {
+  const draft = draftDpia(studentRecords, undefined);
+  const approvedOn = addMonths(today, -2);
+  const [dpia] = await db
+    .insert(dpias)
+    .values({
+      orgId: org.id,
+      activityId: studentRecords.id,
+      title: draft.title,
+      templateId: draft.templateId,
+      description: draft.description,
+      purposes: draft.purposes,
+      necessity: draft.necessity,
+      consultation: "Discussed with the board of management and the school management system vendor. Parents' association briefed at the AGM.",
+      conclusion: "The processing can continue with the measures listed. Photo consent checks start from next term's admissions.",
+      assessor: user.name,
+      approvedBy: "James Otieno, Principal",
+      approvedOn,
+      reviewOn: defaultReviewDate(approvedOn),
+      createdBy: user.id,
+    })
+    .returning();
+  await db.insert(dpiaRisks).values(draft.risks.map((r, position) => ({ ...r, dpiaId: dpia.id, position })));
+}
+
+console.log(`Seeded "${org.name}" with ${templates.length} RoPA entries, one DPIA and one open breach.`);
 console.log(`Sign in as ${EMAIL} / ${PASSWORD}`);
 process.exit(0);

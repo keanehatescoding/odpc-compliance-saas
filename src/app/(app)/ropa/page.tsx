@@ -3,7 +3,7 @@ import Link from "next/link";
 import { buttonClass, Card, cx, EmptyState, PageHeader, Pill } from "@/components/ui";
 import type { ProcessingActivity } from "@/db/schema";
 import { LAWFUL_BASES, type LawfulBasis } from "@/lib/dpa";
-import { listActivities } from "@/lib/queries";
+import { listActivities, listDpias } from "@/lib/queries";
 import { dpiaRecommended } from "@/lib/ropa";
 import { requireOrgContext } from "@/lib/session";
 
@@ -20,7 +20,8 @@ export default async function RopaPage({ searchParams }: PageProps<"/ropa">) {
   const { org } = await requireOrgContext();
   const { filter: raw } = await searchParams;
   const filter = typeof raw === "string" && raw in FILTERS ? raw : "all";
-  const all = await listActivities(org.id);
+  const [all, dpias] = await Promise.all([listActivities(org.id), listDpias(org.id)]);
+  const assessed = new Set(dpias.map((d) => d.dpia.activityId));
   const shown = all.filter(FILTERS[filter].test);
 
   return (
@@ -100,7 +101,7 @@ export default async function RopaPage({ searchParams }: PageProps<"/ropa">) {
                     <td className="px-4 py-3 text-stone-700">{a.dataSubjects.join(", ")}</td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1">
-                        {dpiaRecommended(a) && <Pill tone="amber">DPIA</Pill>}
+                        {assessed.has(a.id) ? <Pill>DPIA done</Pill> : dpiaRecommended(a) && <Pill tone="amber">DPIA</Pill>}
                         {a.sensitiveCategories.length > 0 && <Pill tone="red">Sensitive</Pill>}
                         {a.crossBorder && <Pill>Outside Kenya</Pill>}
                         {a.involvesChildren && <Pill>Children</Pill>}

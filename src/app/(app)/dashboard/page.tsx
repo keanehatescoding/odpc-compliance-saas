@@ -5,7 +5,8 @@ import { BreachStatusBadge, buttonClass, Card, cx, PageHeader, StatusBadge } fro
 import { breachStatus, notificationDeadline, NOTIFY_WHOM, outstandingTasks } from "@/lib/breach";
 import { formatDate, formatDateTime, todayInKenya } from "@/lib/dates";
 import { ODPC_FEES, REGISTRATION_ROLES, formatKsh, type OrgSize, type RegistrationRole } from "@/lib/dpa";
-import { listActivities, listBreaches, listRegistrations, recentReminders } from "@/lib/queries";
+import { dpiaStatus } from "@/lib/dpia";
+import { listActivities, listBreaches, listDpias, listRegistrations, recentReminders } from "@/lib/queries";
 import { daysUntilExpiry, registrationStatus, STATUS_SEVERITY, worstStatus } from "@/lib/registration";
 import { dpiaRecommended } from "@/lib/ropa";
 import { requireOrgContext } from "@/lib/session";
@@ -16,11 +17,12 @@ export default async function DashboardPage() {
   const { org } = await requireOrgContext();
   const today = todayInKenya();
   const now = new Date();
-  const [regs, activities, reminders, breaches] = await Promise.all([
+  const [regs, activities, reminders, breaches, dpias] = await Promise.all([
     listRegistrations(org.id),
     listActivities(org.id),
     recentReminders(org.id),
     listBreaches(org.id),
+    listDpias(org.id),
   ]);
   const urgentBreaches = breaches
     .map((b) => ({ ...b, status: breachStatus(b, now), deadline: notificationDeadline(b) }))
@@ -31,7 +33,8 @@ export default async function DashboardPage() {
     .map((r) => ({ ...r, status: registrationStatus(r, today), daysLeft: daysUntilExpiry(r, today) }))
     .sort((a, b) => STATUS_SEVERITY[b.status] - STATUS_SEVERITY[a.status]);
   const headline = worstStatus(regRows.map((r) => r.status));
-  const needsDpia = activities.filter(dpiaRecommended);
+  const assessed = new Set(dpias.map((d) => d.dpia.activityId));
+  const needsDpia = activities.filter((a) => dpiaRecommended(a) && !assessed.has(a.id));
   const sensitive = activities.filter((a) => a.sensitiveCategories.length > 0);
   const crossBorder = activities.filter((a) => a.crossBorder);
 
@@ -50,7 +53,12 @@ export default async function DashboardPage() {
   }
   if (activities.length === 0) todos.push({ text: "Start your Record of Processing Activities", href: "/ropa/templates" });
   if (needsDpia.length > 0)
-    todos.push({ text: `Review ${needsDpia.length} ${needsDpia.length === 1 ? "activity" : "activities"} that may need a DPIA`, href: "/ropa?filter=dpia" });
+    todos.push({ text: `Start a DPIA for ${needsDpia.length} ${needsDpia.length === 1 ? "activity" : "activities"} flagged as high risk`, href: "/dpia" });
+  for (const { dpia } of dpias) {
+    const status = dpiaStatus(dpia, today);
+    if (status === "draft") todos.push({ text: `Finish and approve the DPIA: ${dpia.title}`, href: `/dpia/${dpia.id}` });
+    else if (status === "review_due") todos.push({ text: `Review the DPIA: ${dpia.title}`, href: `/dpia/${dpia.id}` });
+  }
 
   return (
     <>
@@ -144,7 +152,7 @@ export default async function DashboardPage() {
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="Processing activities" value={activities.length} href="/ropa" />
-        <Stat label="DPIA recommended" value={needsDpia.length} href="/ropa?filter=dpia" warn={needsDpia.length > 0} />
+        <Stat label="DPIAs outstanding" value={needsDpia.length} href="/dpia" warn={needsDpia.length > 0} />
         <Stat label="Involve sensitive data" value={sensitive.length} href="/ropa?filter=sensitive" />
         <Stat label="Transfers outside Kenya" value={crossBorder.length} href="/ropa?filter=cross-border" />
       </div>

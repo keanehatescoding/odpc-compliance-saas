@@ -1,9 +1,14 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
+import { startDpia } from "@/app/actions/dpia";
 import { deleteActivity } from "@/app/actions/ropa";
 import { DeleteButton } from "@/components/delete-button";
-import { BackLink, Card, PageHeader } from "@/components/ui";
-import { getActivity } from "@/lib/queries";
+import { SubmitButton } from "@/components/submit-button";
+import { BackLink, buttonClass, Card, DpiaStatusBadge, PageHeader } from "@/components/ui";
+import { todayInKenya } from "@/lib/dates";
+import { dpiaStatus } from "@/lib/dpia";
+import { getActivity, getDpiaForActivity } from "@/lib/queries";
 import { dpiaRecommended, dpiaTriggers } from "@/lib/ropa";
 import { requireOrgContext } from "@/lib/session";
 import { isUuid } from "@/lib/uuid";
@@ -17,28 +22,48 @@ export default async function EditActivityPage({ params }: PageProps<"/ropa/[id]
   const activity = isUuid(id) ? await getActivity(org.id, id) : null;
   if (!activity) notFound();
   const triggers = dpiaTriggers(activity);
+  const recommended = dpiaRecommended(activity);
+  const dpia = await getDpiaForActivity(org.id, activity.id);
 
   return (
     <>
       <BackLink href="/ropa">Records of processing</BackLink>
       <PageHeader title={activity.name} actions={<DeleteButton action={deleteActivity.bind(null, activity.id)} />} />
-      {triggers.length > 0 && (
-        <Card className={`mb-6 max-w-3xl ${dpiaRecommended(activity) ? "border-amber-300 bg-amber-50" : ""}`}>
-          <h2 className="font-semibold">
-            {dpiaRecommended(activity) ? "A DPIA is recommended for this activity" : "Risk factors"}
-          </h2>
-          <ul className="mt-2 list-disc pl-5 text-sm text-stone-700">
-            {triggers.map((t) => (
-              <li key={t}>{t}</li>
-            ))}
-          </ul>
-          {dpiaRecommended(activity) && (
-            <p className="mt-3 text-xs text-stone-600">
-              Section 31 of the Data Protection Act requires a DPIA before processing that is likely to result in high risk to
-              people&apos;s rights. This is a screening prompt, not a legal determination.
-            </p>
-          )}
+      {dpia ? (
+        <Card className="mb-6 flex max-w-3xl flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <h2 className="font-semibold">Impact assessment</h2>
+            <DpiaStatusBadge status={dpiaStatus(dpia, todayInKenya())} />
+          </div>
+          <Link href={`/dpia/${dpia.id}`} className={buttonClass.secondary}>
+            Open DPIA
+          </Link>
         </Card>
+      ) : (
+        triggers.length > 0 && (
+          <Card className={`mb-6 max-w-3xl ${recommended ? "border-amber-300 bg-amber-50" : ""}`}>
+            <h2 className="font-semibold">{recommended ? "A DPIA is recommended for this activity" : "Risk factors"}</h2>
+            <ul className="mt-2 list-disc pl-5 text-sm text-stone-700">
+              {triggers.map((t) => (
+                <li key={t}>{t}</li>
+              ))}
+            </ul>
+            {recommended && (
+              <>
+                <p className="mt-3 text-xs text-stone-600">
+                  Section 31 of the Data Protection Act requires a DPIA before processing that is likely to result in high risk
+                  to people&apos;s rights. This is a screening prompt, not a legal determination.
+                </p>
+                <form action={startDpia} className="mt-4">
+                  <input type="hidden" name="activityId" value={activity.id} />
+                  <SubmitButton variant="secondary" pendingText="Starting…">
+                    Start DPIA
+                  </SubmitButton>
+                </form>
+              </>
+            )}
+          </Card>
+        )
       )}
       <ActivityForm activity={activity} />
     </>

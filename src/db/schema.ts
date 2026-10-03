@@ -13,6 +13,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { BREACH_KIND_KEYS, BREACH_RISK_KEYS } from "../lib/breach";
+import { LIKELIHOOD_KEYS, SEVERITY_KEYS } from "../lib/dpia";
 import { LAWFUL_BASIS_KEYS, ORG_SIZE_KEYS, SECTOR_KEYS } from "../lib/dpa";
 
 export const sectorEnum = pgEnum("sector", SECTOR_KEYS as [string, ...string[]]);
@@ -22,6 +23,8 @@ export const registrationRoleEnum = pgEnum("registration_role", ["controller", "
 export const lawfulBasisEnum = pgEnum("lawful_basis", LAWFUL_BASIS_KEYS as [string, ...string[]]);
 export const breachKindEnum = pgEnum("breach_kind", BREACH_KIND_KEYS as [string, ...string[]]);
 export const breachRiskEnum = pgEnum("breach_risk", BREACH_RISK_KEYS as [string, ...string[]]);
+export const likelihoodEnum = pgEnum("risk_likelihood", LIKELIHOOD_KEYS as [string, ...string[]]);
+export const severityEnum = pgEnum("risk_severity", SEVERITY_KEYS as [string, ...string[]]);
 
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -245,11 +248,66 @@ export const breachAlertLog = pgTable(
   (t) => [uniqueIndex("breach_alert_log_unique_idx").on(t.breachId, t.kind)],
 );
 
+/**
+ * A Data Protection Impact Assessment (s.31). Usually covers one RoPA
+ * activity; a DPIA for processing that hasn't started yet has no activity.
+ */
+export const dpias = pgTable(
+  "dpias",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    activityId: uuid("activity_id").references(() => processingActivities.id, { onDelete: "set null" }),
+    title: text("title").notNull(),
+    templateId: text("template_id"),
+    description: text("description").notNull().default(""),
+    purposes: text("purposes").notNull().default(""),
+    necessity: text("necessity").notNull().default(""),
+    consultation: text("consultation").notNull().default(""),
+    conclusion: text("conclusion").notNull().default(""),
+    assessor: text("assessor").notNull().default(""),
+    approvedBy: text("approved_by").notNull().default(""),
+    approvedOn: date("approved_on", { mode: "string" }),
+    reviewOn: date("review_on", { mode: "string" }),
+    // Prior consultation with the Data Commissioner when high risk remains.
+    odpcConsultedOn: date("odpc_consulted_on", { mode: "string" }),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [
+    index("dpias_org_idx").on(t.orgId),
+    // One DPIA per activity; reassessing means updating it.
+    uniqueIndex("dpias_activity_idx").on(t.activityId),
+  ],
+);
+
+/** A risk to data subjects identified in a DPIA, before and after mitigation. */
+export const dpiaRisks = pgTable(
+  "dpia_risks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    dpiaId: uuid("dpia_id")
+      .notNull()
+      .references(() => dpias.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    description: text("description").notNull(),
+    likelihood: likelihoodEnum("likelihood").notNull(),
+    severity: severityEnum("severity").notNull(),
+    mitigation: text("mitigation").notNull().default(""),
+    residualLikelihood: likelihoodEnum("residual_likelihood").notNull(),
+    residualSeverity: severityEnum("residual_severity").notNull(),
+  },
+  (t) => [index("dpia_risks_dpia_idx").on(t.dpiaId, t.position)],
+);
+
 export const organizationsRelations = relations(organizations, ({ many }) => ({
   memberships: many(memberships),
   registrations: many(registrations),
   activities: many(processingActivities),
   breaches: many(breaches),
+  dpias: many(dpias),
 }));
 
 export const membershipsRelations = relations(memberships, ({ one }) => ({
@@ -274,3 +332,5 @@ export type Organization = typeof organizations.$inferSelect;
 export type Registration = typeof registrations.$inferSelect;
 export type ProcessingActivity = typeof processingActivities.$inferSelect;
 export type Breach = typeof breaches.$inferSelect;
+export type Dpia = typeof dpias.$inferSelect;
+export type DpiaRisk = typeof dpiaRisks.$inferSelect;
