@@ -7,6 +7,7 @@ import {
   NOTIFY_WHOM,
   NOTIFY_WITHIN_HOURS,
   roleOf,
+  subjectNoticeRequired,
   type BreachKind,
   type BreachRisk,
 } from "./breach";
@@ -105,6 +106,9 @@ export function breachFormSchema(now: Date) {
       if (v.closedAt) {
         if (notificationRequired(v) && !v.notifiedAt) {
           issue("closedAt", `Record when you notified ${NOTIFY_WHOM[roleOf(v)]} before closing this breach.`);
+        }
+        if (subjectNoticeRequired(v) && !v.subjectsNotifiedAt) {
+          issue("closedAt", "Record when you told the people affected before closing this breach.");
         }
         if (v.risk === "unassessed") issue("closedAt", "Assess the risk before closing this breach.");
       }
