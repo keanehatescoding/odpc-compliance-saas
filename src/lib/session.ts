@@ -1,21 +1,17 @@
 import "server-only";
-import { createHash, randomBytes } from "node:crypto";
 import { and, eq, gt, lt } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
 import { db } from "@/db";
 import { memberships, organizations, sessions, users } from "@/db/schema";
+import { hashToken, newToken } from "./tokens";
 
 const COOKIE = "session";
 const SESSION_DAYS = 30;
 
-function hashToken(token: string): string {
-  return createHash("sha256").update(token).digest("hex");
-}
-
 export async function createSession(userId: string): Promise<void> {
-  const token = randomBytes(32).toString("base64url");
+  const token = newToken();
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
   await db.insert(sessions).values({ id: hashToken(token), userId, expiresAt });
   // Opportunistically clear out expired sessions for this user.

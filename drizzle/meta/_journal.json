@@ -29,6 +29,13 @@
       "when": 1791030652307,
       "tag": "0003_dpias",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791041427666,
+      "tag": "0004_auth_hardening",
+      "breakpoints": true
     }
   ]
 }
