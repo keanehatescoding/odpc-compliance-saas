@@ -88,7 +88,7 @@ describe("password reset", () => {
 
   it("stores only a hash of the token", async () => {
     const u = await user();
-    const token = await issueResetToken(db, u.id, t0);
+    const token = await issueResetToken(db, u.id, u.email, t0);
     const [row] = await db.select().from(schema.passwordResetTokens);
     expect(row.id).toBe(hashToken(token));
     expect(row.id).not.toContain(token);
@@ -96,7 +96,7 @@ describe("password reset", () => {
 
   it("sets the password, signs out everywhere, and works only once", async () => {
     const u = await user();
-    const token = await issueResetToken(db, u.id, t0);
+    const token = await issueResetToken(db, u.id, u.email, t0);
     expect(await isResetTokenValid(db, token, after(5 * MIN))).toBe(true);
 
     expect(await resetPassword(db, token, "new-hash", after(5 * MIN))).toBe(u.id);
@@ -111,14 +111,14 @@ describe("password reset", () => {
 
   it("lets only one of two concurrent submissions through", async () => {
     const u = await user();
-    const token = await issueResetToken(db, u.id, t0);
+    const token = await issueResetToken(db, u.id, u.email, t0);
     const results = await Promise.all([resetPassword(db, token, "a", t0), resetPassword(db, token, "b", t0)]);
     expect(results.filter(Boolean)).toEqual([u.id]);
   });
 
   it("expires after an hour", async () => {
     const u = await user();
-    const token = await issueResetToken(db, u.id, t0);
+    const token = await issueResetToken(db, u.id, u.email, t0);
     expect(await isResetTokenValid(db, token, after(60 * MIN))).toBe(false);
     expect(await resetPassword(db, token, "new-hash", after(60 * MIN))).toBeNull();
     const [saved] = await db.select().from(schema.users).where(eq(schema.users.id, u.id));
@@ -134,15 +134,15 @@ describe("password reset", () => {
 
   it("invalidates earlier links when a new one is issued", async () => {
     const u = await user();
-    const first = await issueResetToken(db, u.id, t0);
-    const second = await issueResetToken(db, u.id, after(MIN));
+    const first = await issueResetToken(db, u.id, u.email, t0);
+    const second = await issueResetToken(db, u.id, u.email, after(MIN));
     expect(await isResetTokenValid(db, first, after(2 * MIN))).toBe(false);
     expect(await isResetTokenValid(db, second, after(2 * MIN))).toBe(true);
   });
 
   it("prunes expired tokens", async () => {
     const u = await user();
-    await issueResetToken(db, u.id, t0);
+    await issueResetToken(db, u.id, u.email, t0);
     await pruneResetTokens(db, after(59 * MIN));
     expect(await db.select().from(schema.passwordResetTokens)).toHaveLength(1);
     await pruneResetTokens(db, after(60 * MIN));
@@ -207,10 +207,30 @@ describe("email verification", () => {
 
   it("revokes reset links when the email changes, so they can't verify the new address", async () => {
     const u = await user("wanjiru@sunrise.ac.ke");
-    const reset = await issueResetToken(db, u.id, t0);
+    const reset = await issueResetToken(db, u.id, u.email, t0);
     await changeEmail(db, u.id, "someone-else@example.com");
     expect(await resetPassword(db, reset, "new-hash", after(MIN))).toBeNull();
     expect(await verifiedAt(u.id)).toBeNull();
+  });
+
+  it("refuses a reset link sent to an address the user has since changed", async () => {
+    // A reset requested before the change can issue its token after changeEmail
+    // has revoked the old ones, so the token itself has to carry the address.
+    const u = await user("wanjiru@sunrise.ac.ke");
+    await changeEmail(db, u.id, "someone-else@example.com");
+    const reset = await issueResetToken(db, u.id, "wanjiru@sunrise.ac.ke", after(MIN));
+    expect(await isResetTokenValid(db, reset, after(2 * MIN))).toBe(false);
+    expect(await resetPassword(db, reset, "new-hash", after(2 * MIN))).toBeNull();
+    const [saved] = await db.select().from(schema.users).where(eq(schema.users.id, u.id));
+    expect(saved.passwordHash).toBe("x");
+    expect(saved.emailVerifiedAt).toBeNull();
+  });
+
+  it("matches the reset link's address case-insensitively", async () => {
+    const u = await user("wanjiru@sunrise.ac.ke");
+    const reset = await issueResetToken(db, u.id, "Wanjiru@Sunrise.ac.ke", t0);
+    expect(await isResetTokenValid(db, reset, after(MIN))).toBe(true);
+    expect(await resetPassword(db, reset, "new-hash", after(MIN))).toBe(u.id);
   });
 
   it("prunes expired tokens", async () => {

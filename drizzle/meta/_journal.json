@@ -43,6 +43,13 @@
       "when": 1791112740149,
       "tag": "0005_email_verification",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791125258690,
+      "tag": "0006_reset_token_email",
+      "breakpoints": true
     }
   ]
 }

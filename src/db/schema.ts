@@ -70,6 +70,9 @@ export const passwordResetTokens = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // The address the link was sent to. Resetting verifies the email, so the
+    // link only works if the user still has it.
+    email: text("email").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

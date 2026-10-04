@@ -195,7 +195,7 @@ export async function requestPasswordReset(_prev: FormState, formData: FormData)
     // Issue and send after responding, so response time doesn't reveal whether the account exists.
     after(async () => {
       try {
-        const token = await issueResetToken(db, user.id);
+        const token = await issueResetToken(db, user.id, user.email);
         const appUrl = process.env.APP_URL ?? "http://localhost:3000";
         const link = `${appUrl}/reset-password?token=${encodeURIComponent(token)}`;
         await createEmailSender()(resetEmail(user.email, user.name, link));
