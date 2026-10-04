@@ -6,17 +6,17 @@ import { after } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { memberships, organizations, users } from "@/db/schema";
-import { RESET_LINK_INVALID, RESET_LINK_SENT, VERIFY_LINK_SENT } from "@/lib/auth-messages";
+import { PASSWORD_CHANGED, RESET_LINK_INVALID, RESET_LINK_SENT, VERIFY_LINK_SENT } from "@/lib/auth-messages";
 import { isUniqueViolation } from "@/lib/db-errors";
 import { ORG_SIZE_KEYS, SECTOR_KEYS, type OrgSize, type Sector } from "@/lib/dpa";
 import { createEmailSender } from "@/lib/email";
 import { changeEmail, issueVerificationToken, verificationEmail } from "@/lib/email-verification";
 import { fieldErrors, formValues, type FormState } from "@/lib/forms";
 import { getDummyHash, hashPassword, verifyPassword } from "@/lib/password";
-import { issueResetToken, resetEmail, resetPassword } from "@/lib/password-reset";
+import { issueResetToken, passwordChangedEmail, resetEmail, resetPassword, updatePassword } from "@/lib/password-reset";
 import { clearRateLimit, hitRateLimit, RATE_LIMITS, tooManyAttempts, type RateLimitRule } from "@/lib/rate-limit";
 import { clientIp } from "@/lib/request";
-import { createSession, destroySession, getCurrentUser } from "@/lib/session";
+import { createSession, currentSessionId, destroySession, getCurrentUser, requireOrgContext } from "@/lib/session";
 
 const email = z.email({ error: "Enter a valid email address." }).trim().toLowerCase();
 
@@ -222,6 +222,43 @@ export async function completePasswordReset(_prev: FormState, formData: FormData
 
   await createSession(userId);
   redirect("/dashboard");
+}
+
+const changePasswordSchema = z
+  .object({
+    current: z.string().min(1, { error: "Enter your current password." }),
+    password: newPassword,
+    confirm: z.string(),
+  })
+  .refine((d) => d.password === d.confirm, { path: ["confirm"], error: "The passwords don't match." })
+  .refine((d) => d.password !== d.current, { path: ["password"], error: "Choose a different password from your current one." });
+
+export async function changePassword(_prev: FormState, formData: FormData): Promise<FormState> {
+  const { user } = await requireOrgContext();
+  const parsed = changePasswordSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { errors: fieldErrors(parsed.error) };
+
+  // Slows guessing the current password from a session left signed in.
+  const limited = await rateLimited([[`password-change:user:${user.id}`, RATE_LIMITS.passwordChangeUser]]);
+  if (limited) return { message: limited };
+
+  const [row] = await db.select({ passwordHash: users.passwordHash }).from(users).where(eq(users.id, user.id));
+  const wrongCurrent = { errors: { current: ["That isn't your current password."] } };
+  if (!row || !(await verifyPassword(parsed.data.current, row.passwordHash))) return wrongCurrent;
+
+  const newHash = await hashPassword(parsed.data.password);
+  // False if the password changed since we checked it, e.g. a concurrent change.
+  if (!(await updatePassword(db, user.id, await currentSessionId(), row.passwordHash, newHash))) return wrongCurrent;
+
+  after(async () => {
+    try {
+      const appUrl = process.env.APP_URL ?? "http://localhost:3000";
+      await createEmailSender()(passwordChangedEmail(user.email, user.name, `${appUrl}/forgot-password`));
+    } catch (err) {
+      console.error("Failed to send password changed email", err);
+    }
+  });
+  return { message: PASSWORD_CHANGED };
 }
 
 export async function logout(): Promise<void> {

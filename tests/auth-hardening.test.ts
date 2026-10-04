@@ -12,7 +12,15 @@ import {
   verificationEmail,
   verifyEmail,
 } from "@/lib/email-verification";
-import { issueResetToken, isResetTokenValid, pruneResetTokens, resetEmail, resetPassword } from "@/lib/password-reset";
+import {
+  issueResetToken,
+  isResetTokenValid,
+  passwordChangedEmail,
+  pruneResetTokens,
+  resetEmail,
+  resetPassword,
+  updatePassword,
+} from "@/lib/password-reset";
 import { clearRateLimit, hitRateLimit, pruneRateLimits, tooManyAttempts } from "@/lib/rate-limit";
 import { hashToken } from "@/lib/tokens";
 
@@ -154,6 +162,67 @@ describe("password reset", () => {
     expect(m.to).toEqual(["wanjiru@sunrise.ac.ke"]);
     expect(m.text).toContain("https://app.test/reset-password?token=abc");
     expect(m.text).toContain("expires in 1 hour");
+  });
+});
+
+describe("changing a password while signed in", () => {
+  async function user(email = "wanjiru@sunrise.ac.ke") {
+    const [u] = await db.insert(schema.users).values({ email, name: "Wanjiru", passwordHash: "old-hash" }).returning();
+    await db.insert(schema.sessions).values([
+      { id: `${email}:s1`, userId: u.id, expiresAt: after(30 * 24 * 60 * MIN) },
+      { id: `${email}:s2`, userId: u.id, expiresAt: after(30 * 24 * 60 * MIN) },
+    ]);
+    return u;
+  }
+
+  it("sets the password and signs out every other session", async () => {
+    const u = await user();
+    const other = await user("otieno@sunrise.ac.ke");
+    expect(await updatePassword(db, u.id, `${u.email}:s1`, "old-hash", "new-hash")).toBe(true);
+
+    const [saved] = await db.select().from(schema.users).where(eq(schema.users.id, u.id));
+    expect(saved.passwordHash).toBe("new-hash");
+    const sessions = (await db.select().from(schema.sessions)).map((s) => s.id).sort();
+    expect(sessions).toEqual([`${other.email}:s1`, `${other.email}:s2`, `${u.email}:s1`]);
+  });
+
+  it("signs out everywhere when there's no session to keep", async () => {
+    const u = await user();
+    await updatePassword(db, u.id, null, "old-hash", "new-hash");
+    expect(await db.select().from(schema.sessions)).toHaveLength(0);
+  });
+
+  it("revokes outstanding reset links", async () => {
+    const u = await user();
+    const token = await issueResetToken(db, u.id, u.email);
+    await updatePassword(db, u.id, `${u.email}:s1`, "old-hash", "new-hash");
+    expect(await isResetTokenValid(db, token)).toBe(false);
+  });
+
+  it("does nothing if the password changed since it was checked", async () => {
+    const u = await user();
+    await updatePassword(db, u.id, `${u.email}:s1`, "old-hash", "first-hash");
+    expect(await updatePassword(db, u.id, `${u.email}:s2`, "old-hash", "second-hash")).toBe(false);
+
+    const [saved] = await db.select().from(schema.users).where(eq(schema.users.id, u.id));
+    expect(saved.passwordHash).toBe("first-hash");
+    expect((await db.select().from(schema.sessions)).map((s) => s.id)).toEqual([`${u.email}:s1`]);
+  });
+
+  it("lets only one of two concurrent changes through", async () => {
+    const u = await user();
+    const results = await Promise.all([
+      updatePassword(db, u.id, `${u.email}:s1`, "old-hash", "a"),
+      updatePassword(db, u.id, `${u.email}:s2`, "old-hash", "b"),
+    ]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(await db.select().from(schema.sessions)).toHaveLength(1);
+  });
+
+  it("emails a notice with a way to reset", () => {
+    const m = passwordChangedEmail("wanjiru@sunrise.ac.ke", "Wanjiru", "https://app.test/forgot-password");
+    expect(m.to).toEqual(["wanjiru@sunrise.ac.ke"]);
+    expect(m.text).toContain("https://app.test/forgot-password");
   });
 });
 
