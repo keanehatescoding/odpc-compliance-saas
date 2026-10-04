@@ -15,7 +15,19 @@ export function LoginForm() {
       <form action={action} className="mt-6 space-y-4">
         <FormMessage message={state?.message} />
         <TextField name="email" label="Email" type="email" autoComplete="email" required {...f} />
-        <TextField name="password" label="Password" type="password" autoComplete="current-password" required errors={state?.errors} />
+        <TextField
+          name="password"
+          label="Password"
+          type="password"
+          autoComplete="current-password"
+          hint={
+            <Link href="/forgot-password" className="text-brand-700 hover:underline">
+              Forgot your password?
+            </Link>
+          }
+          required
+          errors={state?.errors}
+        />
         <SubmitButton pendingText="Signing in…">Sign in</SubmitButton>
       </form>
       <p className="mt-6 text-sm text-stone-600">
