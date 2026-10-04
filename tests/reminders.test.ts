@@ -19,7 +19,7 @@ async function setup(reg: Partial<typeof schema.registrations.$inferInsert>, org
     .returning();
   const [u] = await db
     .insert(schema.users)
-    .values({ email: `owner-${o.id}@example.co.ke`, name: "Owner", passwordHash: "x" })
+    .values({ email: `owner-${o.id}@example.co.ke`, name: "Owner", passwordHash: "x", emailVerifiedAt: new Date() })
     .returning();
   await db.insert(schema.memberships).values({ userId: u.id, orgId: o.id, role: "owner" });
   const [r] = await db
@@ -68,6 +68,17 @@ describe("runReminders", () => {
     await setup({}, { reminderEmail: "compliance@sunrise.ac.ke, bursar@sunrise.ac.ke" });
     await runReminders(db, send, { today: "2026-09-28" });
     expect(outbox[0].to).toEqual(["compliance@sunrise.ac.ke", "bursar@sunrise.ac.ke"]);
+  });
+
+  it("skips owners who haven't verified their email, and sends once they do", async () => {
+    const { user } = await setup({});
+    await db.update(schema.users).set({ emailVerifiedAt: null }).where(eq(schema.users.id, user.id));
+    await runReminders(db, send, { today: "2026-09-28" });
+    expect(outbox).toHaveLength(0);
+
+    await db.update(schema.users).set({ emailVerifiedAt: new Date() }).where(eq(schema.users.id, user.id));
+    await runReminders(db, send, { today: "2026-09-28" });
+    expect(outbox.map((m) => m.to)).toEqual([[user.email]]);
   });
 
   it("stops once a renewal has been filed", async () => {

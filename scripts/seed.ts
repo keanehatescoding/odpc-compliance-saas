@@ -37,7 +37,7 @@ if (existing) {
 const today = todayInKenya();
 const [user] = await db
   .insert(users)
-  .values({ email: EMAIL, name: "Wanjiru Kamau", passwordHash: await hashPassword(PASSWORD) })
+  .values({ email: EMAIL, name: "Wanjiru Kamau", passwordHash: await hashPassword(PASSWORD), emailVerifiedAt: new Date() })
   .returning();
 const [org] = await db
   .insert(organizations)

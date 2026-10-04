@@ -5,6 +5,12 @@ import { migrate } from "drizzle-orm/pglite/migrator";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "@/db";
 import * as schema from "@/db/schema";
+import {
+  issueVerificationToken,
+  pruneVerificationTokens,
+  verificationEmail,
+  verifyEmail,
+} from "@/lib/email-verification";
 import { issueResetToken, isResetTokenValid, pruneResetTokens, resetEmail, resetPassword } from "@/lib/password-reset";
 import { clearRateLimit, hitRateLimit, pruneRateLimits, tooManyAttempts } from "@/lib/rate-limit";
 import { hashToken } from "@/lib/tokens";
@@ -95,6 +101,7 @@ describe("password reset", () => {
     expect(await resetPassword(db, token, "new-hash", after(5 * MIN))).toBe(u.id);
     const [saved] = await db.select().from(schema.users).where(eq(schema.users.id, u.id));
     expect(saved.passwordHash).toBe("new-hash");
+    expect(saved.emailVerifiedAt).toEqual(after(5 * MIN)); // the link proved they get mail there
     expect(await db.select().from(schema.sessions)).toHaveLength(0);
 
     expect(await isResetTokenValid(db, token, after(6 * MIN))).toBe(false);
@@ -146,5 +153,70 @@ describe("password reset", () => {
     expect(m.to).toEqual(["wanjiru@sunrise.ac.ke"]);
     expect(m.text).toContain("https://app.test/reset-password?token=abc");
     expect(m.text).toContain("expires in 1 hour");
+  });
+});
+
+describe("email verification", () => {
+  async function user(email = "wanjiru@sunrise.ac.ke") {
+    const [u] = await db.insert(schema.users).values({ email, name: "Wanjiru", passwordHash: "x" }).returning();
+    return u;
+  }
+  const verifiedAt = async (id: string) =>
+    (await db.select().from(schema.users).where(eq(schema.users.id, id)))[0].emailVerifiedAt;
+
+  it("marks the email verified and works only once", async () => {
+    const u = await user();
+    expect(await verifiedAt(u.id)).toBeNull();
+    const token = await issueVerificationToken(db, u.id, u.email, t0);
+    const [row] = await db.select().from(schema.emailVerificationTokens);
+    expect(row.id).toBe(hashToken(token));
+
+    expect(await verifyEmail(db, token, after(MIN))).toBe(u.id);
+    expect(await verifiedAt(u.id)).toEqual(after(MIN));
+    expect(await verifyEmail(db, token, after(2 * MIN))).toBeNull();
+  });
+
+  it("expires after 24 hours", async () => {
+    const u = await user();
+    const token = await issueVerificationToken(db, u.id, u.email, t0);
+    expect(await verifyEmail(db, token, after(24 * 60 * MIN))).toBeNull();
+    expect(await verifiedAt(u.id)).toBeNull();
+  });
+
+  it("rejects unknown tokens", async () => {
+    await user();
+    expect(await verifyEmail(db, "nope", t0)).toBeNull();
+  });
+
+  it("invalidates earlier links when a new one is issued", async () => {
+    const u = await user();
+    const first = await issueVerificationToken(db, u.id, u.email, t0);
+    const second = await issueVerificationToken(db, u.id, u.email, after(MIN));
+    expect(await verifyEmail(db, first, after(2 * MIN))).toBeNull();
+    expect(await verifyEmail(db, second, after(2 * MIN))).toBe(u.id);
+  });
+
+  it("ignores a link sent to an address the user has since changed", async () => {
+    const u = await user("wanjiru@sunrsie.ac.ke");
+    const token = await issueVerificationToken(db, u.id, u.email, t0);
+    await db.update(schema.users).set({ email: "wanjiru@sunrise.ac.ke" }).where(eq(schema.users.id, u.id));
+    expect(await verifyEmail(db, token, after(MIN))).toBeNull();
+    expect(await verifiedAt(u.id)).toBeNull();
+  });
+
+  it("prunes expired tokens", async () => {
+    const u = await user();
+    await issueVerificationToken(db, u.id, u.email, t0);
+    await pruneVerificationTokens(db, after(24 * 60 * MIN - 1));
+    expect(await db.select().from(schema.emailVerificationTokens)).toHaveLength(1);
+    await pruneVerificationTokens(db, after(24 * 60 * MIN));
+    expect(await db.select().from(schema.emailVerificationTokens)).toHaveLength(0);
+  });
+
+  it("emails the link with its expiry", () => {
+    const m = verificationEmail("wanjiru@sunrise.ac.ke", "Wanjiru", "https://app.test/verify-email/confirm?token=abc");
+    expect(m.to).toEqual(["wanjiru@sunrise.ac.ke"]);
+    expect(m.text).toContain("https://app.test/verify-email/confirm?token=abc");
+    expect(m.text).toContain("expires in 24 hours");
   });
 });

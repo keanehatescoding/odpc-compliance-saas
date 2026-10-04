@@ -1,4 +1,4 @@
-import { and, eq, gt, lte } from "drizzle-orm";
+import { and, eq, gt, lte, sql } from "drizzle-orm";
 import type { Db } from "@/db";
 import { passwordResetTokens, sessions, users } from "@/db/schema";
 import type { EmailMessage } from "./email";
@@ -33,7 +33,8 @@ export async function isResetTokenValid(db: Db, token: string, now: Date = new D
 
 /**
  * Uses up the token and sets the new password. Signs the user out everywhere,
- * since whoever knew the old password may still hold a session. Returns the
+ * since whoever knew the old password may still hold a session. Opening the
+ * link proves they get mail at the address, so it also verifies it. Returns the
  * user's id, or null if the token was unknown, expired or already used.
  */
 export async function resetPassword(
@@ -50,7 +51,10 @@ export async function resetPassword(
       .where(and(eq(passwordResetTokens.id, hashToken(token)), gt(passwordResetTokens.expiresAt, now)))
       .returning({ userId: passwordResetTokens.userId });
     if (!used) return null;
-    await tx.update(users).set({ passwordHash }).where(eq(users.id, used.userId));
+    await tx
+      .update(users)
+      .set({ passwordHash, emailVerifiedAt: sql`coalesce(${users.emailVerifiedAt}, ${now.toISOString()}::timestamptz)` })
+      .where(eq(users.id, used.userId));
     await tx.delete(sessions).where(eq(sessions.userId, used.userId));
     await tx.delete(passwordResetTokens).where(eq(passwordResetTokens.userId, used.userId));
     return used.userId;

@@ -16,6 +16,7 @@ export const RATE_LIMITS = {
   resetRequestIp: { limit: 10, windowMs: 60 * MINUTE },
   resetRequestEmail: { limit: 3, windowMs: 60 * MINUTE },
   resetSubmitIp: { limit: 20, windowMs: 60 * MINUTE },
+  verifySendUser: { limit: 5, windowMs: 60 * MINUTE },
 } satisfies Record<string, RateLimitRule>;
 
 export type RateLimitResult = { ok: true } | { ok: false; retryAfterMs: number };

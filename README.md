@@ -7,7 +7,7 @@ Kinga ("protection" in Swahili; a placeholder name) helps small organisations me
 - **Breach response.** Log a personal data breach the moment you learn of it. A live countdown tracks the s.43 deadline: 72 hours to notify the ODPC as a controller, or 48 hours to notify the controller as a processor. The clock stops when you record the notification, or when a controller records why harm is unlikely. You record the risk assessment, affected RoPA activities, containment steps and a dated incident log, then generate draft notifications for the ODPC and for affected people. The team gets an email when a breach is logged, with 24 hours left, and when it becomes overdue.
 - **RoPA builder.** A record of processing activities: purpose, s.30 lawful basis, data subjects, categories, sensitive data, cross-border transfers, retention and security. It includes sector templates (schools, clinics, SACCOs, fintech, retail, hospitality), DPIA screening, CSV export and a printable view.
 - **Impact assessments.** Full s.31 DPIAs: describe the processing, justify necessity and proportionality, then score each risk before and after mitigation on a likelihood × severity matrix. Start from a flagged RoPA activity, which pre-fills the facts and the matching sector template, or from a template for new processing (CCTV, student and patient records, KYC, credit scoring, marketing, biometric attendance). A DPIA can't be approved while sections are empty or a risk remains high without a recorded ODPC consultation. Approved DPIAs are due for review after 12 months, and each one has a printable report.
-- **Account security.** Password reset by emailed link (single use, expires in 1 hour, signs you out on every device). Login, signup and reset attempts are rate-limited per IP address, and sign-in attempts per email address (cleared when you sign in), with counters kept in Postgres so every app instance shares them.
+- **Account security.** New accounts confirm their email before using the app, because renewal reminders and breach alerts go there. The link is single use, expires in 24 hours, and never signs anyone in. Until it's opened, the user can resend it (5 an hour) or fix a mistyped address, and owners who haven't confirmed get no compliance emails. Password reset by emailed link (single use, expires in 1 hour, signs you out on every device). Login, signup and reset attempts are rate-limited per IP address, and sign-in attempts per email address (cleared when you sign in), with counters kept in Postgres so every app instance shares them.
 
 See [BRIEF.md](BRIEF.md) for the product brief.
 
@@ -39,7 +39,7 @@ Open http://localhost:3000. The seed creates a school, "Sunrise Academy", whose 
 | `npm run db:generate` | Generate a migration after editing `src/db/schema.ts` |
 | `npm run db:migrate` | Apply migrations |
 | `npm run db:seed` | Reset the demo organisation |
-| `npm run reminders` | Run the reminder and breach-alert job once (also prunes stale rate-limit counters and expired reset links) |
+| `npm run reminders` | Run the reminder and breach-alert job once (also prunes stale rate-limit counters and expired reset and verification links) |
 
 ## Environment
 
@@ -76,7 +76,7 @@ src/lib/          domain logic (dates, registration status, RoPA, reminders, aut
 src/db/           Drizzle schema and client
 src/app/actions/  server actions
 src/app/(app)/    signed-in pages
-src/app/(auth)/   login and signup
+src/app/(auth)/   login, signup, password reset and email verification
 scripts/          migrate, seed, reminder job
 tests/            vitest
 ```

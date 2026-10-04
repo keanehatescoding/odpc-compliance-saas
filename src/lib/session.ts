@@ -53,11 +53,12 @@ export const getCurrentUser = cache(async () => {
 
 /**
  * The signed-in user and their organisation. Redirects to /login if signed
- * out. Every data access in the app is scoped by the returned `org.id`.
+ * out, or to /verify-email until they confirm their address. Every data access in the app is scoped by the returned `org.id`.
  */
 export const requireOrgContext = cache(async () => {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+  if (!user.emailVerifiedAt) redirect("/verify-email");
   const [row] = await db
     .select({ org: organizations, role: memberships.role })
     .from(memberships)

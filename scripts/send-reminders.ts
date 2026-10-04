@@ -2,6 +2,7 @@
 import { db } from "@/db";
 import { runBreachAlerts } from "@/lib/breach-alerts";
 import { createEmailSender } from "@/lib/email";
+import { pruneVerificationTokens } from "@/lib/email-verification";
 import { pruneResetTokens } from "@/lib/password-reset";
 import { pruneRateLimits } from "@/lib/rate-limit";
 import { runReminders } from "@/lib/reminders";
@@ -19,8 +20,9 @@ console.log(
 );
 for (const f of breaches.failed) console.error(`  ${f.breachId}: ${f.error}`);
 
-// Housekeeping: drop stale login counters and expired reset links.
+// Housekeeping: drop stale login counters and expired reset and verification links.
 await pruneRateLimits(db);
 await pruneResetTokens(db);
+await pruneVerificationTokens(db);
 
 process.exit(result.failed.length + breaches.failed.length > 0 ? 1 : 0);

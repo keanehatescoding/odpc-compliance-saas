@@ -22,7 +22,7 @@ async function setup(breach: Partial<typeof schema.breaches.$inferInsert> = {}) 
     .returning();
   const [u] = await db
     .insert(schema.users)
-    .values({ email: `owner-${o.id}@example.co.ke`, name: "Owner", passwordHash: "x" })
+    .values({ email: `owner-${o.id}@example.co.ke`, name: "Owner", passwordHash: "x", emailVerifiedAt: new Date() })
     .returning();
   await db.insert(schema.memberships).values({ userId: u.id, orgId: o.id, role: "owner" });
   const [b] = await db

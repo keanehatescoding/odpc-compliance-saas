@@ -80,7 +80,7 @@ export async function runReminders(
   return result;
 }
 
-/** Where compliance emails go: the organisation's reminder address, else its owners. */
+/** Where compliance emails go: the organisation's reminder address, else its owners with verified emails. */
 export async function reminderRecipients(db: Db, org: typeof organizations.$inferSelect): Promise<string[]> {
   if (org.reminderEmail) {
     return org.reminderEmail
@@ -92,7 +92,7 @@ export async function reminderRecipients(db: Db, org: typeof organizations.$infe
     .select({ email: users.email })
     .from(memberships)
     .innerJoin(users, eq(users.id, memberships.userId))
-    .where(and(eq(memberships.orgId, org.id), eq(memberships.role, "owner")));
+    .where(and(eq(memberships.orgId, org.id), eq(memberships.role, "owner"), isNotNull(users.emailVerifiedAt)));
   return rows.map((r) => r.email);
 }
 
