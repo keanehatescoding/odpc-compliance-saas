@@ -10,7 +10,7 @@ import { RESET_LINK_INVALID, RESET_LINK_SENT, VERIFY_LINK_SENT } from "@/lib/aut
 import { isUniqueViolation } from "@/lib/db-errors";
 import { ORG_SIZE_KEYS, SECTOR_KEYS, type OrgSize, type Sector } from "@/lib/dpa";
 import { createEmailSender } from "@/lib/email";
-import { issueVerificationToken, verificationEmail } from "@/lib/email-verification";
+import { changeEmail, issueVerificationToken, verificationEmail } from "@/lib/email-verification";
 import { fieldErrors, formValues, type FormState } from "@/lib/forms";
 import { getDummyHash, hashPassword, verifyPassword } from "@/lib/password";
 import { issueResetToken, resetEmail, resetPassword } from "@/lib/password-reset";
@@ -142,7 +142,7 @@ export async function changeUnverifiedEmail(_prev: FormState, formData: FormData
   const existing = await findUserByEmail(parsed.data.email);
   if (existing && existing.id !== user.id) return { errors: { email: [EMAIL_TAKEN] }, values };
   try {
-    await db.update(users).set({ email: parsed.data.email }).where(eq(users.id, user.id));
+    await changeEmail(db, user.id, parsed.data.email);
   } catch (err) {
     if (isUniqueViolation(err)) return { errors: { email: [EMAIL_TAKEN] }, values };
     throw err;

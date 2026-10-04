@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "@/db";
 import * as schema from "@/db/schema";
 import {
+  changeEmail,
   issueVerificationToken,
   pruneVerificationTokens,
   verificationEmail,
@@ -201,6 +202,14 @@ describe("email verification", () => {
     const token = await issueVerificationToken(db, u.id, u.email, t0);
     await db.update(schema.users).set({ email: "wanjiru@sunrise.ac.ke" }).where(eq(schema.users.id, u.id));
     expect(await verifyEmail(db, token, after(MIN))).toBeNull();
+    expect(await verifiedAt(u.id)).toBeNull();
+  });
+
+  it("revokes reset links when the email changes, so they can't verify the new address", async () => {
+    const u = await user("wanjiru@sunrise.ac.ke");
+    const reset = await issueResetToken(db, u.id, t0);
+    await changeEmail(db, u.id, "someone-else@example.com");
+    expect(await resetPassword(db, reset, "new-hash", after(MIN))).toBeNull();
     expect(await verifiedAt(u.id)).toBeNull();
   });
 

@@ -1,6 +1,6 @@
 import { and, eq, gt, lte, sql } from "drizzle-orm";
 import type { Db } from "@/db";
-import { emailVerificationTokens, users } from "@/db/schema";
+import { emailVerificationTokens, passwordResetTokens, users } from "@/db/schema";
 import type { EmailMessage } from "./email";
 import { hashToken, newToken } from "./tokens";
 
@@ -47,6 +47,18 @@ export async function verifyEmail(db: Db, token: string, now: Date = new Date())
     if (!user) return null;
     await tx.delete(emailVerificationTokens).where(eq(emailVerificationTokens.userId, user.id));
     return user.id;
+  });
+}
+
+/**
+ * Changes the user's address and marks it unverified. Outstanding reset links
+ * went to the old address, and using one verifies the email, so they're
+ * revoked too. Throws on a unique violation if the address is taken.
+ */
+export async function changeEmail(db: Db, userId: string, email: string): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx.update(users).set({ email, emailVerifiedAt: null }).where(eq(users.id, userId));
+    await tx.delete(passwordResetTokens).where(eq(passwordResetTokens.userId, userId));
   });
 }
 
