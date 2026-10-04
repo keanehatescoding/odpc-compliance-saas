@@ -6,16 +6,17 @@ import { after } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { memberships, organizations, users } from "@/db/schema";
-import { RESET_LINK_INVALID, RESET_LINK_SENT } from "@/lib/auth-messages";
+import { RESET_LINK_INVALID, RESET_LINK_SENT, VERIFY_LINK_SENT } from "@/lib/auth-messages";
 import { isUniqueViolation } from "@/lib/db-errors";
 import { ORG_SIZE_KEYS, SECTOR_KEYS, type OrgSize, type Sector } from "@/lib/dpa";
 import { createEmailSender } from "@/lib/email";
+import { changeEmail, issueVerificationToken, verificationEmail } from "@/lib/email-verification";
 import { fieldErrors, formValues, type FormState } from "@/lib/forms";
 import { getDummyHash, hashPassword, verifyPassword } from "@/lib/password";
 import { issueResetToken, resetEmail, resetPassword } from "@/lib/password-reset";
 import { clearRateLimit, hitRateLimit, RATE_LIMITS, tooManyAttempts, type RateLimitRule } from "@/lib/rate-limit";
 import { clientIp } from "@/lib/request";
-import { createSession, destroySession } from "@/lib/session";
+import { createSession, destroySession, getCurrentUser } from "@/lib/session";
 
 const email = z.email({ error: "Enter a valid email address." }).trim().toLowerCase();
 
@@ -57,6 +58,20 @@ async function findUserByEmail(address: string) {
   return user;
 }
 
+/** Emails the user a link to verify their current address, after the response is sent. */
+function sendVerificationEmail(user: { id: string; name: string; email: string }) {
+  after(async () => {
+    try {
+      const token = await issueVerificationToken(db, user.id, user.email);
+      const appUrl = process.env.APP_URL ?? "http://localhost:3000";
+      const link = `${appUrl}/verify-email/confirm?token=${encodeURIComponent(token)}`;
+      await createEmailSender()(verificationEmail(user.email, user.name, link));
+    } catch (err) {
+      console.error("Failed to send verification email", err);
+    }
+  });
+}
+
 export async function signup(_prev: FormState, formData: FormData): Promise<FormState> {
   const values = formValues(formData);
   delete values.password;
@@ -90,8 +105,50 @@ export async function signup(_prev: FormState, formData: FormData): Promise<Form
     throw err;
   }
 
+  sendVerificationEmail({ id: userId, name: d.name, email: d.email });
   await createSession(userId);
-  redirect("/dashboard");
+  redirect("/verify-email");
+}
+
+/** The signed-in user who still has to verify their email. Redirects anyone else away. */
+async function requireUnverifiedUser() {
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+  if (user.emailVerifiedAt) redirect("/dashboard");
+  return user;
+}
+
+const verifySendKey = (userId: string) => `verify-send:user:${userId}`;
+
+export async function resendVerificationEmail(_prev: FormState, _formData: FormData): Promise<FormState> {
+  const user = await requireUnverifiedUser();
+  const limited = await rateLimited([[verifySendKey(user.id), RATE_LIMITS.verifySendUser]]);
+  if (limited) return { message: limited };
+  sendVerificationEmail(user);
+  return { message: VERIFY_LINK_SENT };
+}
+
+/** Fixes a mistyped address before it has been verified. */
+export async function changeUnverifiedEmail(_prev: FormState, formData: FormData): Promise<FormState> {
+  const user = await requireUnverifiedUser();
+  const values = { email: String(formData.get("email") ?? "") };
+  const parsed = z.object({ email }).safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { errors: fieldErrors(parsed.error), values };
+
+  // Shares the resend bucket: both send an email.
+  const limited = await rateLimited([[verifySendKey(user.id), RATE_LIMITS.verifySendUser]]);
+  if (limited) return { message: limited, values };
+
+  const existing = await findUserByEmail(parsed.data.email);
+  if (existing && existing.id !== user.id) return { errors: { email: [EMAIL_TAKEN] }, values };
+  try {
+    await changeEmail(db, user.id, parsed.data.email);
+  } catch (err) {
+    if (isUniqueViolation(err)) return { errors: { email: [EMAIL_TAKEN] }, values };
+    throw err;
+  }
+  sendVerificationEmail({ ...user, email: parsed.data.email });
+  redirect("/verify-email?sent=1");
 }
 
 const loginSchema = z.object({ email, password: z.string().min(1, { error: "Enter your password." }) });
@@ -138,7 +195,7 @@ export async function requestPasswordReset(_prev: FormState, formData: FormData)
     // Issue and send after responding, so response time doesn't reveal whether the account exists.
     after(async () => {
       try {
-        const token = await issueResetToken(db, user.id);
+        const token = await issueResetToken(db, user.id, user.email);
         const appUrl = process.env.APP_URL ?? "http://localhost:3000";
         const link = `${appUrl}/reset-password?token=${encodeURIComponent(token)}`;
         await createEmailSender()(resetEmail(user.email, user.name, link));

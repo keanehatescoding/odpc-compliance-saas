@@ -6,14 +6,14 @@ import { login } from "@/app/actions/auth";
 import { SubmitButton } from "@/components/submit-button";
 import { Card, FormMessage, TextField } from "@/components/ui";
 
-export function LoginForm() {
+export function LoginForm({ notice }: { notice?: { message: string; tone: "error" | "success" } }) {
   const [state, action] = useActionState(login, undefined);
   const f = { errors: state?.errors, values: state?.values };
   return (
     <Card className="p-6">
       <h1 className="text-xl font-semibold">Sign in</h1>
       <form action={action} className="mt-6 space-y-4">
-        <FormMessage message={state?.message} />
+        {state?.message ? <FormMessage message={state.message} /> : notice && <FormMessage {...notice} />}
         <TextField name="email" label="Email" type="email" autoComplete="email" required {...f} />
         <TextField
           name="password"

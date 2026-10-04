@@ -41,6 +41,8 @@ export const users = pgTable(
     email: text("email").notNull(),
     name: text("name").notNull(),
     passwordHash: text("password_hash").notNull(),
+    // Null until the user opens the link emailed to them; the app is gated on it.
+    emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
     ...timestamps,
   },
   (t) => [uniqueIndex("users_email_lower_idx").on(sql`lower(${t.email})`)],
@@ -68,10 +70,29 @@ export const passwordResetTokens = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // The address the link was sent to. Resetting verifies the email, so the
+    // link only works if the user still has it.
+    email: text("email").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("password_reset_tokens_user_idx").on(t.userId)],
+);
+
+export const emailVerificationTokens = pgTable(
+  "email_verification_tokens",
+  {
+    // SHA-256 of the emailed token; the raw token is never stored.
+    id: text("id").primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // The address the link was sent to. Verifying only counts if the user still has it.
+    email: text("email").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("email_verification_tokens_user_idx").on(t.userId)],
 );
 
 /** Fixed-window counters for login, signup and password-reset attempts. */
