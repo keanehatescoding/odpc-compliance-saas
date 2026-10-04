@@ -66,8 +66,12 @@ export async function runSubjectRequestAlerts(
       });
       result.sent.push({ requestId: request.id, kind, to });
     } catch (err) {
-      await db.delete(subjectRequestAlertLog).where(eq(subjectRequestAlertLog.id, claimed[0].id));
       result.failed.push({ requestId: request.id, error: err instanceof Error ? err.message : String(err) });
+      // Release the claim so the next run retries. If that fails too, keep going with the other requests.
+      await db
+        .delete(subjectRequestAlertLog)
+        .where(eq(subjectRequestAlertLog.id, claimed[0].id))
+        .catch((releaseErr) => console.error("Failed to release subject request alert claim", releaseErr));
     }
   }
   return result;

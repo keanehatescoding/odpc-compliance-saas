@@ -5,12 +5,13 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { db } from "@/db";
-import { subjectRequests } from "@/db/schema";
+import { subjectRequestAlertLog, subjectRequests } from "@/db/schema";
 import { todayInKenya } from "@/lib/dates";
 import { createEmailSender } from "@/lib/email";
 import { fieldErrors, formValues, type FormState } from "@/lib/forms";
 import { requireOrgContext } from "@/lib/session";
 import { runSubjectRequestAlerts } from "@/lib/subject-request-alerts";
+import { responseDueOn } from "@/lib/subject-request";
 import { parseSubjectRequestForm } from "@/lib/subject-request-form";
 import { isUuid } from "@/lib/uuid";
 
@@ -26,12 +27,20 @@ export async function saveSubjectRequest(_prev: FormState, formData: FormData): 
 
   let requestId: string | null;
   if (id) {
-    const [saved] = await db
-      .update(subjectRequests)
-      .set(data)
-      .where(and(eq(subjectRequests.id, id), eq(subjectRequests.orgId, org.id)))
-      .returning({ id: subjectRequests.id });
-    requestId = saved?.id ?? null;
+    requestId = await db.transaction(async (tx) => {
+      const [before] = await tx
+        .select({ kind: subjectRequests.kind, receivedOn: subjectRequests.receivedOn })
+        .from(subjectRequests)
+        .where(and(eq(subjectRequests.id, id), eq(subjectRequests.orgId, org.id)))
+        .for("update");
+      if (!before) return null;
+      await tx.update(subjectRequests).set(data).where(eq(subjectRequests.id, id));
+      // Alerts sent for the old deadline say nothing about the new one.
+      if (responseDueOn(before) !== responseDueOn(data)) {
+        await tx.delete(subjectRequestAlertLog).where(eq(subjectRequestAlertLog.requestId, id));
+      }
+      return id;
+    });
   } else {
     const [saved] = await db
       .insert(subjectRequests)
