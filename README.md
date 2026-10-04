@@ -50,6 +50,8 @@ Open http://localhost:3000. The seed creates a school, "Sunrise Academy", whose 
 | `CRON_SECRET` | for the cron endpoint | Bearer token for `/api/cron/reminders` |
 | `SMTP_URL` | no | Without it, emails are printed to the log |
 | `EMAIL_FROM` | no | Sender address |
+| `TRUST_IP_HEADER` | no | `x-forwarded-for` (default) or `x-real-ip`. Which header rate limiting reads the client IP from |
+| `TRUSTED_PROXY_HOPS` | no | Number of proxies that append to `X-Forwarded-For` (default 1) |
 
 ## Scheduling reminders and breach alerts
 
@@ -83,7 +85,13 @@ Forms work before JavaScript loads (progressive enhancement). Record IDs travel 
 
 ## Deploying
 
-Run the app behind a reverse proxy that sets `X-Real-IP` or appends the client address to `X-Forwarded-For` (Vercel, nginx and Caddy all do). Rate limiting reads the client IP from those headers. If `next start` is exposed directly, clients can send their own `X-Forwarded-For` and dodge the per-IP limits. The per-email login limit still applies.
+Run the app behind a reverse proxy. Rate limiting reads the client IP from a header that the proxy sets, so tell the app which header to trust:
+
+- **Default (`TRUST_IP_HEADER=x-forwarded-for`, `TRUSTED_PROXY_HOPS=1`):** the app uses the rightmost `X-Forwarded-For` entry. This fits one proxy that appends the client address, such as Vercel, Caddy's `reverse_proxy`, or nginx with `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for`.
+- **More than one proxy** (for example a CDN in front of nginx): set `TRUSTED_PROXY_HOPS` to the number of proxies that append an entry. With the default of 1, every client would share the CDN's address and one bucket.
+- **`TRUST_IP_HEADER=x-real-ip`:** use this only if your proxy overwrites `X-Real-IP` on every request (nginx: `proxy_set_header X-Real-IP $remote_addr`). Caddy and nginx pass a client-supplied `X-Real-IP` through unchanged unless configured to overwrite it, so a client could pick a new address on each request.
+
+If `next start` is exposed directly, clients can send their own `X-Forwarded-For` and dodge the per-IP limits. The per-email login limit still applies.
 
 `APP_URL` must be the public URL, because password reset links are built from it.
 
