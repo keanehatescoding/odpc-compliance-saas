@@ -178,7 +178,7 @@ describe("changing a password while signed in", () => {
   it("sets the password and signs out every other session", async () => {
     const u = await user();
     const other = await user("otieno@sunrise.ac.ke");
-    await updatePassword(db, u.id, `${u.email}:s1`, "new-hash");
+    expect(await updatePassword(db, u.id, `${u.email}:s1`, "old-hash", "new-hash")).toBe(true);
 
     const [saved] = await db.select().from(schema.users).where(eq(schema.users.id, u.id));
     expect(saved.passwordHash).toBe("new-hash");
@@ -188,15 +188,35 @@ describe("changing a password while signed in", () => {
 
   it("signs out everywhere when there's no session to keep", async () => {
     const u = await user();
-    await updatePassword(db, u.id, null, "new-hash");
+    await updatePassword(db, u.id, null, "old-hash", "new-hash");
     expect(await db.select().from(schema.sessions)).toHaveLength(0);
   });
 
   it("revokes outstanding reset links", async () => {
     const u = await user();
     const token = await issueResetToken(db, u.id, u.email);
-    await updatePassword(db, u.id, `${u.email}:s1`, "new-hash");
+    await updatePassword(db, u.id, `${u.email}:s1`, "old-hash", "new-hash");
     expect(await isResetTokenValid(db, token)).toBe(false);
+  });
+
+  it("does nothing if the password changed since it was checked", async () => {
+    const u = await user();
+    await updatePassword(db, u.id, `${u.email}:s1`, "old-hash", "first-hash");
+    expect(await updatePassword(db, u.id, `${u.email}:s2`, "old-hash", "second-hash")).toBe(false);
+
+    const [saved] = await db.select().from(schema.users).where(eq(schema.users.id, u.id));
+    expect(saved.passwordHash).toBe("first-hash");
+    expect((await db.select().from(schema.sessions)).map((s) => s.id)).toEqual([`${u.email}:s1`]);
+  });
+
+  it("lets only one of two concurrent changes through", async () => {
+    const u = await user();
+    const results = await Promise.all([
+      updatePassword(db, u.id, `${u.email}:s1`, "old-hash", "a"),
+      updatePassword(db, u.id, `${u.email}:s2`, "old-hash", "b"),
+    ]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(await db.select().from(schema.sessions)).toHaveLength(1);
   });
 
   it("emails a notice with a way to reset", () => {

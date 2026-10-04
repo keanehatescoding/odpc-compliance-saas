@@ -243,11 +243,12 @@ export async function changePassword(_prev: FormState, formData: FormData): Prom
   if (limited) return { message: limited };
 
   const [row] = await db.select({ passwordHash: users.passwordHash }).from(users).where(eq(users.id, user.id));
-  if (!row || !(await verifyPassword(parsed.data.current, row.passwordHash))) {
-    return { errors: { current: ["That isn't your current password."] } };
-  }
+  const wrongCurrent = { errors: { current: ["That isn't your current password."] } };
+  if (!row || !(await verifyPassword(parsed.data.current, row.passwordHash))) return wrongCurrent;
 
-  await updatePassword(db, user.id, await currentSessionId(), await hashPassword(parsed.data.password));
+  const newHash = await hashPassword(parsed.data.password);
+  // False if the password changed since we checked it, e.g. a concurrent change.
+  if (!(await updatePassword(db, user.id, await currentSessionId(), row.passwordHash, newHash))) return wrongCurrent;
 
   after(async () => {
     try {

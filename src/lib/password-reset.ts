@@ -75,22 +75,34 @@ export async function resetPassword(
 }
 
 /**
- * Sets a signed-in user's new password. Signs out every other session, since
- * whoever knew the old password may hold one, but keeps the session making the
- * change. Outstanding reset links stop working too.
+ * Sets a signed-in user's new password, if their password is still the one
+ * they just confirmed (`checkedHash`). Of two concurrent changes, the second
+ * finds the hash already replaced and does nothing, rather than overwriting
+ * the first and signing out the session that made it. Signs out every other
+ * session, since whoever knew the old password may hold one, but keeps the
+ * session making the change. Outstanding reset links stop working too.
+ * Returns false if the password had changed.
  */
 export async function updatePassword(
   db: Db,
   userId: string,
   keepSessionId: string | null,
+  checkedHash: string,
   passwordHash: string,
-): Promise<void> {
-  await db.transaction(async (tx) => {
-    await tx.update(users).set({ passwordHash }).where(eq(users.id, userId));
+): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    // The row lock makes a concurrent change wait, then re-check the hash.
+    const [user] = await tx
+      .update(users)
+      .set({ passwordHash })
+      .where(and(eq(users.id, userId), eq(users.passwordHash, checkedHash)))
+      .returning({ id: users.id });
+    if (!user) return false;
     await tx
       .delete(sessions)
       .where(keepSessionId ? and(eq(sessions.userId, userId), ne(sessions.id, keepSessionId)) : eq(sessions.userId, userId));
     await tx.delete(passwordResetTokens).where(eq(passwordResetTokens.userId, userId));
+    return true;
   });
 }
 
