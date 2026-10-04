@@ -33,6 +33,12 @@ export async function destroySession(): Promise<void> {
   store.delete(COOKIE);
 }
 
+/** The id of the session row for this request's cookie, or null if there's no cookie. */
+export async function currentSessionId(): Promise<string | null> {
+  const token = (await cookies()).get(COOKIE)?.value;
+  return token ? hashToken(token) : null;
+}
+
 /** The signed-in user, or null. Cached per request. */
 export const getCurrentUser = cache(async () => {
   const token = (await cookies()).get(COOKIE)?.value;

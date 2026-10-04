@@ -1,4 +1,4 @@
-import { and, eq, gt, lte, type SQL, type SQLWrapper, sql } from "drizzle-orm";
+import { and, eq, gt, lte, ne, type SQL, type SQLWrapper, sql } from "drizzle-orm";
 import type { Db } from "@/db";
 import { passwordResetTokens, sessions, users } from "@/db/schema";
 import type { EmailMessage } from "./email";
@@ -74,6 +74,26 @@ export async function resetPassword(
   });
 }
 
+/**
+ * Sets a signed-in user's new password. Signs out every other session, since
+ * whoever knew the old password may hold one, but keeps the session making the
+ * change. Outstanding reset links stop working too.
+ */
+export async function updatePassword(
+  db: Db,
+  userId: string,
+  keepSessionId: string | null,
+  passwordHash: string,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx.update(users).set({ passwordHash }).where(eq(users.id, userId));
+    await tx
+      .delete(sessions)
+      .where(keepSessionId ? and(eq(sessions.userId, userId), ne(sessions.id, keepSessionId)) : eq(sessions.userId, userId));
+    await tx.delete(passwordResetTokens).where(eq(passwordResetTokens.userId, userId));
+  });
+}
+
 function sameEmail(email: SQLWrapper | string): SQL {
   return eq(sql`lower(${users.email})`, sql`lower(${email})`);
 }
@@ -96,6 +116,22 @@ export function resetEmail(to: string, name: string, link: string): EmailMessage
       "The link works once and expires in 1 hour. Resetting your password signs you out on every device.",
       "",
       "If you didn't ask for this, you can ignore this email. Your password won't change.",
+    ].join("\n"),
+  };
+}
+
+export function passwordChangedEmail(to: string, name: string, forgotPasswordUrl: string): EmailMessage {
+  return {
+    to: [to],
+    subject: "Your Kinga password was changed",
+    text: [
+      `Hi ${name},`,
+      "",
+      "The password for your Kinga account was just changed, and you've been signed out on every other device.",
+      "",
+      "If you didn't do this, reset your password straight away:",
+      "",
+      forgotPasswordUrl,
     ].join("\n"),
   };
 }
