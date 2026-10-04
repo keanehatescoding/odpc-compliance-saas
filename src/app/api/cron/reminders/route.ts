@@ -6,6 +6,7 @@ import { pruneVerificationTokens } from "@/lib/email-verification";
 import { pruneResetTokens } from "@/lib/password-reset";
 import { pruneRateLimits } from "@/lib/rate-limit";
 import { runReminders } from "@/lib/reminders";
+import { runSubjectRequestAlerts } from "@/lib/subject-request-alerts";
 
 // For schedulers that call a URL (Vercel Cron, GitHub Actions, cron-job.org).
 // Send `Authorization: Bearer $CRON_SECRET`.
@@ -22,10 +23,11 @@ export async function GET(request: Request) {
   const send = createEmailSender();
   const reminders = await runReminders(db, send);
   const breaches = await runBreachAlerts(db, send);
+  const requests = await runSubjectRequestAlerts(db, send);
   // Housekeeping: drop stale login counters and expired reset and verification links.
   await pruneRateLimits(db);
   await pruneResetTokens(db);
   await pruneVerificationTokens(db);
-  const failed = reminders.failed.length + breaches.failed.length > 0;
-  return Response.json({ reminders, breaches }, { status: failed ? 500 : 200 });
+  const failed = reminders.failed.length + breaches.failed.length + requests.failed.length > 0;
+  return Response.json({ reminders, breaches, requests }, { status: failed ? 500 : 200 });
 }

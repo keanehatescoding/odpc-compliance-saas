@@ -6,10 +6,11 @@ import { breachStatus, notificationDeadline, NOTIFY_WHOM, outstandingTasks } fro
 import { formatDate, formatDateTime, todayInKenya } from "@/lib/dates";
 import { ODPC_FEES, REGISTRATION_ROLES, formatKsh, type OrgSize, type RegistrationRole } from "@/lib/dpa";
 import { dpiaStatus } from "@/lib/dpia";
-import { listActivities, listBreaches, listDpias, listRegistrations, recentReminders } from "@/lib/queries";
+import { listActivities, listBreaches, listDpias, listRegistrations, listSubjectRequests, recentReminders } from "@/lib/queries";
 import { daysUntilExpiry, registrationStatus, STATUS_SEVERITY, worstStatus } from "@/lib/registration";
 import { dpiaRecommended } from "@/lib/ropa";
 import { requireOrgContext } from "@/lib/session";
+import { daysToRespond, formatDaysLeft, isOpen, kindInfo, requestStatus } from "@/lib/subject-request";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
@@ -17,12 +18,13 @@ export default async function DashboardPage() {
   const { org } = await requireOrgContext();
   const today = todayInKenya();
   const now = new Date();
-  const [regs, activities, reminders, breaches, dpias] = await Promise.all([
+  const [regs, activities, reminders, breaches, dpias, requests] = await Promise.all([
     listRegistrations(org.id),
     listActivities(org.id),
     recentReminders(org.id),
     listBreaches(org.id),
     listDpias(org.id),
+    listSubjectRequests(org.id),
   ]);
   const urgentBreaches = breaches
     .map((b) => ({ ...b, status: breachStatus(b, now), deadline: notificationDeadline(b) }))
@@ -42,6 +44,16 @@ export default async function DashboardPage() {
   for (const b of breaches) {
     if (urgentBreaches.some((u) => u.id === b.id)) continue; // shown in the banner
     for (const task of outstandingTasks(b)) todos.push({ text: `${task}: ${b.title}`, href: `/breaches/${b.id}` });
+  }
+  const openRequests = requests
+    .filter((r) => isOpen(requestStatus(r, today)))
+    .map((r) => ({ ...r, daysLeft: daysToRespond(r, today) }))
+    .sort((a, b) => a.daysLeft - b.daysLeft);
+  for (const r of openRequests) {
+    todos.push({
+      text: `Respond to the ${kindInfo(r.kind).short} from ${r.requesterName} (${formatDaysLeft(r.daysLeft)})`,
+      href: `/requests/${r.id}`,
+    });
   }
   if (regRows.length === 0) todos.push({ text: "Add your ODPC registration certificate", href: "/registrations/new" });
   for (const r of regRows) {
