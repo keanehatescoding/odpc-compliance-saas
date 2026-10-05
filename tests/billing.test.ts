@@ -8,6 +8,7 @@ import type { Db } from "@/db";
 import * as schema from "@/db/schema";
 import {
   dueBillingAlert,
+  paymentOutcome,
   PAYMENTS_UNAVAILABLE,
   PENDING_PAYMENT_KEEP_MS,
   prunePayments,
@@ -216,6 +217,17 @@ describe("recording payments", () => {
     expect(await recordPayment(db, paid(p), t0)).toMatchObject({ result: "credited" });
   });
 
+  it("only tells a returning payer it failed once it can't succeed", () => {
+    expect(paymentOutcome("credited", "success")).toBe("paid");
+    expect(paymentOutcome("already_credited", "success")).toBe("paid");
+    for (const status of ["failed", "reversed"]) expect(paymentOutcome("not_paid", status)).toBe("unpaid");
+    for (const status of ["ongoing", "pending", "processing", "queued", "abandoned"]) {
+      expect(paymentOutcome("not_paid", status)).toBe("checking");
+    }
+    expect(paymentOutcome("mismatch", "success")).toBe("problem");
+    expect(paymentOutcome("unknown", "success")).toBe("problem");
+  });
+
   it("keeps the amount fixed when checkout started", async () => {
     const p = await checkout("month");
     await db.update(organizations).set({ size: "large" }).where(eq(organizations.id, orgId));
@@ -244,6 +256,11 @@ describe("paystack", () => {
     expect(verifyWebhookSignature(`${body} `, sig, "sk_test_x")).toBe(false);
     expect(verifyWebhookSignature(body, null, "sk_test_x")).toBe(false);
     expect(verifyWebhookSignature(body, "abc", "sk_test_x")).toBe(false);
+    expect(verifyWebhookSignature(body, sig.toUpperCase(), "sk_test_x")).toBe(true);
+    // Same length as a real signature, but a non-ASCII character makes it longer in bytes.
+    expect(verifyWebhookSignature(body, `é${sig.slice(1)}`, "sk_test_x")).toBe(false);
+    expect(verifyWebhookSignature(body, `${sig}zz`, "sk_test_x")).toBe(false);
+    expect(verifyWebhookSignature(body, `${sig.slice(0, 127)}z`, "sk_test_x")).toBe(false);
   });
 
   it("reads transactions and calls the API with the secret key", async () => {

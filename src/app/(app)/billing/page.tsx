@@ -16,7 +16,8 @@ const PAYMENT_NOTICES = {
   paid: { message: "Payment received. Thank you!", tone: "success" },
   unpaid: { message: "The payment didn't go through, so you haven't been charged. You can try again below.", tone: "error" },
   checking: {
-    message: "We're still confirming your payment with Paystack. Refresh this page in a minute.",
+    message:
+      "We're waiting for Paystack to confirm your payment. If you approved it, refresh this page in a minute, and don't pay again meanwhile. If it hasn't shown up after 10 minutes, try again below.",
     tone: "success",
   },
   problem: { message: "Something went wrong confirming your payment. Contact us and we'll sort it out.", tone: "error" },

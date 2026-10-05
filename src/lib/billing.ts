@@ -106,6 +106,23 @@ export async function recordPayment(db: Db, txn: PaystackTransaction, now: Date 
   });
 }
 
+/** Paystack statuses after which a transaction can't succeed. Anything else unpaid may still go through. */
+const FAILED_STATUSES = new Set(["failed", "reversed"]);
+
+export type PaymentOutcome = "paid" | "unpaid" | "checking" | "problem";
+
+/**
+ * What to tell a payer returning from checkout. A transaction that isn't paid
+ * yet may still be (an M-Pesa prompt not yet approved shows as pending or
+ * abandoned until it is), and the webhook credits it when it is, so only a
+ * final failure is reported as unpaid; otherwise saying so invites paying twice.
+ */
+export function paymentOutcome(result: RecordResult["result"], status: string): PaymentOutcome {
+  if (result === "credited" || result === "already_credited") return "paid";
+  if (result === "not_paid") return FAILED_STATUSES.has(status) ? "unpaid" : "checking";
+  return "problem";
+}
+
 /** Succeeded payments, newest first. */
 export async function paymentHistory(db: Db, orgId: string) {
   return db

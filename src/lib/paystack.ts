@@ -99,9 +99,13 @@ export function parseTransaction(data: Record<string, unknown>): PaystackTransac
   };
 }
 
-/** Paystack signs each webhook body with HMAC-SHA512 of the secret key, in `x-paystack-signature`. */
+/**
+ * Paystack signs each webhook body with HMAC-SHA512 of the secret key, in
+ * `x-paystack-signature` as hex. Anything that isn't 128 hex digits is
+ * rejected before comparing, since timingSafeEqual throws on unequal lengths.
+ */
 export function verifyWebhookSignature(rawBody: string, signature: string | null, secretKey: string): boolean {
-  if (!signature) return false;
-  const expected = createHmac("sha512", secretKey).update(rawBody).digest("hex");
-  return signature.length === expected.length && timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+  if (!signature || !/^[0-9a-f]{128}$/i.test(signature)) return false;
+  const expected = createHmac("sha512", secretKey).update(rawBody).digest();
+  return timingSafeEqual(Buffer.from(signature, "hex"), expected);
 }
