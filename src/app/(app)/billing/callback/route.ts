@@ -2,7 +2,8 @@ import { and, eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { db } from "@/db";
 import { payments } from "@/db/schema";
-import { paymentOutcome, recordPayment } from "@/lib/billing";
+import { paymentOutcome, recordPayment, sendReceipt } from "@/lib/billing";
+import { createEmailSender } from "@/lib/email";
 import { paystackFromEnv } from "@/lib/paystack";
 import { requireOrgContext } from "@/lib/session";
 
@@ -26,8 +27,9 @@ export async function GET(request: Request) {
   let outcome: string;
   try {
     const txn = await paystack.verify(reference);
-    const { result } = await recordPayment(db, txn);
-    outcome = paymentOutcome(result, txn.status);
+    const recorded = await recordPayment(db, txn);
+    if (recorded.result === "credited") await sendReceipt(db, createEmailSender(), recorded.paymentId);
+    outcome = paymentOutcome(recorded.result, txn.status);
   } catch (err) {
     console.error("Failed to verify Paystack payment", reference, err);
     // The webhook will still credit it if it went through.

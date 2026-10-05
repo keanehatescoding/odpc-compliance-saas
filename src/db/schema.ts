@@ -5,6 +5,7 @@ import {
   index,
   integer,
   pgEnum,
+  pgSequence,
   pgTable,
   primaryKey,
   text,
@@ -129,6 +130,9 @@ export const organizations = pgTable("organizations", {
   ...timestamps,
 });
 
+/** Receipt numbers, issued in order as payments are credited. */
+export const receiptNumberSeq = pgSequence("receipt_number_seq");
+
 /**
  * A subscription payment through Paystack. Created as pending when checkout
  * starts; Paystack's webhook (or the return from checkout) marks it succeeded
@@ -153,10 +157,19 @@ export const payments = pgTable(
     paidAt: timestamp("paid_at", { withTimezone: true }),
     periodStart: timestamp("period_start", { withTimezone: true }),
     periodEnd: timestamp("period_end", { withTimezone: true }),
+    // Set when credited. The name and KRA PIN are copied from the organisation
+    // then, so a receipt doesn't change if they are edited later.
+    receiptNumber: integer("receipt_number"),
+    billedName: text("billed_name"),
+    billedKraPin: text("billed_kra_pin"),
     startedBy: uuid("started_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("payments_reference_idx").on(t.reference), index("payments_org_idx").on(t.orgId, t.createdAt)],
+  (t) => [
+    uniqueIndex("payments_reference_idx").on(t.reference),
+    uniqueIndex("payments_receipt_number_idx").on(t.receiptNumber),
+    index("payments_org_idx").on(t.orgId, t.createdAt),
+  ],
 );
 
 /** One row per billing email, keyed by the access end date it was about, so paying starts a fresh set. */

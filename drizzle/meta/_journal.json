@@ -71,6 +71,13 @@
       "when": 1791190118625,
       "tag": "0009_billing",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791212248763,
+      "tag": "0010_receipts",
+      "breakpoints": true
     }
   ]
 }

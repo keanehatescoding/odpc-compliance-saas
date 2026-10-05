@@ -8,12 +8,17 @@ import type { Db } from "@/db";
 import * as schema from "@/db/schema";
 import {
   dueBillingAlert,
+  formatReceiptNumber,
+  getReceipt,
   paymentOutcome,
   PAYMENTS_UNAVAILABLE,
   PENDING_PAYMENT_KEEP_MS,
   prunePayments,
   recordPayment,
+  receiptEmail,
   runBillingAlerts,
+  sellerFromEnv,
+  sendReceipt,
   startCheckout,
 } from "@/lib/billing";
 import type { EmailMessage } from "@/lib/email";
@@ -244,6 +249,100 @@ describe("recording payments", () => {
     await prunePayments(db, new Date(t0.getTime() + PENDING_PAYMENT_KEEP_MS + 1));
     expect((await db.select().from(payments)).map((p) => p.id)).toEqual([done.id]);
     expect(unpaid.id).not.toBe(done.id);
+  });
+});
+
+describe("receipts", () => {
+  const receipt = async (id: string) => (await db.select().from(payments).where(eq(payments.id, id)))[0];
+
+  it("numbers credited payments in order and keeps the name and KRA PIN they were paid under", async () => {
+    await db.update(organizations).set({ kraPin: "P051234567X" }).where(eq(organizations.id, orgId));
+    const first = await checkout("month");
+    const second = await checkout("year");
+    const unpaid = await checkout("month");
+    await recordPayment(db, paid(second), t0);
+    await recordPayment(db, paid(unpaid, { status: "abandoned" }), t0);
+    await Promise.all([recordPayment(db, paid(first), t0), recordPayment(db, paid(first), t0)]);
+    await db.update(organizations).set({ name: "Sunrise Academy Ltd", kraPin: null }).where(eq(organizations.id, orgId));
+
+    const [a, b, c] = [await receipt(second.id), await receipt(first.id), await receipt(unpaid.id)];
+    expect(b.receiptNumber).toBe(a.receiptNumber! + 1);
+    expect(a).toMatchObject({ billedName: "Sunrise Academy", billedKraPin: "P051234567X" });
+    expect(c).toMatchObject({ receiptNumber: null, billedName: null });
+    expect(formatReceiptNumber(42)).toBe("R-000042");
+  });
+
+  it("shows a receipt only to its organisation, once paid", async () => {
+    const p = await checkout("month");
+    expect(await getReceipt(db, orgId, p.id)).toBeNull();
+    await recordPayment(db, paid(p), t0);
+    expect(await getReceipt(db, orgId, p.id)).toMatchObject({ id: p.id });
+    const [other] = await db
+      .insert(organizations)
+      .values({ name: "Other", sector: "retail", size: "medium" })
+      .returning({ id: organizations.id });
+    expect(await getReceipt(db, other.id, p.id)).toBeNull();
+  });
+
+  it("emails the receipt to whoever paid", async () => {
+    const p = await checkout("year");
+    await recordPayment(db, paid(p, { channel: "card" }), t0);
+    const sent: EmailMessage[] = [];
+    await sendReceipt(db, async (m) => void sent.push(m), p.id, "https://app.test");
+    expect(sent).toHaveLength(1);
+    expect(sent[0].to).toEqual(["owner@sunrise.ke"]);
+    const { receiptNumber } = await receipt(p.id);
+    expect(sent[0].subject).toBe(`Kinga receipt ${formatReceiptNumber(receiptNumber!)}: KSh 30,000 received`);
+    expect(sent[0].text).toContain("For: Kinga subscription, annual plan: 19 Oct 2026 to 19 Oct 2027");
+    expect(sent[0].text).toContain("by card");
+    expect(sent[0].text).toContain(`https://app.test/billing/receipts/${p.id}`);
+  });
+
+  it("emails confirmed owners if the payer's account has gone, and never throws", async () => {
+    const [admin] = await db
+      .insert(users)
+      .values({ email: "admin@sunrise.ke", name: "Admin", passwordHash: "x", emailVerifiedAt: t0 })
+      .returning({ id: users.id });
+    await db.insert(memberships).values({ orgId, userId: admin.id, role: "admin" });
+    const r = await startCheckout(db, fakePaystack(), {
+      orgId,
+      userId: admin.id,
+      email: "admin@sunrise.ke",
+      size: "micro_small",
+      interval: "month",
+      callbackUrl: "http://localhost:3000/billing/callback",
+    });
+    if ("error" in r) throw new Error(r.error);
+    const [p] = await db.select().from(payments).where(eq(payments.reference, r.url.split("/").pop()!));
+    await recordPayment(db, paid(p), t0);
+    await db.delete(users).where(eq(users.id, admin.id));
+
+    const sent: EmailMessage[] = [];
+    await sendReceipt(db, async (m) => void sent.push(m), p.id);
+    expect(sent.map((m) => m.to)).toEqual([["owner@sunrise.ke"]]);
+    await expect(
+      sendReceipt(db, async () => {
+        throw new Error("SMTP down");
+      }, p.id),
+    ).resolves.toBeUndefined();
+  });
+
+  it("doesn't email a receipt for an unpaid checkout", async () => {
+    const p = await checkout("month");
+    const sent: EmailMessage[] = [];
+    await sendReceipt(db, async (m) => void sent.push(m), p.id);
+    expect(sent).toEqual([]);
+  });
+
+  it("formats the receipt email and the seller's details", async () => {
+    const p = await checkout("month");
+    await recordPayment(db, paid(p), t0);
+    const m = receiptEmail(["a@b.ke"], await receipt(p.id), "https://x");
+    expect(m.text).toContain("Amount: KSh 3,000 by mobile money");
+    expect(m.text).toContain("for Sunrise Academy's records");
+
+    expect(sellerFromEnv({} as NodeJS.ProcessEnv)).toEqual({ name: "Kinga", kraPin: null, address: null, email: null });
+    expect(sellerFromEnv({ SELLER_NAME: "Kinga Ltd", SELLER_ADDRESS: "PO Box 1\\nNairobi" } as unknown as NodeJS.ProcessEnv).address).toBe("PO Box 1\nNairobi");
   });
 });
 

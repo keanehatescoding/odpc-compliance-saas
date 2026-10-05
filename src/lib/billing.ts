@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, lt, ne, sql } from "drizzle-orm";
 import type { Db } from "@/db";
-import { billingAlertLog, organizations, payments } from "@/db/schema";
+import { billingAlertLog, organizations, payments, users, type Payment } from "@/db/schema";
 import { formatDate, todayInKenya } from "./dates";
 import { formatKsh, type OrgSize } from "./dpa";
 import type { SendEmail } from "./email";
@@ -62,7 +62,7 @@ function checkoutError(err: unknown): string {
 }
 
 export type RecordResult =
-  | { result: "credited"; orgId: string; periodEnd: Date }
+  | { result: "credited"; orgId: string; paymentId: string; periodEnd: Date }
   | { result: "already_credited"; orgId: string; periodEnd: Date | null }
   | { result: "not_paid" | "mismatch"; orgId: string }
   | { result: "unknown" };
@@ -99,10 +99,19 @@ export async function recordPayment(db: Db, txn: PaystackTransaction, now: Date 
     const periodEnd = addPeriod(start, locked.interval as BillingInterval);
     await tx
       .update(payments)
-      .set({ status: "succeeded", channel: txn.channel, paidAt: txn.paidAt ?? now, periodStart: start, periodEnd })
+      .set({
+        status: "succeeded",
+        channel: txn.channel,
+        paidAt: txn.paidAt ?? now,
+        periodStart: start,
+        periodEnd,
+        receiptNumber: sql`nextval('receipt_number_seq')`,
+        billedName: org.name,
+        billedKraPin: org.kraPin,
+      })
       .where(eq(payments.id, locked.id));
     await tx.update(organizations).set({ paidUntil: periodEnd }).where(eq(organizations.id, orgId));
-    return { result: "credited", orgId, periodEnd };
+    return { result: "credited", orgId, paymentId: locked.id, periodEnd };
   });
 }
 
@@ -130,6 +139,111 @@ export async function paymentHistory(db: Db, orgId: string) {
     .from(payments)
     .where(and(eq(payments.orgId, orgId), eq(payments.status, "succeeded")))
     .orderBy(desc(payments.paidAt));
+}
+
+/** A succeeded payment of this organisation, for its receipt. */
+export async function getReceipt(db: Db, orgId: string, paymentId: string): Promise<Payment | null> {
+  const [p] = await db
+    .select()
+    .from(payments)
+    .where(and(eq(payments.id, paymentId), eq(payments.orgId, orgId), eq(payments.status, "succeeded")))
+    .limit(1);
+  return p ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Receipts. Each credited payment gets the next receipt number, and the payer
+// is emailed a link to its printable receipt.
+// ---------------------------------------------------------------------------
+
+/** Who the receipt is from. Set SELLER_* so receipts carry the business's legal details. */
+export interface Seller {
+  name: string;
+  kraPin: string | null;
+  address: string | null;
+  email: string | null;
+}
+
+export function sellerFromEnv(env: NodeJS.ProcessEnv = process.env): Seller {
+  return {
+    name: env.SELLER_NAME || "Kinga",
+    kraPin: env.SELLER_KRA_PIN || null,
+    // "\n" in the variable starts a new line.
+    address: env.SELLER_ADDRESS?.replaceAll("\\n", "\n") || null,
+    email: env.SELLER_EMAIL || null,
+  };
+}
+
+export function formatReceiptNumber(n: number): string {
+  return `R-${String(n).padStart(6, "0")}`;
+}
+
+export function formatPaymentAmount(p: { amount: number; currency: string }): string {
+  return p.currency === CURRENCY ? formatKsh(p.amount / 100) : `${p.currency} ${(p.amount / 100).toFixed(2)}`;
+}
+
+export function paymentMethod(channel: string | null): string {
+  if (channel === "mobile_money") return "Mobile money";
+  if (channel === "card") return "Card";
+  return "Paystack";
+}
+
+/** What was paid for, e.g. "Kinga subscription, annual plan: 5 Oct 2026 to 5 Oct 2027". */
+export function receiptDescription(p: Pick<Payment, "interval" | "periodStart" | "periodEnd">): string {
+  const plan = `Kinga subscription, ${p.interval === "year" ? "annual" : "monthly"} plan`;
+  if (!p.periodStart || !p.periodEnd) return plan;
+  return `${plan}: ${formatDate(todayInKenya(p.periodStart))} to ${formatDate(todayInKenya(p.periodEnd))}`;
+}
+
+export function receiptEmail(to: string[], p: Payment, link: string) {
+  const number = formatReceiptNumber(p.receiptNumber!);
+  return {
+    to,
+    subject: `Kinga receipt ${number}: ${formatPaymentAmount(p)} received`,
+    text: [
+      "Hello,",
+      "",
+      `Thank you for your payment. Here are the details for ${p.billedName}'s records:`,
+      "",
+      `Receipt: ${number}`,
+      `Paid: ${formatDate(todayInKenya(p.paidAt!))}`,
+      `For: ${receiptDescription(p)}`,
+      `Amount: ${formatPaymentAmount(p)} by ${paymentMethod(p.channel).toLowerCase()}`,
+      `Reference: ${p.reference}`,
+      "",
+      "View or print the receipt here:",
+      "",
+      link,
+    ].join("\n"),
+  };
+}
+
+/**
+ * Emails the receipt for a payment just credited to whoever paid, or to the
+ * owners if that account has gone. Call it only after recordPayment returns
+ * "credited", so each payment's receipt is sent once. A failed send is logged
+ * rather than thrown: the receipt is always on the Billing page.
+ */
+export async function sendReceipt(
+  db: Db,
+  sendEmail: SendEmail,
+  paymentId: string,
+  appUrl: string = process.env.APP_URL ?? "http://localhost:3000",
+): Promise<void> {
+  try {
+    const [row] = await db
+      .select({ payment: payments, payerEmail: users.email, payerVerified: users.emailVerifiedAt })
+      .from(payments)
+      .leftJoin(users, eq(users.id, payments.startedBy))
+      .where(eq(payments.id, paymentId))
+      .limit(1);
+    if (!row || row.payment.receiptNumber === null) return;
+    const to = row.payerEmail && row.payerVerified ? [row.payerEmail] : await ownerEmails(db, row.payment.orgId);
+    if (to.length === 0) return;
+    await sendEmail(receiptEmail(to, row.payment, `${appUrl}/billing/receipts/${row.payment.id}`));
+  } catch (err) {
+    console.error("Failed to send receipt", paymentId, err);
+  }
 }
 
 /** Drops checkouts that were never paid. */
