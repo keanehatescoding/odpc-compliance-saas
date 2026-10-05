@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Card, FormMessage, PageHeader, Pill } from "@/components/ui";
 import { db } from "@/db";
-import { paymentHistory } from "@/lib/billing";
+import { formatPaymentAmount, formatReceiptNumber, paymentHistory, paymentMethod } from "@/lib/billing";
 import { formatDate, formatDateTime, todayInKenya } from "@/lib/dates";
 import { formatKsh, ORG_SIZES, type OrgSize } from "@/lib/dpa";
 import { paystackFromEnv } from "@/lib/paystack";
@@ -81,6 +82,15 @@ export default async function BillingPage({ searchParams }: PageProps<"/billing"
                   {access.state === "trial" ? " trial" : " period"} ends, so paying early doesn&apos;t lose any days. Nothing renews
                   automatically: we&apos;ll email owners 3 days before it ends.
                 </p>
+                {!org.kraPin && (
+                  <p className="mt-2 text-xs text-stone-500">
+                    To have your KRA PIN on receipts, add it in{" "}
+                    <Link href="/settings" className="underline">
+                      Settings
+                    </Link>{" "}
+                    before you pay.
+                  </p>
+                )}
               </>
             ) : (
               <p className="mt-4 text-sm text-stone-700">Online payment isn&apos;t set up yet. Contact us to pay by invoice.</p>
@@ -101,7 +111,7 @@ export default async function BillingPage({ searchParams }: PageProps<"/billing"
                     <th className="px-5 py-2 font-medium">Plan</th>
                     <th className="px-5 py-2 font-medium">Amount</th>
                     <th className="px-5 py-2 font-medium">Covers</th>
-                    <th className="px-5 py-2 font-medium">Reference</th>
+                    <th className="px-5 py-2 font-medium">Receipt</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100">
@@ -109,16 +119,21 @@ export default async function BillingPage({ searchParams }: PageProps<"/billing"
                     <tr key={p.id}>
                       <td className="px-5 py-3 whitespace-nowrap">{formatDateTime(p.paidAt)}</td>
                       <td className="px-5 py-3">
-                        {BILLING_INTERVALS[p.interval as BillingInterval]}
-                        {p.channel === "mobile_money" ? " · Mobile money" : p.channel === "card" ? " · Card" : ""}
+                        {BILLING_INTERVALS[p.interval as BillingInterval]} · {paymentMethod(p.channel)}
                       </td>
                       <td className="px-5 py-3 whitespace-nowrap">
-                        {p.currency === "KES" ? formatKsh(p.amount / 100) : `${p.currency} ${(p.amount / 100).toFixed(2)}`}
+                        {formatPaymentAmount(p)}
                       </td>
                       <td className="px-5 py-3 whitespace-nowrap">
                         {p.periodStart && p.periodEnd ? `${day(p.periodStart)} – ${day(p.periodEnd)}` : "—"}
                       </td>
-                      <td className="px-5 py-3 font-mono text-xs text-stone-600">{p.reference}</td>
+                      <td className="px-5 py-3 whitespace-nowrap">
+                        {p.receiptNumber !== null && (
+                          <Link href={`/billing/receipts/${p.id}`} className="font-medium hover:underline">
+                            {formatReceiptNumber(p.receiptNumber)}
+                          </Link>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

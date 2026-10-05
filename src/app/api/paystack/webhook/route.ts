@@ -1,5 +1,6 @@
 import { db } from "@/db";
-import { recordPayment } from "@/lib/billing";
+import { recordPayment, sendReceipt } from "@/lib/billing";
+import { createEmailSender } from "@/lib/email";
 import { parseTransaction, verifyWebhookSignature } from "@/lib/paystack";
 
 // Set this URL as the webhook in the Paystack dashboard. Paystack retries
@@ -23,6 +24,7 @@ export async function POST(request: Request) {
   if (event.event !== "charge.success" || !event.data) return new Response(null, { status: 200 });
 
   const result = await recordPayment(db, parseTransaction(event.data));
+  if (result.result === "credited") await sendReceipt(db, createEmailSender(), result.paymentId);
   // "unknown" covers charges that aren't Kinga subscriptions, e.g. made from the Paystack dashboard.
   return Response.json({ result: result.result });
 }

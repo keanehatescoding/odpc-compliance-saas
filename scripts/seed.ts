@@ -85,6 +85,9 @@ await db.insert(payments).values({
   paidAt: new Date(trialEndsAt.getTime() - 2 * 24 * 60 * 60 * 1000),
   periodStart: trialEndsAt,
   periodEnd: paidUntil,
+  receiptNumber: sql`nextval('receipt_number_seq')`,
+  billedName: org.name,
+  billedKraPin: org.kraPin,
   startedBy: user.id,
 });
 
