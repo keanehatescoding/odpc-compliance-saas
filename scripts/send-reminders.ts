@@ -1,5 +1,6 @@
 // Run hourly (breach deadlines are measured in hours): npm run reminders
 import { db } from "@/db";
+import { prunePayments, runBillingAlerts } from "@/lib/billing";
 import { runBreachAlerts } from "@/lib/breach-alerts";
 import { createEmailSender } from "@/lib/email";
 import { pruneVerificationTokens } from "@/lib/email-verification";
@@ -28,10 +29,17 @@ console.log(
 );
 for (const f of requests.failed) console.error(`  ${f.requestId}: ${f.error}`);
 
-// Housekeeping: drop stale login counters and expired reset, verification and invitation links.
+const billing = await runBillingAlerts(db, send);
+console.log(
+  `Checked ${billing.checked} organisations near the end of their trial or subscription; sent ${billing.sent.length} billing emails; ${billing.failed.length} failed.`,
+);
+for (const f of billing.failed) console.error(`  ${f.orgId}: ${f.error}`);
+
+// Housekeeping: drop stale login counters, expired reset, verification and invitation links, and unpaid checkouts.
 await pruneRateLimits(db);
 await pruneResetTokens(db);
 await pruneVerificationTokens(db);
 await pruneInvitations(db);
+await prunePayments(db);
 
-process.exit(result.failed.length + breaches.failed.length + requests.failed.length > 0 ? 1 : 0);
+process.exit(result.failed.length + breaches.failed.length + requests.failed.length + billing.failed.length > 0 ? 1 : 0);

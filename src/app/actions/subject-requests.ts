@@ -9,7 +9,7 @@ import { subjectRequestAlertLog, subjectRequests } from "@/db/schema";
 import { todayInKenya } from "@/lib/dates";
 import { createEmailSender } from "@/lib/email";
 import { fieldErrors, formValues, type FormState } from "@/lib/forms";
-import { requireOrgContext } from "@/lib/session";
+import { requireActiveOrg } from "@/lib/session";
 import { runSubjectRequestAlerts } from "@/lib/subject-request-alerts";
 import { responseDueOn } from "@/lib/subject-request";
 import { parseSubjectRequestForm } from "@/lib/subject-request-form";
@@ -17,7 +17,7 @@ import { isUuid } from "@/lib/uuid";
 
 /** Creates or updates a data subject request. Edits carry the request id in a hidden `id` field. */
 export async function saveSubjectRequest(_prev: FormState, formData: FormData): Promise<FormState> {
-  const { user, org } = await requireOrgContext();
+  const { user, org } = await requireActiveOrg();
   const rawId = formData.get("id");
   const id = typeof rawId === "string" && rawId ? rawId : null;
   if (id && !isUuid(id)) return { message: "Request not found." };
@@ -58,7 +58,7 @@ export async function saveSubjectRequest(_prev: FormState, formData: FormData): 
 }
 
 export async function deleteSubjectRequest(id: string): Promise<void> {
-  const { org } = await requireOrgContext();
+  const { org } = await requireActiveOrg();
   if (typeof id === "string" && isUuid(id)) {
     await db.delete(subjectRequests).where(and(eq(subjectRequests.id, id), eq(subjectRequests.orgId, org.id)));
   }

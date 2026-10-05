@@ -9,6 +9,7 @@ Kinga ("protection" in Swahili; a placeholder name) helps small organisations me
 - **Impact assessments.** Full s.31 DPIAs: describe the processing, justify necessity and proportionality, then score each risk before and after mitigation on a likelihood × severity matrix. Start from a flagged RoPA activity, which pre-fills the facts and the matching sector template, or from a template for new processing (CCTV, student and patient records, KYC, credit scoring, marketing, biometric attendance). A DPIA can't be approved while sections are empty or a risk remains high without a recorded ODPC consultation. Approved DPIAs are due for review after 12 months, and each one has a printable report.
 - **Data subject requests.** Log requests from people exercising their rights: access, correction, erasure, restriction, objection, portability and opting out of third-party marketing. Each type gets its deadline from the Data Protection (General) Regulations, counted from the day the request arrived: 7 days for access and marketing opt-outs, 14 for correction, erasure, restriction and objection, and 30 for portability. Record who asked, anyone acting for them, how you confirmed their identity, and your response. Declining requires written reasons, and the request page shows what each type allows. The team gets an email 2 days before the deadline and again once it passes, and open requests appear in the dashboard's next steps.
 - **Team.** Owners and admins invite colleagues by email from the Team page. The link works for 7 days, only for the invited address, and once. Opening it either creates an account (already confirmed, since the link proves the address) or, for an existing account, asks them to sign in and join. Each account belongs to one organisation. Roles: members work on all the records; admins also change settings and manage admins and members; owners also manage other owners and get the compliance emails. An organisation always keeps at least one owner. Removing someone takes away their access straight away. Invitations can be resent or withdrawn, and each person can send 20 an hour.
+- **Billing.** New organisations get a 14-day free trial. After that they pay through Paystack by M-Pesa or card: KSh 3,000 a month for micro and small organisations, KSh 5,000 for medium and KSh 8,000 for large (the size set in Settings), or ten times that for a year. Payments are prepaid and don't renew automatically. Each one adds a month or a year after the trial or current period ends, so paying early loses nothing. A payment is credited once, by whichever arrives first: Paystack's signed webhook or the payer's return from checkout, which looks the transaction up with Paystack. Owners get an email 3 days before access ends and another once it has, and the app shows a banner in the last 7 days. Once access lapses, registrations, the RoPA, DPIAs and data subject requests become read-only until someone pays. Breaches, the team and settings keep working, so a lapsed organisation can still meet the 72-hour deadline, and exports, printouts, renewal reminders and deadline alerts carry on. Owners and admins can pay; members see the status.
 - **Account security.** New accounts confirm their email before using the app, because renewal reminders and breach alerts go there. The link is single use, expires in 24 hours, and never signs anyone in. Until it's opened, the user can resend it (5 an hour) or fix a mistyped address, and owners who haven't confirmed get no compliance emails. Password reset by emailed link (single use, expires in 1 hour, signs you out on every device). Signed-in users can change their password in Settings by confirming their current one (10 tries per 15 minutes). This signs out their other devices, cancels any reset links and emails them a notice. Login, signup and reset attempts are rate-limited per IP address, and sign-in attempts per email address (cleared when you sign in), with counters kept in Postgres so every app instance shares them.
 
 See [BRIEF.md](BRIEF.md) for the product brief.
@@ -28,7 +29,7 @@ npm run db:seed             # optional demo data
 npm run dev
 ```
 
-Open http://localhost:3000. The seed creates a school, "Sunrise Academy", whose controller certificate expires in 20 days and whose processor certificate expired 17 days ago, an open breach with 42 hours left to notify the ODPC, an approved DPIA for student records, CCTV flagged as needing a DPIA, a parent's access request due in 2 days, a second team member and a pending invitation. Sign in as `demo@kinga.test` / `demo-password-1` (an owner) or `otieno@kinga.test` with the same password (a member).
+Open http://localhost:3000. The seed creates a school, "Sunrise Academy", whose controller certificate expires in 20 days and whose processor certificate expired 17 days ago, an open breach with 42 hours left to notify the ODPC, an approved DPIA for student records, CCTV flagged as needing a DPIA, a parent's access request due in 2 days, a second team member, a pending invitation and a paid annual subscription. Sign in as `demo@kinga.test` / `demo-password-1` (an owner) or `otieno@kinga.test` with the same password (a member).
 
 ## Scripts
 
@@ -41,7 +42,7 @@ Open http://localhost:3000. The seed creates a school, "Sunrise Academy", whose 
 | `npm run db:generate` | Generate a migration after editing `src/db/schema.ts` |
 | `npm run db:migrate` | Apply migrations |
 | `npm run db:seed` | Reset the demo organisation |
-| `npm run reminders` | Run the reminder, breach-alert and request-deadline job once (also prunes stale rate-limit counters, expired reset and verification links, and invitations that expired over 30 days ago) |
+| `npm run reminders` | Run the reminder, breach-alert, request-deadline and billing-email job once (also prunes stale rate-limit counters, expired reset and verification links, invitations that expired over 30 days ago, and checkouts left unpaid for 30 days) |
 
 ## Environment
 
@@ -50,6 +51,7 @@ Open http://localhost:3000. The seed creates a school, "Sunrise Academy", whose 
 | `DATABASE_URL` | yes | Postgres connection string |
 | `APP_URL` | yes | Base URL used in email links |
 | `CRON_SECRET` | for the cron endpoint | Bearer token for `/api/cron/reminders` |
+| `PAYSTACK_SECRET_KEY` | for payments | Paystack secret key (`sk_test_…` or `sk_live_…`). Without it the billing page says online payment isn't set up |
 | `SMTP_URL` | no | Without it, emails are printed to the log |
 | `EMAIL_FROM` | no | Sender address |
 | `TRUST_IP_HEADER` | no | `x-forwarded-for` (default) or `x-real-ip`. Which header rate limiting reads the client IP from |
@@ -69,7 +71,7 @@ or over HTTP (for Vercel Cron, GitHub Actions and similar):
 curl -H "Authorization: Bearer $CRON_SECRET" https://your-host/api/cron/reminders
 ```
 
-It runs three jobs: renewal reminders, breach alerts, and alerts for data subject requests that are close to or past their response deadline. The endpoint returns `{ reminders, breaches, requests }` with the results of each job. All three are safe to run more than once. Each (certificate, expiry date, threshold) is claimed in `reminder_log`, each (breach, alert stage) in `breach_alert_log`, and each (request, alert stage) in `subject_request_alert_log`, before sending. The claim is released if the send fails. After downtime, each job sends only the most recent missed alert, not every one. Logging a breach or a request also triggers its first alert straight away, and editing a request so that its deadline moves clears its alerts so they are sent again for the new deadline.
+It runs four jobs: renewal reminders, breach alerts, alerts for data subject requests that are close to or past their response deadline, and billing emails for trials and subscriptions that are about to end or have ended. The endpoint returns `{ reminders, breaches, requests, billing }` with the results of each job. All four are safe to run more than once. Each (certificate, expiry date, threshold) is claimed in `reminder_log`, each (breach, alert stage) in `breach_alert_log`, each (request, alert stage) in `subject_request_alert_log`, and each (organisation, email, end date) in `billing_alert_log`, before sending. The claim is released if the send fails. After downtime, each job sends only the most recent missed alert, not every one. Logging a breach or a request also triggers its first alert straight away, and editing a request so that its deadline moves clears its alerts so they are sent again for the new deadline.
 
 ## Layout
 
@@ -95,7 +97,15 @@ Run the app behind a reverse proxy. Rate limiting reads the client IP from a hea
 
 If `next start` is exposed directly, clients can send their own `X-Forwarded-For` and dodge the per-IP limits. The per-email login limit still applies.
 
-`APP_URL` must be the public URL, because password reset links are built from it.
+`APP_URL` must be the public URL, because password reset links and the Paystack return URL are built from it.
+
+### Payments
+
+1. Set `PAYSTACK_SECRET_KEY`. Use the test key (`sk_test_…`) until you've tried a payment end to end.
+2. In the Paystack dashboard (Settings → API Keys & Webhooks), set the webhook URL to `https://your-host/api/paystack/webhook`. Payments are credited without it, when the payer comes back from checkout, but anyone who closes the tab first would wait for support.
+3. Enable M-Pesa (mobile money) as a payment channel for your Paystack Kenya account. Checkout offers whatever channels the dashboard has turned on.
+
+The migration that adds billing gives every existing organisation a 14-day trial from the moment it runs, so current users aren't locked out on deploy.
 
 ## Caveats (verify before launch)
 
@@ -110,6 +120,8 @@ This is an MVP, not legal advice. Check these against current ODPC guidance:
 - **Data subject request deadlines** in `src/lib/subject-request.ts` are calendar days from receipt, taken from regs. 7–12 and 18 of the Data Protection (General) Regulations, 2021. A deadline falling on a Sunday or public holiday isn't moved to the next working day. The 7-day limit for telling someone you've declined a correction or portability request is shown as guidance rather than tracked, because the Regulations don't say when it starts.
 - **Breach rules**: the 72-hour and 48-hour deadlines, the "real risk of harm" test, the exemption from telling affected people when the data was unintelligible, and the particulars in the draft notification are summarised from s.43. Check them, and the ODPC's current submission channel, against the Act and the ODPC's guidance.
 
+- **Prices** in `src/lib/plans.ts` follow the brief's KSh 3,000–8,000 a month range. Organisations choose their own size in Settings, as they do for ODPC fees, so check it when you invoice larger customers.
+
 ## Not built yet
 
-Billing.
+Automatic renewal (charging a saved card each period), invoices and receipts with KRA details, and a one-off DPIA or audit service fee.

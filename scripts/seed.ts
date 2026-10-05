@@ -10,6 +10,7 @@ import {
   invitations,
   memberships,
   organizations,
+  payments,
   processingActivities,
   registrations,
   subjectRequests,
@@ -18,6 +19,7 @@ import {
 import { addDays, addMonths, todayInKenya } from "@/lib/dates";
 import { defaultReviewDate, draftDpia } from "@/lib/dpia";
 import { hashPassword } from "@/lib/password";
+import { addPeriod, PLAN_PRICES, toSubunits } from "@/lib/plans";
 import { templatesForSector } from "@/lib/ropa";
 import { INVITE_TTL_MS } from "@/lib/team";
 import { hashToken, newToken } from "@/lib/tokens";
@@ -66,6 +68,24 @@ await db.insert(invitations).values({
   role: "admin",
   invitedBy: user.id,
   expiresAt: new Date(Date.now() + INVITE_TTL_MS),
+});
+
+// The trial ended a month ago and they paid for a year (by M-Pesa).
+const trialEndsAt = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+const paidUntil = addPeriod(trialEndsAt, "year");
+await db.update(organizations).set({ trialEndsAt, paidUntil }).where(eq(organizations.id, org.id));
+await db.insert(payments).values({
+  orgId: org.id,
+  reference: `kinga-demo-${crypto.randomUUID().replaceAll("-", "")}`,
+  interval: "year",
+  amount: toSubunits(PLAN_PRICES.micro_small.year),
+  currency: "KES",
+  status: "succeeded",
+  channel: "mobile_money",
+  paidAt: new Date(trialEndsAt.getTime() - 2 * 24 * 60 * 60 * 1000),
+  periodStart: trialEndsAt,
+  periodEnd: paidUntil,
+  startedBy: user.id,
 });
 
 // Controller certificate expiring in 20 days; processor certificate lapsed last month.

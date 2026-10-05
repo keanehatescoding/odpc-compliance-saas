@@ -14,6 +14,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { BREACH_KIND_KEYS, BREACH_RISK_KEYS } from "../lib/breach";
 import { LIKELIHOOD_KEYS, SEVERITY_KEYS } from "../lib/dpia";
+import { BILLING_INTERVAL_KEYS, TRIAL_DAYS } from "../lib/plans";
 import { LAWFUL_BASIS_KEYS, ORG_SIZE_KEYS, SECTOR_KEYS } from "../lib/dpa";
 import { REQUEST_KIND_KEYS, REQUEST_OUTCOME_KEYS } from "../lib/subject-request";
 
@@ -28,6 +29,8 @@ export const likelihoodEnum = pgEnum("risk_likelihood", LIKELIHOOD_KEYS as [stri
 export const severityEnum = pgEnum("risk_severity", SEVERITY_KEYS as [string, ...string[]]);
 export const requestKindEnum = pgEnum("subject_request_kind", REQUEST_KIND_KEYS as [string, ...string[]]);
 export const requestOutcomeEnum = pgEnum("subject_request_outcome", REQUEST_OUTCOME_KEYS as [string, ...string[]]);
+export const billingIntervalEnum = pgEnum("billing_interval", BILLING_INTERVAL_KEYS as [string, ...string[]]);
+export const paymentStatusEnum = pgEnum("payment_status", ["pending", "succeeded", "failed"]);
 
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -117,8 +120,60 @@ export const organizations = pgTable("organizations", {
   kraPin: text("kra_pin"),
   // Where renewal reminders go. Falls back to owners' emails when empty.
   reminderEmail: text("reminder_email"),
+  // New organisations start with a free trial. Existing ones got theirs when billing launched.
+  trialEndsAt: timestamp("trial_ends_at", { withTimezone: true })
+    .notNull()
+    .default(sql.raw(`now() + interval '${TRIAL_DAYS} days'`)),
+  // End of the last paid period. Each payment extends it; null until the first one.
+  paidUntil: timestamp("paid_until", { withTimezone: true }),
   ...timestamps,
 });
+
+/**
+ * A subscription payment through Paystack. Created as pending when checkout
+ * starts; Paystack's webhook (or the return from checkout) marks it succeeded
+ * and extends the organisation's paid period, once.
+ */
+export const payments = pgTable(
+  "payments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    // Our reference, sent to Paystack and echoed back in its webhook.
+    reference: text("reference").notNull(),
+    interval: billingIntervalEnum("interval").notNull(),
+    // Expected amount in subunits (cents), fixed when checkout starts.
+    amount: integer("amount").notNull(),
+    currency: text("currency").notNull(),
+    status: paymentStatusEnum("status").notNull().default("pending"),
+    // Paystack's channel, e.g. "card" or "mobile_money".
+    channel: text("channel"),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    periodStart: timestamp("period_start", { withTimezone: true }),
+    periodEnd: timestamp("period_end", { withTimezone: true }),
+    startedBy: uuid("started_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("payments_reference_idx").on(t.reference), index("payments_org_idx").on(t.orgId, t.createdAt)],
+);
+
+/** One row per billing email, keyed by the access end date it was about, so paying starts a fresh set. */
+export const billingAlertLog = pgTable(
+  "billing_alert_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+    recipients: text("recipients").array().notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("billing_alert_log_unique_idx").on(t.orgId, t.kind, t.endsAt)],
+);
 
 export const memberships = pgTable(
   "memberships",
@@ -457,3 +512,4 @@ export type Breach = typeof breaches.$inferSelect;
 export type Dpia = typeof dpias.$inferSelect;
 export type DpiaRisk = typeof dpiaRisks.$inferSelect;
 export type SubjectRequest = typeof subjectRequests.$inferSelect;
+export type Payment = typeof payments.$inferSelect;

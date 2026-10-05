@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { cache } from "react";
 import { db } from "@/db";
 import { memberships, organizations, sessions, users } from "@/db/schema";
+import { accessFor } from "./plans";
 import { hashToken, newToken } from "./tokens";
 
 const COOKIE = "session";
@@ -76,6 +77,17 @@ export const requireOrgContext = cache(async () => {
   if (!row) redirect("/no-organisation");
   return { user, org: row.org, role: row.role };
 });
+
+/**
+ * requireOrgContext() for actions that change records. Once the trial or paid
+ * period has lapsed, sends the user to the billing page instead. Breaches,
+ * the team and settings don't use this, so they keep working.
+ */
+export async function requireActiveOrg() {
+  const ctx = await requireOrgContext();
+  if (accessFor(ctx.org).state === "lapsed") redirect("/billing?lapsed=1");
+  return ctx;
+}
 
 export async function requireAdmin() {
   const ctx = await requireOrgContext();

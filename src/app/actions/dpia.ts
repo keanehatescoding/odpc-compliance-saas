@@ -9,7 +9,7 @@ import { isUniqueViolation } from "@/lib/db-errors";
 import { draftDpia, getDpiaTemplate, type RiskInput } from "@/lib/dpia";
 import { parseDpiaForm } from "@/lib/dpia-form";
 import { fieldErrors, formValues, type FormState } from "@/lib/forms";
-import { requireOrgContext } from "@/lib/session";
+import { requireActiveOrg } from "@/lib/session";
 import { isUuid } from "@/lib/uuid";
 
 const ACTIVITY_TAKEN = "That activity already has its own DPIA.";
@@ -21,7 +21,7 @@ const riskRows = (dpiaId: string, risks: RiskInput[]) => risks.map((r, position)
  * it. An activity that already has a DPIA opens the existing one.
  */
 export async function startDpia(formData: FormData): Promise<void> {
-  const { user, org } = await requireOrgContext();
+  const { user, org } = await requireActiveOrg();
   const rawActivity = String(formData.get("activityId") ?? "");
   const template = getDpiaTemplate(String(formData.get("templateId") ?? ""));
 
@@ -73,7 +73,7 @@ export async function startDpia(formData: FormData): Promise<void> {
 
 /** Saves an existing DPIA and replaces its risk table. */
 export async function saveDpia(_prev: FormState, formData: FormData): Promise<FormState> {
-  const { org } = await requireOrgContext();
+  const { org } = await requireActiveOrg();
   const id = String(formData.get("id") ?? "");
   if (!isUuid(id)) return { message: "DPIA not found." };
   const parsed = parseDpiaForm(formData);
@@ -125,7 +125,7 @@ export async function saveDpia(_prev: FormState, formData: FormData): Promise<Fo
 }
 
 export async function deleteDpia(id: string): Promise<void> {
-  const { org } = await requireOrgContext();
+  const { org } = await requireActiveOrg();
   if (typeof id === "string" && isUuid(id)) {
     await db.delete(dpias).where(and(eq(dpias.id, id), eq(dpias.orgId, org.id)));
   }
