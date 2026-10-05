@@ -9,7 +9,7 @@ import { registrations } from "@/db/schema";
 import { isIsoDate } from "@/lib/dates";
 import { fieldErrors, formValues, type FormState } from "@/lib/forms";
 import { defaultExpiry } from "@/lib/registration";
-import { requireOrgContext } from "@/lib/session";
+import { requireActiveOrg } from "@/lib/session";
 import { isUuid } from "@/lib/uuid";
 
 const optionalDate = z
@@ -43,7 +43,7 @@ const schema = z
 
 /** Creates or updates a registration. Edits carry the registration id in a hidden `id` field. */
 export async function saveRegistration(_prev: FormState, formData: FormData): Promise<FormState> {
-  const { org } = await requireOrgContext();
+  const { org } = await requireActiveOrg();
   const rawId = formData.get("id");
   const id = typeof rawId === "string" && rawId ? rawId : null;
   if (id && !isUuid(id)) return { message: "Registration not found." };
@@ -92,7 +92,7 @@ export async function saveRegistration(_prev: FormState, formData: FormData): Pr
 }
 
 export async function deleteRegistration(id: string): Promise<void> {
-  const { org } = await requireOrgContext();
+  const { org } = await requireActiveOrg();
   if (typeof id === "string" && isUuid(id)) {
     await db.delete(registrations).where(and(eq(registrations.id, id), eq(registrations.orgId, org.id)));
   }

@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { db } from "@/db";
+import { prunePayments, runBillingAlerts } from "@/lib/billing";
 import { runBreachAlerts } from "@/lib/breach-alerts";
 import { createEmailSender } from "@/lib/email";
 import { pruneVerificationTokens } from "@/lib/email-verification";
@@ -25,11 +26,13 @@ export async function GET(request: Request) {
   const reminders = await runReminders(db, send);
   const breaches = await runBreachAlerts(db, send);
   const requests = await runSubjectRequestAlerts(db, send);
-  // Housekeeping: drop stale login counters and expired reset, verification and invitation links.
+  const billing = await runBillingAlerts(db, send);
+  // Housekeeping: drop stale login counters, expired reset, verification and invitation links, and unpaid checkouts.
   await pruneRateLimits(db);
   await pruneResetTokens(db);
   await pruneVerificationTokens(db);
   await pruneInvitations(db);
-  const failed = reminders.failed.length + breaches.failed.length + requests.failed.length > 0;
-  return Response.json({ reminders, breaches, requests }, { status: failed ? 500 : 200 });
+  await prunePayments(db);
+  const failed = reminders.failed.length + breaches.failed.length + requests.failed.length + billing.failed.length > 0;
+  return Response.json({ reminders, breaches, requests, billing }, { status: failed ? 500 : 200 });
 }

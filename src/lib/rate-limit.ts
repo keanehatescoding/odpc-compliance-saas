@@ -19,6 +19,7 @@ export const RATE_LIMITS = {
   verifySendUser: { limit: 5, windowMs: 60 * MINUTE },
   passwordChangeUser: { limit: 10, windowMs: 15 * MINUTE },
   inviteSendUser: { limit: 20, windowMs: 60 * MINUTE },
+  checkoutUser: { limit: 10, windowMs: 60 * MINUTE },
 } satisfies Record<string, RateLimitRule>;
 
 export type RateLimitResult = { ok: true } | { ok: false; retryAfterMs: number };

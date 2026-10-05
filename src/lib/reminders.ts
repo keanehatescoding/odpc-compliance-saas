@@ -88,11 +88,16 @@ export async function reminderRecipients(db: Db, org: typeof organizations.$infe
       .map((s) => s.trim())
       .filter(Boolean);
   }
+  return ownerEmails(db, org.id);
+}
+
+/** Owners who have confirmed their email address. */
+export async function ownerEmails(db: Db, orgId: string): Promise<string[]> {
   const rows = await db
     .select({ email: users.email })
     .from(memberships)
     .innerJoin(users, eq(users.id, memberships.userId))
-    .where(and(eq(memberships.orgId, org.id), eq(memberships.role, "owner"), isNotNull(users.emailVerifiedAt)));
+    .where(and(eq(memberships.orgId, orgId), eq(memberships.role, "owner"), isNotNull(users.emailVerifiedAt)));
   return rows.map((r) => r.email);
 }
 
