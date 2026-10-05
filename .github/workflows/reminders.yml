@@ -8,6 +8,9 @@ on:
     - cron: "7 * * * *"
   workflow_dispatch:
 
+# The job only calls the app, so it needs no access to the repository.
+permissions: {}
+
 jobs:
   run:
     runs-on: ubuntu-latest
