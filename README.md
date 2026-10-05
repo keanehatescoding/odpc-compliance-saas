@@ -49,11 +49,12 @@ Open http://localhost:3000. The seed creates a school, "Sunrise Academy", whose 
 | Variable | Required | Notes |
 | --- | --- | --- |
 | `DATABASE_URL` | yes | Postgres connection string |
-| `APP_URL` | yes | Base URL used in email links |
+| `APP_URL` | yes | Base URL used in email links. The production server won't start without it |
 | `CRON_SECRET` | for the cron endpoint | Bearer token for `/api/cron/reminders` |
 | `PAYSTACK_SECRET_KEY` | for payments | Paystack secret key (`sk_test_…` or `sk_live_…`). Without it the billing page says online payment isn't set up |
 | `SELLER_NAME`, `SELLER_KRA_PIN`, `SELLER_ADDRESS`, `SELLER_EMAIL` | for receipts | The business shown on receipts. The name defaults to Kinga, and the others are left off when unset. Write line breaks in the address as `\n` |
-| `SMTP_URL` | no | Without it, emails are printed to the log |
+| `SMTP_URL` | in production | Without it, emails are printed to the log. The production server won't start without it unless `EMAIL_LOG_ONLY=true` |
+| `EMAIL_LOG_ONLY` | no | `true` lets a production server (say, a demo) print emails to the log instead of sending them |
 | `EMAIL_FROM` | no | Sender address |
 | `TRUST_IP_HEADER` | no | `x-forwarded-for` (default) or `x-real-ip`. Which header rate limiting reads the client IP from |
 | `TRUSTED_PROXY_HOPS` | no | Number of proxies that append to `X-Forwarded-For` (default 1) |
@@ -99,6 +100,12 @@ Run the app behind a reverse proxy. Rate limiting reads the client IP from a hea
 If `next start` is exposed directly, clients can send their own `X-Forwarded-For` and dodge the per-IP limits. The per-email login limit still applies.
 
 `APP_URL` must be the public URL, because password reset links and the Paystack return URL are built from it.
+
+In production, missing `APP_URL` or `SMTP_URL` makes every request fail with a 500, so the deploy fails its health check instead of going live and silently not sending breach alerts or reset links.
+
+Server errors are logged as one JSON line with `"event":"server_error"`, and the error page shows the user that line's `digest` as a reference. Set up a log alert on `server_error` in your host (Railway: Observability → Log alerts), or add an error tracker such as Sentry in `src/instrumentation.ts`.
+
+`next.config.ts` sets a Content Security Policy (no third-party scripts, styles, frames or form targets apart from Paystack checkout), HSTS and other security headers. Allow any new third-party origin there before using it.
 
 ### Railway
 
