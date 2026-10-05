@@ -54,7 +54,7 @@ Open http://localhost:3000. The seed creates a school, "Sunrise Academy", whose 
 | `TRUST_IP_HEADER` | no | `x-forwarded-for` (default) or `x-real-ip`. Which header rate limiting reads the client IP from |
 | `TRUSTED_PROXY_HOPS` | no | Number of proxies that append to `X-Forwarded-For` (default 1) |
 
-## Scheduling reminders and breach alerts
+## Scheduling reminders and alerts
 
 Run the job every hour, because breach deadlines are counted in hours. Renewal reminders still go out at most once per threshold. Run it either as a script:
 
@@ -68,7 +68,7 @@ or over HTTP (for Vercel Cron, GitHub Actions and similar):
 curl -H "Authorization: Bearer $CRON_SECRET" https://your-host/api/cron/reminders
 ```
 
-The endpoint returns `{ reminders, breaches }` with the results of each job. Both jobs are safe to run more than once. Each (certificate, expiry date, threshold) is claimed in `reminder_log`, and each (breach, alert stage) in `breach_alert_log`, before sending. The claim is released if the send fails. After downtime, each job sends only the most recent missed alert, not every one. Logging a breach also triggers its first alert straight away.
+It runs three jobs: renewal reminders, breach alerts, and alerts for data subject requests that are close to or past their response deadline. The endpoint returns `{ reminders, breaches, requests }` with the results of each job. All three are safe to run more than once. Each (certificate, expiry date, threshold) is claimed in `reminder_log`, each (breach, alert stage) in `breach_alert_log`, and each (request, alert stage) in `subject_request_alert_log`, before sending. The claim is released if the send fails. After downtime, each job sends only the most recent missed alert, not every one. Logging a breach or a request also triggers its first alert straight away, and editing a request so that its deadline moves clears its alerts so they are sent again for the new deadline.
 
 ## Layout
 
