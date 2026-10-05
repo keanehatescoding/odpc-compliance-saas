@@ -5,7 +5,7 @@ import { billingAlertLog, organizations, payments } from "@/db/schema";
 import { formatDate, todayInKenya } from "./dates";
 import { formatKsh, type OrgSize } from "./dpa";
 import type { SendEmail } from "./email";
-import type { Paystack, PaystackTransaction } from "./paystack";
+import { PaystackError, type Paystack, type PaystackTransaction } from "./paystack";
 import { accessFor, addPeriod, PLAN_PRICES, toSubunits, type BillingInterval } from "./plans";
 import { ownerEmails } from "./reminders";
 
@@ -46,8 +46,19 @@ export async function startCheckout(
   } catch (err) {
     console.error("Paystack checkout failed", err);
     await db.update(payments).set({ status: "failed" }).where(eq(payments.reference, reference));
-    return { error: "We couldn't reach our payment provider. Try again in a few minutes." };
+    return { error: checkoutError(err) };
   }
+}
+
+function checkoutError(err: unknown): string {
+  if (err instanceof PaystackError) {
+    // A bad or missing key is ours to fix, not the payer's.
+    if (err.status === 401 || err.status === 403) return PAYMENTS_UNAVAILABLE;
+    if (err.status >= 400 && err.status < 500) {
+      return `Our payment provider turned down this payment${err.reason ? ` (${err.reason})` : ""}. Contact us if this keeps happening.`;
+    }
+  }
+  return "We couldn't reach our payment provider. Try again in a few minutes.";
 }
 
 export type RecordResult =

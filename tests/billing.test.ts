@@ -8,6 +8,7 @@ import type { Db } from "@/db";
 import * as schema from "@/db/schema";
 import {
   dueBillingAlert,
+  PAYMENTS_UNAVAILABLE,
   PENDING_PAYMENT_KEEP_MS,
   prunePayments,
   recordPayment,
@@ -15,7 +16,7 @@ import {
   startCheckout,
 } from "@/lib/billing";
 import type { EmailMessage } from "@/lib/email";
-import { createPaystack, parseTransaction, verifyWebhookSignature, type Paystack, type PaystackTransaction } from "@/lib/paystack";
+import { createPaystack, PaystackError, parseTransaction, verifyWebhookSignature, type Paystack, type PaystackTransaction } from "@/lib/paystack";
 import { accessFor, addPeriod, TRIAL_DAYS } from "@/lib/plans";
 
 const { memberships, organizations, payments, users } = schema;
@@ -33,13 +34,13 @@ async function org() {
   return o;
 }
 
-const fakePaystack = (fail = false): Paystack & { calls: unknown[] } => {
+const fakePaystack = (fail: boolean | Error = false): Paystack & { calls: unknown[] } => {
   const calls: unknown[] = [];
   return {
     calls,
     async initialize(p) {
       calls.push(p);
-      if (fail) throw new Error("network down");
+      if (fail) throw fail instanceof Error ? fail : new Error("network down");
       return { authorizationUrl: `https://checkout.paystack.com/${p.reference}` };
     },
     async verify() {
@@ -153,6 +154,22 @@ describe("checkout", () => {
     const [p] = await db.select().from(payments);
     expect(p.status).toBe("failed");
   });
+
+  it("says why when Paystack turns a checkout down", async () => {
+    const attempt = (err: Error) =>
+      startCheckout(db, fakePaystack(err), {
+        orgId,
+        userId: ownerId,
+        email: "owner@sunrise.ke",
+        size: "micro_small",
+        interval: "month",
+        callbackUrl: "x",
+      });
+    const rejected = await attempt(new PaystackError("failed (400)", 400, '"email" must be a valid email'));
+    expect(rejected).toEqual({ error: expect.stringContaining('turned down this payment ("email" must be a valid email)') });
+    expect(await attempt(new PaystackError("failed (401)", 401, "Invalid key"))).toEqual({ error: PAYMENTS_UNAVAILABLE });
+    expect(await attempt(new PaystackError("failed (502)", 502, null))).toEqual({ error: expect.stringContaining("couldn't reach") });
+  });
 });
 
 describe("recording payments", () => {
@@ -260,7 +277,12 @@ describe("paystack", () => {
   it("throws when Paystack refuses", async () => {
     const fetchImpl = (async () =>
       new Response(JSON.stringify({ status: false, message: "Invalid key" }), { status: 401 })) as unknown as typeof fetch;
-    await expect(createPaystack("sk_bad", fetchImpl).verify("x")).rejects.toThrow(/Invalid key/);
+    await expect(createPaystack("sk_bad", fetchImpl).verify("x")).rejects.toMatchObject({
+      name: "PaystackError",
+      status: 401,
+      reason: "Invalid key",
+      message: expect.stringMatching(/Invalid key/),
+    });
   });
 
   it("tolerates missing fields", () => {

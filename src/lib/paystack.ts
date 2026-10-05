@@ -30,6 +30,18 @@ export interface Paystack {
   verify(reference: string): Promise<PaystackTransaction>;
 }
 
+/** Paystack answered, but refused the request. `reason` is Paystack's own message. */
+export class PaystackError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly reason: string | null,
+  ) {
+    super(message);
+    this.name = "PaystackError";
+  }
+}
+
 export function paystackFromEnv(env: NodeJS.ProcessEnv = process.env): Paystack | null {
   return env.PAYSTACK_SECRET_KEY ? createPaystack(env.PAYSTACK_SECRET_KEY) : null;
 }
@@ -43,7 +55,11 @@ export function createPaystack(secretKey: string, fetchImpl: typeof fetch = fetc
     });
     const body = (await res.json().catch(() => null)) as { status?: boolean; message?: string; data?: unknown } | null;
     if (!res.ok || !body?.status) {
-      throw new Error(`Paystack ${path.split("/").slice(0, 3).join("/")} failed (${res.status}): ${body?.message ?? "no response body"}`);
+      throw new PaystackError(
+        `Paystack ${path.split("/").slice(0, 3).join("/")} failed (${res.status}): ${body?.message ?? "no response body"}`,
+        res.status,
+        body?.message ?? null,
+      );
     }
     return body.data as Record<string, unknown>;
   }
