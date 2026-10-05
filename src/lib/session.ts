@@ -59,7 +59,8 @@ export const getCurrentUser = cache(async () => {
 
 /**
  * The signed-in user and their organisation. Redirects to /login if signed
- * out, or to /verify-email until they confirm their address. Every data access in the app is scoped by the returned `org.id`.
+ * out, to /verify-email until they confirm their address, or to /no-organisation
+ * if they don't belong to one (e.g. they were removed from the team). Every data access in the app is scoped by the returned `org.id`.
  */
 export const requireOrgContext = cache(async () => {
   const user = await getCurrentUser();
@@ -72,7 +73,7 @@ export const requireOrgContext = cache(async () => {
     .where(eq(memberships.userId, user.id))
     .orderBy(memberships.createdAt)
     .limit(1);
-  if (!row) redirect("/signup");
+  if (!row) redirect("/no-organisation");
   return { user, org: row.org, role: row.role };
 });
 

@@ -17,6 +17,8 @@ export const config = {
     "/ropa/:path*",
     "/breaches/:path*",
     "/dpia/:path*",
+    "/requests/:path*",
+    "/team/:path*",
     "/settings/:path*",
   ],
 };

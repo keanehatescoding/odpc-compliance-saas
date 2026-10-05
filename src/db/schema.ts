@@ -135,6 +135,30 @@ export const memberships = pgTable(
   (t) => [primaryKey({ columns: [t.userId, t.orgId] }), index("memberships_org_idx").on(t.orgId)],
 );
 
+/** A pending invitation to join an organisation. Accepting it deletes the row. */
+export const invitations = pgTable(
+  "invitations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // SHA-256 of the emailed token; the raw token is never stored.
+    tokenHash: text("token_hash").notNull(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    // Only someone who can read mail at this address can accept.
+    email: text("email").notNull(),
+    role: memberRoleEnum("role").notNull(),
+    invitedBy: uuid("invited_by").references(() => users.id, { onDelete: "set null" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("invitations_token_idx").on(t.tokenHash),
+    // One pending invitation per address per organisation; inviting again replaces it.
+    uniqueIndex("invitations_org_email_idx").on(t.orgId, sql`lower(${t.email})`),
+  ],
+);
+
 /** An ODPC registration certificate (one per role the organisation holds). */
 export const registrations = pgTable(
   "registrations",
@@ -426,6 +450,7 @@ export const reminderLogRelations = relations(reminderLog, ({ one }) => ({
 
 export type User = typeof users.$inferSelect;
 export type Organization = typeof organizations.$inferSelect;
+export type MemberRole = (typeof memberRoleEnum.enumValues)[number];
 export type Registration = typeof registrations.$inferSelect;
 export type ProcessingActivity = typeof processingActivities.$inferSelect;
 export type Breach = typeof breaches.$inferSelect;
