@@ -6,7 +6,15 @@ import { login } from "@/app/actions/auth";
 import { SubmitButton } from "@/components/submit-button";
 import { Card, FormMessage, TextField } from "@/components/ui";
 
-export function LoginForm({ notice }: { notice?: { message: string; tone: "error" | "success" } }) {
+export function LoginForm({
+  notice,
+  next,
+  email,
+}: {
+  notice?: { message: string; tone: "error" | "success" };
+  next?: string;
+  email?: string;
+}) {
   const [state, action] = useActionState(login, undefined);
   const f = { errors: state?.errors, values: state?.values };
   return (
@@ -14,7 +22,8 @@ export function LoginForm({ notice }: { notice?: { message: string; tone: "error
       <h1 className="text-xl font-semibold">Sign in</h1>
       <form action={action} className="mt-6 space-y-4">
         {state?.message ? <FormMessage message={state.message} /> : notice && <FormMessage {...notice} />}
-        <TextField name="email" label="Email" type="email" autoComplete="email" required {...f} />
+        {next && <input type="hidden" name="next" value={next} />}
+        <TextField name="email" label="Email" type="email" autoComplete="email" initial={email} required {...f} />
         <TextField
           name="password"
           label="Password"

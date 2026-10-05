@@ -12,6 +12,7 @@ import { ORG_SIZE_KEYS, SECTOR_KEYS, type OrgSize, type Sector } from "@/lib/dpa
 import { createEmailSender } from "@/lib/email";
 import { changeEmail, issueVerificationToken, verificationEmail } from "@/lib/email-verification";
 import { fieldErrors, formValues, type FormState } from "@/lib/forms";
+import { safeNextPath } from "@/lib/next-path";
 import { getDummyHash, hashPassword, verifyPassword } from "@/lib/password";
 import { issueResetToken, passwordChangedEmail, resetEmail, resetPassword, updatePassword } from "@/lib/password-reset";
 import { clearRateLimit, hitRateLimit, RATE_LIMITS, tooManyAttempts, type RateLimitRule } from "@/lib/rate-limit";
@@ -174,7 +175,7 @@ export async function login(_prev: FormState, formData: FormData): Promise<FormS
 
   await clearRateLimit(db, emailKey);
   await createSession(user.id);
-  redirect("/dashboard");
+  redirect(safeNextPath(formData.get("next")));
 }
 
 export async function requestPasswordReset(_prev: FormState, formData: FormData): Promise<FormState> {

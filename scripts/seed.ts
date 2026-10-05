@@ -7,6 +7,7 @@ import {
   breachUpdates,
   dpiaRisks,
   dpias,
+  invitations,
   memberships,
   organizations,
   processingActivities,
@@ -18,9 +19,15 @@ import { addDays, addMonths, todayInKenya } from "@/lib/dates";
 import { defaultReviewDate, draftDpia } from "@/lib/dpia";
 import { hashPassword } from "@/lib/password";
 import { templatesForSector } from "@/lib/ropa";
+import { INVITE_TTL_MS } from "@/lib/team";
+import { hashToken, newToken } from "@/lib/tokens";
 
 const EMAIL = "demo@kinga.test";
 const PASSWORD = "demo-password-1";
+// A colleague on the demo team, signed in with the same password.
+const TEAMMATE = "otieno@kinga.test";
+
+await db.delete(users).where(eq(sql`lower(${users.email})`, TEAMMATE));
 
 const [existing] = await db.select().from(users).where(eq(sql`lower(${users.email})`, EMAIL));
 if (existing) {
@@ -45,6 +52,21 @@ const [org] = await db
   .values({ name: "Sunrise Academy", sector: "education", size: "micro_small", kraPin: "P051234567X" })
   .returning();
 await db.insert(memberships).values({ userId: user.id, orgId: org.id, role: "owner" });
+
+// A member who works on the records, and a pending invitation for the bursar.
+const [teammate] = await db
+  .insert(users)
+  .values({ email: TEAMMATE, name: "Brian Otieno", passwordHash: await hashPassword(PASSWORD), emailVerifiedAt: new Date() })
+  .returning();
+await db.insert(memberships).values({ userId: teammate.id, orgId: org.id, role: "member" });
+await db.insert(invitations).values({
+  tokenHash: hashToken(newToken()),
+  orgId: org.id,
+  email: "bursar@sunrise.example",
+  role: "admin",
+  invitedBy: user.id,
+  expiresAt: new Date(Date.now() + INVITE_TTL_MS),
+});
 
 // Controller certificate expiring in 20 days; processor certificate lapsed last month.
 const controllerExpiry = addDays(today, 20);

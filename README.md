@@ -8,6 +8,7 @@ Kinga ("protection" in Swahili; a placeholder name) helps small organisations me
 - **RoPA builder.** A record of processing activities: purpose, s.30 lawful basis, data subjects, categories, sensitive data, cross-border transfers, retention and security. It includes sector templates (schools, clinics, SACCOs, fintech, retail, hospitality), DPIA screening, CSV export and a printable view.
 - **Impact assessments.** Full s.31 DPIAs: describe the processing, justify necessity and proportionality, then score each risk before and after mitigation on a likelihood × severity matrix. Start from a flagged RoPA activity, which pre-fills the facts and the matching sector template, or from a template for new processing (CCTV, student and patient records, KYC, credit scoring, marketing, biometric attendance). A DPIA can't be approved while sections are empty or a risk remains high without a recorded ODPC consultation. Approved DPIAs are due for review after 12 months, and each one has a printable report.
 - **Data subject requests.** Log requests from people exercising their rights: access, correction, erasure, restriction, objection, portability and opting out of third-party marketing. Each type gets its deadline from the Data Protection (General) Regulations, counted from the day the request arrived: 7 days for access and marketing opt-outs, 14 for correction, erasure, restriction and objection, and 30 for portability. Record who asked, anyone acting for them, how you confirmed their identity, and your response. Declining requires written reasons, and the request page shows what each type allows. The team gets an email 2 days before the deadline and again once it passes, and open requests appear in the dashboard's next steps.
+- **Team.** Owners and admins invite colleagues by email from the Team page. The link works for 7 days, only for the invited address, and once. Opening it either creates an account (already confirmed, since the link proves the address) or, for an existing account, asks them to sign in and join. Each account belongs to one organisation. Roles: members work on all the records; admins also change settings and manage admins and members; owners also manage other owners and get the compliance emails. An organisation always keeps at least one owner. Removing someone takes away their access straight away. Invitations can be resent or withdrawn, and each person can send 20 an hour.
 - **Account security.** New accounts confirm their email before using the app, because renewal reminders and breach alerts go there. The link is single use, expires in 24 hours, and never signs anyone in. Until it's opened, the user can resend it (5 an hour) or fix a mistyped address, and owners who haven't confirmed get no compliance emails. Password reset by emailed link (single use, expires in 1 hour, signs you out on every device). Signed-in users can change their password in Settings by confirming their current one (10 tries per 15 minutes). This signs out their other devices, cancels any reset links and emails them a notice. Login, signup and reset attempts are rate-limited per IP address, and sign-in attempts per email address (cleared when you sign in), with counters kept in Postgres so every app instance shares them.
 
 See [BRIEF.md](BRIEF.md) for the product brief.
@@ -27,7 +28,7 @@ npm run db:seed             # optional demo data
 npm run dev
 ```
 
-Open http://localhost:3000. The seed creates a school, "Sunrise Academy", whose controller certificate expires in 20 days and whose processor certificate expired 17 days ago, an open breach with 42 hours left to notify the ODPC, an approved DPIA for student records, CCTV flagged as needing a DPIA, and a parent's access request due in 2 days. Sign in as `demo@kinga.test` / `demo-password-1`.
+Open http://localhost:3000. The seed creates a school, "Sunrise Academy", whose controller certificate expires in 20 days and whose processor certificate expired 17 days ago, an open breach with 42 hours left to notify the ODPC, an approved DPIA for student records, CCTV flagged as needing a DPIA, a parent's access request due in 2 days, a second team member and a pending invitation. Sign in as `demo@kinga.test` / `demo-password-1` (an owner) or `otieno@kinga.test` with the same password (a member).
 
 ## Scripts
 
@@ -40,7 +41,7 @@ Open http://localhost:3000. The seed creates a school, "Sunrise Academy", whose 
 | `npm run db:generate` | Generate a migration after editing `src/db/schema.ts` |
 | `npm run db:migrate` | Apply migrations |
 | `npm run db:seed` | Reset the demo organisation |
-| `npm run reminders` | Run the reminder, breach-alert and request-deadline job once (also prunes stale rate-limit counters and expired reset and verification links) |
+| `npm run reminders` | Run the reminder, breach-alert and request-deadline job once (also prunes stale rate-limit counters, expired reset and verification links, and invitations that expired over 30 days ago) |
 
 ## Environment
 
@@ -77,7 +78,7 @@ src/lib/          domain logic (dates, registration status, RoPA, reminders, aut
 src/db/           Drizzle schema and client
 src/app/actions/  server actions
 src/app/(app)/    signed-in pages
-src/app/(auth)/   login, signup, password reset and email verification
+src/app/(auth)/   login, signup, password reset, email verification and accepting invitations
 scripts/          migrate, seed, reminder job
 tests/            vitest
 ```
@@ -111,4 +112,4 @@ This is an MVP, not legal advice. Check these against current ODPC guidance:
 
 ## Not built yet
 
-Team invitations and roles UI, and billing.
+Billing.
