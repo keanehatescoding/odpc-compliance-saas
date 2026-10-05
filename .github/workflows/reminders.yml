@@ -1,0 +1,26 @@
+# Runs the reminder, breach-alert, request-deadline and billing-email job every
+# hour by calling the app's cron endpoint. Set the APP_URL variable and the
+# CRON_SECRET secret in the repository's Actions settings.
+name: Hourly reminders
+
+on:
+  schedule:
+    - cron: "7 * * * *"
+  workflow_dispatch:
+
+# The job only calls the app, so it needs no access to the repository.
+permissions: {}
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Call the cron endpoint
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl --fail-with-body --silent --show-error --max-time 240 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$APP_URL/api/cron/reminders"
