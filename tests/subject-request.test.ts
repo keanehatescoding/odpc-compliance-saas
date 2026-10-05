@@ -185,6 +185,31 @@ describe("runSubjectRequestAlerts", () => {
     expect(outbox).toHaveLength(0);
   });
 
+  it("decides on the current deadline when an edit lands mid-run", async () => {
+    const { request } = await setup();
+    // Move the deadline after the run has listed the request but before it claims an alert.
+    const racing = new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop !== "transaction") return Reflect.get(target, prop, receiver);
+        return async (...args: Parameters<Db["transaction"]>) => {
+          await target
+            .update(schema.subjectRequests)
+            .set({ receivedOn: "2026-10-05" })
+            .where(eq(schema.subjectRequests.id, request.id));
+          return target.transaction(...args);
+        };
+      },
+    });
+    const r = await runSubjectRequestAlerts(racing, send, { now: on("2026-10-06") });
+    expect(r.sent).toHaveLength(0);
+
+    // The due-soon alert for the new deadline still goes out.
+    await runSubjectRequestAlerts(db, send, { now: on("2026-10-10") });
+    expect(outbox.map((m) => m.subject)).toEqual([
+      "Sunrise Academy: respond to access request from Achieng Otieno (2 days left)",
+    ]);
+  });
+
   it("releases the claim when sending fails, so the next run retries", async () => {
     await setup();
     const failing = async () => {

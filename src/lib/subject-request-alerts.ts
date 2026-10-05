@@ -39,24 +39,34 @@ export async function runSubjectRequestAlerts(
     .innerJoin(organizations, eq(organizations.id, subjectRequests.orgId))
     .where(and(isNull(subjectRequests.outcome), opts.requestId ? eq(subjectRequests.id, opts.requestId) : undefined));
 
-  for (const { request, org } of rows) {
+  for (const { request: listed, org } of rows) {
     result.checked++;
-    const sentRows = await db
-      .select({ kind: subjectRequestAlertLog.kind })
-      .from(subjectRequestAlertLog)
-      .where(eq(subjectRequestAlertLog.requestId, request.id));
-    const kind = dueRequestAlert(request, today, new Set(sentRows.map((r) => r.kind)));
-    if (!kind) continue;
+    if (!dueRequestAlert(listed, today, await sentKinds(db, listed.id))) continue;
 
     const to = await reminderRecipients(db, org);
     if (to.length === 0) continue;
 
-    const claimed = await db
-      .insert(subjectRequestAlertLog)
-      .values({ requestId: request.id, kind, recipients: to })
-      .onConflictDoNothing()
-      .returning({ id: subjectRequestAlertLog.id });
-    if (claimed.length === 0) continue;
+    // The row above may predate an edit that moved the deadline, and an edit
+    // clears the claims made for the old one. Lock the request (as edits do),
+    // reload it and decide again, so a stale deadline can't claim an alert.
+    const claim = await db.transaction(async (tx) => {
+      const [request] = await tx
+        .select()
+        .from(subjectRequests)
+        .where(and(eq(subjectRequests.id, listed.id), isNull(subjectRequests.outcome)))
+        .for("update");
+      if (!request) return null;
+      const kind = dueRequestAlert(request, today, await sentKinds(tx, request.id));
+      if (!kind) return null;
+      const [claimed] = await tx
+        .insert(subjectRequestAlertLog)
+        .values({ requestId: request.id, kind, recipients: to })
+        .onConflictDoNothing()
+        .returning({ id: subjectRequestAlertLog.id });
+      return claimed ? { id: claimed.id, request, kind } : null;
+    });
+    if (!claim) continue;
+    const { request, kind } = claim;
 
     try {
       await sendEmail({
@@ -70,11 +80,19 @@ export async function runSubjectRequestAlerts(
       // Release the claim so the next run retries. If that fails too, keep going with the other requests.
       await db
         .delete(subjectRequestAlertLog)
-        .where(eq(subjectRequestAlertLog.id, claimed[0].id))
+        .where(eq(subjectRequestAlertLog.id, claim.id))
         .catch((releaseErr) => console.error("Failed to release subject request alert claim", releaseErr));
     }
   }
   return result;
+}
+
+async function sentKinds(db: Db, requestId: string): Promise<Set<string>> {
+  const rows = await db
+    .select({ kind: subjectRequestAlertLog.kind })
+    .from(subjectRequestAlertLog)
+    .where(eq(subjectRequestAlertLog.requestId, requestId));
+  return new Set(rows.map((r) => r.kind));
 }
 
 function alertSubject(orgName: string, r: SubjectRequest, today: string): string {
