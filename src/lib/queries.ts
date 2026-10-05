@@ -10,6 +10,7 @@ import {
   processingActivities,
   registrations,
   reminderLog,
+  subjectRequests,
   users,
 } from "@/db/schema";
 
@@ -136,4 +137,21 @@ export function listOrgDpiaRisks(orgId: string) {
     .from(dpiaRisks)
     .innerJoin(dpias, eq(dpias.id, dpiaRisks.dpiaId))
     .where(eq(dpias.orgId, orgId));
+}
+
+export function listSubjectRequests(orgId: string) {
+  return db
+    .select()
+    .from(subjectRequests)
+    .where(eq(subjectRequests.orgId, orgId))
+    .orderBy(desc(subjectRequests.receivedOn), desc(subjectRequests.createdAt));
+}
+
+export async function getSubjectRequest(orgId: string, id: string) {
+  const [row] = await db
+    .select()
+    .from(subjectRequests)
+    .where(and(eq(subjectRequests.orgId, orgId), eq(subjectRequests.id, id)))
+    .limit(1);
+  return row ?? null;
 }

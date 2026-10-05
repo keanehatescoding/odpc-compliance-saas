@@ -4,6 +4,7 @@ import { BREACH_STATUS_LABEL, type BreachStatus } from "@/lib/breach";
 import { DPIA_STATUS_LABEL, RISK_LEVEL_LABEL, type DpiaStatus, type RiskLevel } from "@/lib/dpia";
 import type { FormValues } from "@/lib/forms";
 import { STATUS_LABEL, type RegistrationStatus } from "@/lib/registration";
+import { REQUEST_STATUS_LABEL, type RequestStatus } from "@/lib/subject-request";
 
 export function cx(...classes: (string | false | null | undefined)[]) {
   return classes.filter(Boolean).join(" ");
@@ -64,6 +65,22 @@ export function BreachStatusBadge({ status }: { status: BreachStatus }) {
   return (
     <span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset", BREACH_STATUS_STYLE[status])}>
       {BREACH_STATUS_LABEL[status]}
+    </span>
+  );
+}
+
+const REQUEST_STATUS_STYLE: Record<RequestStatus, string> = {
+  open: "bg-sky-50 text-sky-800 ring-sky-200",
+  due_soon: "bg-orange-50 text-orange-800 ring-orange-300",
+  overdue: "bg-red-50 text-red-800 ring-red-300",
+  completed: "bg-emerald-50 text-emerald-800 ring-emerald-200",
+  declined: "bg-stone-100 text-stone-700 ring-stone-300",
+};
+
+export function RequestStatusBadge({ status }: { status: RequestStatus }) {
+  return (
+    <span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset", REQUEST_STATUS_STYLE[status])}>
+      {REQUEST_STATUS_LABEL[status]}
     </span>
   );
 }

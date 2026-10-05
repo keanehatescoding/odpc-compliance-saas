@@ -71,8 +71,12 @@ export async function runBreachAlerts(
       });
       result.sent.push({ breachId: breach.id, kind, to });
     } catch (err) {
-      await db.delete(breachAlertLog).where(eq(breachAlertLog.id, claimed[0].id));
       result.failed.push({ breachId: breach.id, error: err instanceof Error ? err.message : String(err) });
+      // Release the claim so the next run retries. If that fails too, keep going with the other breaches.
+      await db
+        .delete(breachAlertLog)
+        .where(eq(breachAlertLog.id, claimed[0].id))
+        .catch((releaseErr) => console.error("Failed to release breach alert claim", releaseErr));
     }
   }
   return result;

@@ -15,6 +15,7 @@ import {
 import { BREACH_KIND_KEYS, BREACH_RISK_KEYS } from "../lib/breach";
 import { LIKELIHOOD_KEYS, SEVERITY_KEYS } from "../lib/dpia";
 import { LAWFUL_BASIS_KEYS, ORG_SIZE_KEYS, SECTOR_KEYS } from "../lib/dpa";
+import { REQUEST_KIND_KEYS, REQUEST_OUTCOME_KEYS } from "../lib/subject-request";
 
 export const sectorEnum = pgEnum("sector", SECTOR_KEYS as [string, ...string[]]);
 export const orgSizeEnum = pgEnum("org_size", ORG_SIZE_KEYS as [string, ...string[]]);
@@ -25,6 +26,8 @@ export const breachKindEnum = pgEnum("breach_kind", BREACH_KIND_KEYS as [string,
 export const breachRiskEnum = pgEnum("breach_risk", BREACH_RISK_KEYS as [string, ...string[]]);
 export const likelihoodEnum = pgEnum("risk_likelihood", LIKELIHOOD_KEYS as [string, ...string[]]);
 export const severityEnum = pgEnum("risk_severity", SEVERITY_KEYS as [string, ...string[]]);
+export const requestKindEnum = pgEnum("subject_request_kind", REQUEST_KIND_KEYS as [string, ...string[]]);
+export const requestOutcomeEnum = pgEnum("subject_request_outcome", REQUEST_OUTCOME_KEYS as [string, ...string[]]);
 
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -348,12 +351,60 @@ export const dpiaRisks = pgTable(
   (t) => [index("dpia_risks_dpia_idx").on(t.dpiaId, t.position)],
 );
 
+/**
+ * A request from a data subject exercising their rights: access, correction,
+ * erasure and so on. The response deadline runs in calendar days from
+ * `receivedOn`, by kind (see lib/subject-request).
+ */
+export const subjectRequests = pgTable(
+  "subject_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    kind: requestKindEnum("kind").notNull(),
+    receivedOn: date("received_on", { mode: "string" }).notNull(),
+    requesterName: text("requester_name").notNull(),
+    requesterContact: text("requester_contact").notNull().default(""),
+    // Someone acting for the data subject, e.g. a parent or an advocate.
+    representative: text("representative").notNull().default(""),
+    channel: text("channel").notNull().default(""),
+    details: text("details").notNull(),
+    identityCheck: text("identity_check").notNull().default(""),
+    // Null while the request is open; set together with respondedOn.
+    outcome: requestOutcomeEnum("outcome"),
+    respondedOn: date("responded_on", { mode: "string" }),
+    // What was done, or the reasons for declining.
+    response: text("response").notNull().default(""),
+    loggedBy: uuid("logged_by").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [index("subject_requests_org_idx").on(t.orgId, t.receivedOn)],
+);
+
+/** One row per deadline alert email, so each kind goes out once per request. */
+export const subjectRequestAlertLog = pgTable(
+  "subject_request_alert_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => subjectRequests.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    recipients: text("recipients").array().notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("subject_request_alert_log_unique_idx").on(t.requestId, t.kind)],
+);
+
 export const organizationsRelations = relations(organizations, ({ many }) => ({
   memberships: many(memberships),
   registrations: many(registrations),
   activities: many(processingActivities),
   breaches: many(breaches),
   dpias: many(dpias),
+  subjectRequests: many(subjectRequests),
 }));
 
 export const membershipsRelations = relations(memberships, ({ one }) => ({
@@ -380,3 +431,4 @@ export type ProcessingActivity = typeof processingActivities.$inferSelect;
 export type Breach = typeof breaches.$inferSelect;
 export type Dpia = typeof dpias.$inferSelect;
 export type DpiaRisk = typeof dpiaRisks.$inferSelect;
+export type SubjectRequest = typeof subjectRequests.$inferSelect;

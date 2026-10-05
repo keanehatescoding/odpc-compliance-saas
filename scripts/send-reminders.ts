@@ -6,6 +6,7 @@ import { pruneVerificationTokens } from "@/lib/email-verification";
 import { pruneResetTokens } from "@/lib/password-reset";
 import { pruneRateLimits } from "@/lib/rate-limit";
 import { runReminders } from "@/lib/reminders";
+import { runSubjectRequestAlerts } from "@/lib/subject-request-alerts";
 
 const send = createEmailSender();
 const result = await runReminders(db, send);
@@ -20,9 +21,15 @@ console.log(
 );
 for (const f of breaches.failed) console.error(`  ${f.breachId}: ${f.error}`);
 
+const requests = await runSubjectRequestAlerts(db, send);
+console.log(
+  `Checked ${requests.checked} open data subject requests; sent ${requests.sent.length} alerts; ${requests.failed.length} failed.`,
+);
+for (const f of requests.failed) console.error(`  ${f.requestId}: ${f.error}`);
+
 // Housekeeping: drop stale login counters and expired reset and verification links.
 await pruneRateLimits(db);
 await pruneResetTokens(db);
 await pruneVerificationTokens(db);
 
-process.exit(result.failed.length + breaches.failed.length > 0 ? 1 : 0);
+process.exit(result.failed.length + breaches.failed.length + requests.failed.length > 0 ? 1 : 0);

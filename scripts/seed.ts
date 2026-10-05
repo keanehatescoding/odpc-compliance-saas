@@ -11,6 +11,7 @@ import {
   organizations,
   processingActivities,
   registrations,
+  subjectRequests,
   users,
 } from "@/db/schema";
 import { addDays, addMonths, todayInKenya } from "@/lib/dates";
@@ -140,6 +141,38 @@ if (studentRecords) {
   await db.insert(dpiaRisks).values(draft.risks.map((r, position) => ({ ...r, dpiaId: dpia.id, position })));
 }
 
-console.log(`Seeded "${org.name}" with ${templates.length} RoPA entries, one DPIA and one open breach.`);
+// An access request due in 2 days, and an erasure request answered last month.
+await db.insert(subjectRequests).values([
+  {
+    orgId: org.id,
+    kind: "access",
+    receivedOn: addDays(today, -5),
+    requesterName: "Grace Wanjiru",
+    requesterContact: "0722 000 111",
+    representative: "",
+    channel: "Letter handed in at reception",
+    details: "A parent asking for a copy of everything the school holds on her daughter (Form 3), including disciplinary records and CCTV of an incident on the bus.",
+    identityCheck: "National ID checked against the admission form.",
+    loggedBy: user.id,
+  },
+  {
+    orgId: org.id,
+    kind: "erasure",
+    receivedOn: addDays(today, -40),
+    requesterName: "Peter Kamau",
+    requesterContact: "pkamau@example.com",
+    channel: "Email to info@",
+    details: "A former parent asking to be removed from the fees reminder SMS list now that his son has left.",
+    identityCheck: "Replied from the email address on file.",
+    outcome: "completed",
+    respondedOn: addDays(today, -33),
+    response: "Removed from the SMS list and the parent contact sheet. Fee records kept for 7 years under the tax law; told him so by email.",
+    loggedBy: user.id,
+  },
+]);
+
+console.log(
+  `Seeded "${org.name}" with ${templates.length} RoPA entries, one DPIA, one open breach and two data subject requests.`,
+);
 console.log(`Sign in as ${EMAIL} / ${PASSWORD}`);
 process.exit(0);
