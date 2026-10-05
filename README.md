@@ -99,6 +99,12 @@ If `next start` is exposed directly, clients can send their own `X-Forwarded-For
 
 `APP_URL` must be the public URL, because password reset links and the Paystack return URL are built from it.
 
+### Railway
+
+`railway.json` builds the app with Railpack, runs `npm run db:migrate` before each deploy and starts it with `npm start`. Create a project with a Postgres database and a service from this repository, then set the service's variables: `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `APP_URL` (its public domain), `CRON_SECRET` and the others above.
+
+`.github/workflows/reminders.yml` runs the hourly job by calling `/api/cron/reminders`. In the repository's Actions settings, add a variable `APP_URL` and a secret `CRON_SECRET` with the same value as the service's. GitHub can start scheduled runs a few minutes late, which the job allows for.
+
 ### Payments
 
 1. Set `PAYSTACK_SECRET_KEY`. Use the test key (`sk_test_…`) until you've tried a payment end to end.
