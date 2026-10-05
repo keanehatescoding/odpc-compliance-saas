@@ -112,4 +112,4 @@ This is an MVP, not legal advice. Check these against current ODPC guidance:
 
 ## Not built yet
 
-Team invitations and roles UI, and billing.
+Billing.
