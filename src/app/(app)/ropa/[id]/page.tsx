@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { startDpia } from "@/app/actions/dpia";
 import { deleteActivity } from "@/app/actions/ropa";
+import { RecordHistory } from "@/components/activity-list";
 import { DeleteButton } from "@/components/delete-button";
 import { SubmitButton } from "@/components/submit-button";
 import { BackLink, buttonClass, Card, DpiaStatusBadge, PageHeader } from "@/components/ui";
@@ -66,6 +67,7 @@ export default async function EditActivityPage({ params }: PageProps<"/ropa/[id]
         )
       )}
       <ActivityForm activity={activity} />
+      <RecordHistory orgId={org.id} subjectId={activity.id} />
     </>
   );
 }

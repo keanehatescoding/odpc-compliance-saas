@@ -1,10 +1,12 @@
 "use server";
 
-import { and, eq, ne } from "drizzle-orm";
+import { and, asc, eq, ne } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/db";
 import { dpiaRisks, dpias, processingActivities } from "@/db/schema";
+import { changedFields, describe, editSummary, FIELD_LABELS, recordActivity } from "@/lib/activity";
+import { formatDate } from "@/lib/dates";
 import { isUniqueViolation } from "@/lib/db-errors";
 import { draftDpia, getDpiaTemplate, type RiskInput } from "@/lib/dpia";
 import { parseDpiaForm } from "@/lib/dpia-form";
@@ -15,6 +17,10 @@ import { isUuid } from "@/lib/uuid";
 const ACTIVITY_TAKEN = "That activity already has its own DPIA.";
 
 const riskRows = (dpiaId: string, risks: RiskInput[]) => risks.map((r, position) => ({ ...r, dpiaId, position }));
+
+/** The risk table's content, in order, for telling whether a save changed it. */
+const riskTable = (risks: RiskInput[]) =>
+  risks.map((r) => [r.description, r.likelihood, r.severity, r.mitigation, r.residualLikelihood, r.residualSeverity]);
 
 /**
  * Starts a draft DPIA, from a RoPA activity, a template, or blank, and opens
@@ -53,9 +59,10 @@ export async function startDpia(formData: FormData): Promise<void> {
       })
       // The unique activity index makes a double submit open the same DPIA.
       .onConflictDoNothing()
-      .returning({ id: dpias.id });
+      .returning({ id: dpias.id, title: dpias.title });
     if (!created) return null;
     if (draft.risks.length > 0) await tx.insert(dpiaRisks).values(riskRows(created.id, draft.risks));
+    await recordActivity(tx, { orgId: org.id, actorId: user.id, area: "dpia", subjectId: created.id, summary: `started ${describe.dpia(created)}` });
     return created.id;
   });
 
@@ -73,7 +80,7 @@ export async function startDpia(formData: FormData): Promise<void> {
 
 /** Saves an existing DPIA and replaces its risk table. */
 export async function saveDpia(_prev: FormState, formData: FormData): Promise<FormState> {
-  const { org } = await requireActiveOrg();
+  const { user, org } = await requireActiveOrg();
   const id = String(formData.get("id") ?? "");
   if (!isUuid(id)) return { message: "DPIA not found." };
   const parsed = parseDpiaForm(formData);
@@ -103,14 +110,32 @@ export async function saveDpia(_prev: FormState, formData: FormData): Promise<Fo
   let saved: boolean;
   try {
     saved = await db.transaction(async (tx) => {
-      const updated = await tx
-        .update(dpias)
-        .set({ ...data, activityId })
+      const [before] = await tx
+        .select()
+        .from(dpias)
         .where(and(eq(dpias.id, id), eq(dpias.orgId, org.id)))
-        .returning({ id: dpias.id });
-      if (updated.length === 0) return false;
+        .for("update");
+      if (!before) return false;
+      const oldRisks = await tx.select().from(dpiaRisks).where(eq(dpiaRisks.dpiaId, id)).orderBy(asc(dpiaRisks.position));
+      const after = { ...data, activityId };
+      await tx.update(dpias).set(after).where(eq(dpias.id, id));
       await tx.delete(dpiaRisks).where(eq(dpiaRisks.dpiaId, id));
       if (risks.length > 0) await tx.insert(dpiaRisks).values(riskRows(id, risks));
+
+      const log = (summary: string) => recordActivity(tx, { orgId: org.id, actorId: user.id, area: "dpia", subjectId: id, summary });
+      let fields = changedFields(
+        { ...before, risks: riskTable(oldRisks as RiskInput[]) },
+        { ...after, risks: riskTable(risks) },
+        FIELD_LABELS.dpia,
+      );
+      // Recording an approval gets an entry of its own, saying who approved it and when.
+      if (after.approvedOn && !before.approvedOn) {
+        const by = after.approvedBy ? ` by ${after.approvedBy}` : "";
+        await log(`recorded ${describe.dpia(after)} as approved${by} on ${formatDate(after.approvedOn)}`);
+        fields = fields.filter((f) => f !== FIELD_LABELS.dpia.approvedOn && f !== FIELD_LABELS.dpia.approvedBy);
+      }
+      const summary = editSummary(describe.dpia(after), fields);
+      if (summary) await log(summary);
       return true;
     });
   } catch (err) {
@@ -125,9 +150,14 @@ export async function saveDpia(_prev: FormState, formData: FormData): Promise<Fo
 }
 
 export async function deleteDpia(id: string): Promise<void> {
-  const { org } = await requireActiveOrg();
+  const { user, org } = await requireActiveOrg();
   if (typeof id === "string" && isUuid(id)) {
-    await db.delete(dpias).where(and(eq(dpias.id, id), eq(dpias.orgId, org.id)));
+    await db.transaction(async (tx) => {
+      const [gone] = await tx.delete(dpias).where(and(eq(dpias.id, id), eq(dpias.orgId, org.id))).returning();
+      if (gone) {
+        await recordActivity(tx, { orgId: org.id, actorId: user.id, area: "dpia", subjectId: id, summary: `deleted ${describe.dpia(gone)}` });
+      }
+    });
   }
   revalidatePath("/", "layout");
   redirect("/dpia");

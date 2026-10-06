@@ -7,6 +7,7 @@ import { after } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { invitations, memberships, organizations, users, type MemberRole } from "@/db/schema";
+import { recordActivity } from "@/lib/activity";
 import { isUniqueViolation } from "@/lib/db-errors";
 import { ORG_SIZE_KEYS, SECTOR_KEYS, type OrgSize, type Sector } from "@/lib/dpa";
 import { createEmailSender } from "@/lib/email";
@@ -193,6 +194,7 @@ export async function createOrganization(_prev: FormState, formData: FormData): 
       .values({ name: parsed.data.orgName, sector: parsed.data.sector, size: parsed.data.size })
       .returning({ id: organizations.id });
     await tx.insert(memberships).values({ userId: user.id, orgId: org.id, role: "owner" });
+    await recordActivity(tx, { orgId: org.id, actorId: user.id, area: "organization", subjectId: org.id, summary: "created the organisation" });
   });
   revalidatePath("/", "layout");
   redirect("/dashboard");

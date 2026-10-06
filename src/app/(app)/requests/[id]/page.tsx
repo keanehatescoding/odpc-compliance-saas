@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { deleteSubjectRequest } from "@/app/actions/subject-requests";
+import { RecordHistory } from "@/components/activity-list";
 import { DeleteButton } from "@/components/delete-button";
 import { BackLink, Card, cx, PageHeader, RequestStatusBadge } from "@/components/ui";
 import { formatDate, todayInKenya } from "@/lib/dates";
@@ -80,6 +81,7 @@ export default async function RequestPage({ params }: PageProps<"/requests/[id]"
       </Card>
 
       <RequestForm request={request} />
+      <RecordHistory orgId={org.id} subjectId={request.id} />
     </>
   );
 }

@@ -658,6 +658,47 @@ export const etimsInvoices = pgTable(
   ],
 );
 
+/** What part of the organisation's records an activity log entry is about. */
+export const activityAreaEnum = pgEnum("activity_area", [
+  "registration",
+  "ropa",
+  "dpia",
+  "breach",
+  "request",
+  "team",
+  "organization",
+  "billing",
+]);
+
+/**
+ * Who changed what, and when: one row per change someone made to the
+ * organisation's records, team or settings, written in the same transaction
+ * as the change. Nothing in the app edits or deletes a row, except deleting
+ * the organisation. The actor's name is copied in, so the entry still reads
+ * the same after they leave. The subject has no foreign key, so entries
+ * outlive the record they describe, including the one saying it was deleted.
+ */
+export const activityLog = pgTable(
+  "activity_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    actorId: uuid("actor_id").references(() => users.id, { onDelete: "set null" }),
+    actorName: text("actor_name").notNull(),
+    area: activityAreaEnum("area").notNull(),
+    subjectId: uuid("subject_id"),
+    // Follows the actor's name: "edited the controller registration (expiry date)".
+    summary: text("summary").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("activity_log_org_idx").on(t.orgId, t.createdAt),
+    index("activity_log_subject_idx").on(t.subjectId, t.createdAt),
+  ],
+);
+
 export const organizationsRelations = relations(organizations, ({ many }) => ({
   memberships: many(memberships),
   registrations: many(registrations),
@@ -698,3 +739,4 @@ export type Payment = typeof payments.$inferSelect;
 export type ServiceOrder = typeof serviceOrders.$inferSelect;
 export type EtimsInvoice = typeof etimsInvoices.$inferSelect;
 export type Refund = typeof refunds.$inferSelect;
+export type ActivityArea = (typeof activityAreaEnum.enumValues)[number];

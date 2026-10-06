@@ -12,7 +12,7 @@ import type { EmailMessage } from "@/lib/email";
 import { createPaystack, PaystackError, type Paystack, type PaystackTransaction } from "@/lib/paystack";
 import { addPeriod, cardLabel, cardUsable, dueRenewalAttempt, TRIAL_DAYS } from "@/lib/plans";
 
-const { billingAlertLog, memberships, organizations, payments, renewalAttempts, savedCards, users } = schema;
+const { activityLog, billingAlertLog, memberships, organizations, payments, renewalAttempts, savedCards, users } = schema;
 
 const DAY = 24 * 60 * 60 * 1000;
 const HOUR = 60 * 60 * 1000;
@@ -352,7 +352,7 @@ describe("charging the saved card", () => {
   it("doesn't charge a card removed after the claim, and drops the claim", async () => {
     await pay();
     const { paystack, charges } = fakePaystack();
-    const by = { name: "Wanjiku", email: "owner@sunrise.ke" };
+    const by = { id: ownerId, name: "Wanjiku", email: "owner@sunrise.ke" };
     const racing = beforeTransaction(2, () => removeSavedCard(db, null, inbox().send, orgId, by, { now: at(-HOUR) }));
     await runAutoRenewals(racing, paystack, inbox().send, { now: at(-HOUR) });
     expect(charges).toEqual([]);
@@ -432,7 +432,7 @@ describe("billing emails with renewal on", () => {
 });
 
 describe("changing renewal", () => {
-  const by = { name: "Wanjiku", email: "owner@sunrise.ke" };
+  const by = { get id() { return ownerId; }, name: "Wanjiku", email: "owner@sunrise.ke" };
 
   it("switches interval quietly, and emails owners when it's turned off", async () => {
     await pay();
@@ -445,6 +445,14 @@ describe("changing renewal", () => {
     expect((await org()).autoRenewInterval).toBeNull();
     expect(sent[0].subject).toBe("Sunrise Academy: Kinga won't renew automatically");
     expect(sent[0].text).toContain("Wanjiku (owner@sunrise.ke) turned automatic renewal off.");
+
+    const logged = await db.select({ actorName: activityLog.actorName, summary: activityLog.summary }).from(activityLog);
+    expect(logged).toEqual(
+      expect.arrayContaining([
+        { actorName: "Wanjiku", summary: "switched automatic renewal from monthly to annual" },
+        { actorName: "Wanjiku", summary: "turned automatic renewal off" },
+      ]),
+    );
   });
 
   it("can't turn renewal on without a card that will still work", async () => {
@@ -489,6 +497,7 @@ describe("changing renewal", () => {
     const { sent, send } = inbox();
     expect(await removeSavedCard(db, paystack, send, orgId, by, { now: t0 })).toEqual({ ok: true });
     expect(deactivated).toEqual(["AUTH_abc123"]);
+    expect(await db.select({ summary: activityLog.summary }).from(activityLog)).toEqual([{ summary: "removed the saved Visa ending 4242" }]);
     expect(await db.select().from(savedCards)).toEqual([]);
     expect((await org()).autoRenewInterval).toBeNull();
     expect(sent[0].text).toContain("removed the saved Visa ending 4242, which turns automatic renewal off");

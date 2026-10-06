@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/db";
 import { organizations } from "@/db/schema";
+import { changedFields, editSummary, FIELD_LABELS, recordActivity } from "@/lib/activity";
 import { ORG_SIZE_KEYS, SECTOR_KEYS, type OrgSize, type Sector } from "@/lib/dpa";
 import { fieldErrors, formValues, type FormState } from "@/lib/forms";
 import { requireOrgContext } from "@/lib/session";
@@ -35,14 +36,19 @@ const schema = z.object({
 });
 
 export async function updateOrganization(_prev: FormState, formData: FormData): Promise<FormState> {
-  const { org, role } = await requireOrgContext();
+  const { user, org, role } = await requireOrgContext();
   const values = formValues(formData);
   if (role === "member") return { message: "Only owners and admins can change organisation settings.", values };
 
   const parsed = schema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { errors: fieldErrors(parsed.error), values };
 
-  await db.update(organizations).set(parsed.data).where(eq(organizations.id, org.id));
+  await db.transaction(async (tx) => {
+    const [before] = await tx.select().from(organizations).where(eq(organizations.id, org.id)).for("update");
+    await tx.update(organizations).set(parsed.data).where(eq(organizations.id, org.id));
+    const summary = editSummary("the organisation's settings", changedFields(before, parsed.data, FIELD_LABELS.organization));
+    if (summary) await recordActivity(tx, { orgId: org.id, actorId: user.id, area: "organization", subjectId: org.id, summary });
+  });
   revalidatePath("/", "layout");
   return { message: "Saved.", values };
 }
