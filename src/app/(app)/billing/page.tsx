@@ -7,6 +7,7 @@ import { formatDate, formatDateTime, todayInKenya } from "@/lib/dates";
 import { formatKsh, ORG_SIZES, type OrgSize } from "@/lib/dpa";
 import { paystackFromEnv } from "@/lib/paystack";
 import { accessFor, BILLING_INTERVALS, PLAN_PRICES, type BillingInterval } from "@/lib/plans";
+import { SERVICES, type ServiceKey } from "@/lib/services";
 import { requireOrgContext } from "@/lib/session";
 import { PayForm } from "./pay-form";
 
@@ -108,7 +109,7 @@ export default async function BillingPage({ searchParams }: PageProps<"/billing"
                 <thead className="text-left text-xs text-stone-500">
                   <tr>
                     <th className="px-5 py-2 font-medium">Paid</th>
-                    <th className="px-5 py-2 font-medium">Plan</th>
+                    <th className="px-5 py-2 font-medium">For</th>
                     <th className="px-5 py-2 font-medium">Amount</th>
                     <th className="px-5 py-2 font-medium">Covers</th>
                     <th className="px-5 py-2 font-medium">Receipt</th>
@@ -119,7 +120,10 @@ export default async function BillingPage({ searchParams }: PageProps<"/billing"
                     <tr key={p.id}>
                       <td className="px-5 py-3 whitespace-nowrap">{formatDateTime(p.paidAt)}</td>
                       <td className="px-5 py-3">
-                        {BILLING_INTERVALS[p.interval as BillingInterval]} · {paymentMethod(p.channel)}
+                        {p.kind === "service"
+                          ? SERVICES[p.service as ServiceKey].name
+                          : `${BILLING_INTERVALS[p.interval as BillingInterval]} plan`}{" "}
+                        · {paymentMethod(p.channel)}
                       </td>
                       <td className="px-5 py-3 whitespace-nowrap">
                         {formatPaymentAmount(p)}

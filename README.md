@@ -10,6 +10,7 @@ Kinga ("protection" in Swahili; a placeholder name) helps small organisations me
 - **Data subject requests.** Log requests from people exercising their rights: access, correction, erasure, restriction, objection, portability and opting out of third-party marketing. Each type gets its deadline from the Data Protection (General) Regulations, counted from the day the request arrived: 7 days for access and marketing opt-outs, 14 for correction, erasure, restriction and objection, and 30 for portability. Record who asked, anyone acting for them, how you confirmed their identity, and your response. Declining requires written reasons, and the request page shows what each type allows. The team gets an email 2 days before the deadline and again once it passes, and open requests appear in the dashboard's next steps.
 - **Team.** Owners and admins invite colleagues by email from the Team page. The link works for 7 days, only for the invited address, and once. Opening it either creates an account (already confirmed, since the link proves the address) or, for an existing account, asks them to sign in and join. Each account belongs to one organisation. Roles: members work on all the records; admins also change settings and manage admins and members; owners also manage other owners and get the compliance emails. An organisation always keeps at least one owner. Removing someone takes away their access straight away. Invitations can be resent or withdrawn, and each person can send 20 an hour.
 - **Billing.** New organisations get a 14-day free trial. After that they pay through Paystack by M-Pesa or card: KSh 3,000 a month for micro and small organisations, KSh 5,000 for medium and KSh 8,000 for large (the size set in Settings), or ten times that for a year. Payments are prepaid and don't renew automatically. Each one adds a month or a year after the trial or current period ends, so paying early loses nothing. A payment is credited once, by whichever arrives first: Paystack's signed webhook or the payer's return from checkout, which looks the transaction up with Paystack. Owners get an email 3 days before access ends and another once it has, and the app shows a banner in the last 7 days. Once access lapses, registrations, the RoPA, DPIAs and data subject requests become read-only until someone pays. Breaches, the team and settings keep working, so a lapsed organisation can still meet the 72-hour deadline, and exports, printouts, renewal reminders and deadline alerts carry on. Each payment gets a numbered receipt, printable from the Billing page and emailed to whoever paid. It shows the organisation's name and KRA PIN as they were when it was paid. Owners and admins can pay; members see the status.
+- **Expert services.** Owners and admins can order an expert DPIA review or a compliance audit from the Services page, at a fixed price for the organisation's size, saying what they want covered. Payment goes through the same Paystack checkout and gets a numbered receipt, but doesn't change the subscription, so a lapsed organisation can still order. Once paid, the order is emailed to `SELLER_EMAIL`. Staff move it through in progress, delivered or cancelled with `npm run service-order`, and owners get an email when it's delivered. Everyone in the organisation sees its orders and their status.
 - **Account security.** New accounts confirm their email before using the app, because renewal reminders and breach alerts go there. The link is single use, expires in 24 hours, and never signs anyone in. Until it's opened, the user can resend it (5 an hour) or fix a mistyped address, and owners who haven't confirmed get no compliance emails. Password reset by emailed link (single use, expires in 1 hour, signs you out on every device). Signed-in users can change their password in Settings by confirming their current one (10 tries per 15 minutes). This signs out their other devices, cancels any reset links and emails them a notice. Login, signup and reset attempts are rate-limited per IP address, and sign-in attempts per email address (cleared when you sign in), with counters kept in Postgres so every app instance shares them.
 
 See [BRIEF.md](BRIEF.md) for the product brief.
@@ -43,6 +44,7 @@ Open http://localhost:3000. The seed creates a school, "Sunrise Academy", whose 
 | `npm run db:migrate` | Apply migrations |
 | `npm run db:seed` | Reset the demo organisation |
 | `npm run reminders` | Run the reminder, breach-alert, request-deadline and billing-email job once (also prunes stale rate-limit counters, expired reset and verification links, invitations that expired over 30 days ago, and checkouts left unpaid for 30 days) |
+| `npm run service-order` | List paid service orders not yet delivered. `npm run service-order -- <orderId> in_progress\|delivered\|cancelled` moves one on (delivering emails the owners; refund a cancelled order in the Paystack dashboard) |
 
 ## Environment
 
@@ -52,7 +54,7 @@ Open http://localhost:3000. The seed creates a school, "Sunrise Academy", whose 
 | `APP_URL` | yes | Base URL used in email links. The production server won't start without it |
 | `CRON_SECRET` | for the cron endpoint | Bearer token for `/api/cron/reminders` |
 | `PAYSTACK_SECRET_KEY` | for payments | Paystack secret key (`sk_test_…` or `sk_live_…`). Without it the billing page says online payment isn't set up |
-| `SELLER_NAME`, `SELLER_KRA_PIN`, `SELLER_ADDRESS`, `SELLER_EMAIL` | for receipts | The business shown on receipts. The name defaults to Kinga, and the others are left off when unset. Write line breaks in the address as `\n` |
+| `SELLER_NAME`, `SELLER_KRA_PIN`, `SELLER_ADDRESS`, `SELLER_EMAIL` | for receipts | The business shown on receipts. The name defaults to Kinga, and the others are left off when unset. Write line breaks in the address as `\n`. `SELLER_EMAIL` also receives each paid service order |
 | `SMTP_URL` | in production | Without it, emails are printed to the log. The production server won't start without it unless `EMAIL_LOG_ONLY=true` |
 | `EMAIL_LOG_ONLY` | no | `true` lets a production server (say, a demo) print emails to the log instead of sending them |
 | `EMAIL_FROM` | no | Sender address |
@@ -83,7 +85,7 @@ src/db/           Drizzle schema and client
 src/app/actions/  server actions
 src/app/(app)/    signed-in pages
 src/app/(auth)/   login, signup, password reset, email verification and accepting invitations
-scripts/          migrate, seed, reminder job
+scripts/          migrate, seed, reminder job, service orders
 tests/            vitest
 ```
 
@@ -138,8 +140,9 @@ This is an MVP, not legal advice. Check these against current ODPC guidance:
 - **Breach rules**: the 72-hour and 48-hour deadlines, the "real risk of harm" test, the exemption from telling affected people when the data was unintelligible, and the particulars in the draft notification are summarised from s.43. Check them, and the ODPC's current submission channel, against the Act and the ODPC's guidance.
 
 - **Prices** in `src/lib/plans.ts` follow the brief's KSh 3,000–8,000 a month range. Organisations choose their own size in Settings, as they do for ODPC fees, so check it when you invoice larger customers.
+- **Service prices** in `src/lib/services.ts` are placeholders. Set them, and the turnaround times, before launch.
 - **Receipts** are payment receipts, not KRA eTIMS tax invoices, and they say nothing about VAT. KRA expects businesses to issue eTIMS invoices, and customers may need one to claim the expense, so check what you must issue before launch.
 
 ## Not built yet
 
-Automatic renewal (charging a saved card each period), KRA eTIMS invoices, and a one-off DPIA or audit service fee.
+Automatic renewal (charging a saved card each period) and KRA eTIMS invoices.
