@@ -13,6 +13,7 @@ import {
   payments,
   processingActivities,
   registrations,
+  serviceOrders,
   subjectRequests,
   users,
 } from "@/db/schema";
@@ -21,6 +22,7 @@ import { defaultReviewDate, draftDpia } from "@/lib/dpia";
 import { hashPassword } from "@/lib/password";
 import { addPeriod, PLAN_PRICES, toSubunits } from "@/lib/plans";
 import { templatesForSector } from "@/lib/ropa";
+import { SERVICES } from "@/lib/services";
 import { INVITE_TTL_MS } from "@/lib/team";
 import { hashToken, newToken } from "@/lib/tokens";
 
@@ -89,6 +91,33 @@ await db.insert(payments).values({
   billedName: org.name,
   billedKraPin: org.kraPin,
   startedBy: user.id,
+});
+
+// An expert review of the CCTV DPIA, paid by card last week and under way.
+const [reviewPayment] = await db
+  .insert(payments)
+  .values({
+    orgId: org.id,
+    reference: `kinga-demo-${crypto.randomUUID().replaceAll("-", "")}`,
+    kind: "service",
+    service: "dpia_review",
+    amount: toSubunits(SERVICES.dpia_review.prices.micro_small),
+    currency: "KES",
+    status: "succeeded",
+    channel: "card",
+    paidAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+    receiptNumber: sql`nextval('receipt_number_seq')`,
+    billedName: org.name,
+    billedKraPin: org.kraPin,
+    startedBy: user.id,
+  })
+  .returning({ id: payments.id });
+await db.insert(serviceOrders).values({
+  orgId: org.id,
+  paymentId: reviewPayment.id,
+  status: "in_progress",
+  notes: "Please review our CCTV DPIA before we install cameras in the new block.",
+  requestedBy: user.id,
 });
 
 // Controller certificate expiring in 20 days; processor certificate lapsed last month.

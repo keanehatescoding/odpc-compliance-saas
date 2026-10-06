@@ -1,6 +1,7 @@
 import { relations, sql } from "drizzle-orm";
 import {
   boolean,
+  check,
   date,
   index,
   integer,
@@ -17,6 +18,7 @@ import { BREACH_KIND_KEYS, BREACH_RISK_KEYS } from "../lib/breach";
 import { LIKELIHOOD_KEYS, SEVERITY_KEYS } from "../lib/dpia";
 import { BILLING_INTERVAL_KEYS, TRIAL_DAYS } from "../lib/plans";
 import { LAWFUL_BASIS_KEYS, ORG_SIZE_KEYS, SECTOR_KEYS } from "../lib/dpa";
+import { SERVICE_KEYS, SERVICE_ORDER_STATUS_KEYS } from "../lib/services";
 import { REQUEST_KIND_KEYS, REQUEST_OUTCOME_KEYS } from "../lib/subject-request";
 
 export const sectorEnum = pgEnum("sector", SECTOR_KEYS as [string, ...string[]]);
@@ -32,6 +34,9 @@ export const requestKindEnum = pgEnum("subject_request_kind", REQUEST_KIND_KEYS 
 export const requestOutcomeEnum = pgEnum("subject_request_outcome", REQUEST_OUTCOME_KEYS as [string, ...string[]]);
 export const billingIntervalEnum = pgEnum("billing_interval", BILLING_INTERVAL_KEYS as [string, ...string[]]);
 export const paymentStatusEnum = pgEnum("payment_status", ["pending", "succeeded", "failed"]);
+export const paymentKindEnum = pgEnum("payment_kind", ["subscription", "service"]);
+export const serviceEnum = pgEnum("service", SERVICE_KEYS as [string, ...string[]]);
+export const serviceOrderStatusEnum = pgEnum("service_order_status", SERVICE_ORDER_STATUS_KEYS as [string, ...string[]]);
 
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -134,9 +139,10 @@ export const organizations = pgTable("organizations", {
 export const receiptNumberSeq = pgSequence("receipt_number_seq");
 
 /**
- * A subscription payment through Paystack. Created as pending when checkout
- * starts; Paystack's webhook (or the return from checkout) marks it succeeded
- * and extends the organisation's paid period, once.
+ * A payment through Paystack, for the subscription or a one-off service.
+ * Created as pending when checkout starts; Paystack's webhook (or the return
+ * from checkout) marks it succeeded once, extending the organisation's paid
+ * period or marking its service order paid.
  */
 export const payments = pgTable(
   "payments",
@@ -147,7 +153,11 @@ export const payments = pgTable(
       .references(() => organizations.id, { onDelete: "cascade" }),
     // Our reference, sent to Paystack and echoed back in its webhook.
     reference: text("reference").notNull(),
-    interval: billingIntervalEnum("interval").notNull(),
+    kind: paymentKindEnum("kind").notNull().default("subscription"),
+    // Set for subscription payments only.
+    interval: billingIntervalEnum("interval"),
+    // Set for service payments only.
+    service: serviceEnum("service"),
     // Expected amount in subunits (cents), fixed when checkout starts.
     amount: integer("amount").notNull(),
     currency: text("currency").notNull(),
@@ -169,7 +179,35 @@ export const payments = pgTable(
     uniqueIndex("payments_reference_idx").on(t.reference),
     uniqueIndex("payments_receipt_number_idx").on(t.receiptNumber),
     index("payments_org_idx").on(t.orgId, t.createdAt),
+    check("payments_interval_check", sql`(${t.kind} = 'subscription') = (${t.interval} is not null)`),
+    check("payments_service_check", sql`(${t.kind} = 'service') = (${t.service} is not null)`),
   ],
+);
+
+/**
+ * A one-off service an organisation has asked for. Created with its payment
+ * when checkout starts, and goes away with it if that checkout is never paid.
+ * Kinga staff move it on with `npm run service-order`.
+ */
+export const serviceOrders = pgTable(
+  "service_orders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    // The payment says which service and what it cost.
+    paymentId: uuid("payment_id")
+      .notNull()
+      .references(() => payments.id, { onDelete: "cascade" }),
+    status: serviceOrderStatusEnum("status").notNull().default("awaiting_payment"),
+    // What the customer wants covered.
+    notes: text("notes"),
+    requestedBy: uuid("requested_by").references(() => users.id, { onDelete: "set null" }),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("service_orders_payment_idx").on(t.paymentId), index("service_orders_org_idx").on(t.orgId, t.createdAt)],
 );
 
 /** One row per billing email, keyed by the access end date it was about, so paying starts a fresh set. */
@@ -526,3 +564,4 @@ export type Dpia = typeof dpias.$inferSelect;
 export type DpiaRisk = typeof dpiaRisks.$inferSelect;
 export type SubjectRequest = typeof subjectRequests.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
+export type ServiceOrder = typeof serviceOrders.$inferSelect;

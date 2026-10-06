@@ -61,7 +61,7 @@ async function checkout(interval: "month" | "year" = "month") {
     userId: ownerId,
     email: "owner@sunrise.ke",
     size: "micro_small",
-    interval,
+    item: { kind: "subscription", interval },
     callbackUrl: "http://localhost:3000/billing/callback",
   });
   if ("error" in r) throw new Error(r.error);
@@ -138,7 +138,7 @@ describe("checkout", () => {
       userId: ownerId,
       email: "owner@sunrise.ke",
       size: "medium",
-      interval: "year",
+      item: { kind: "subscription", interval: "year" },
       callbackUrl: "http://localhost:3000/billing/callback",
     });
     expect(r).toMatchObject({ url: expect.stringMatching(/^https:\/\/checkout\.paystack\.com\/kinga-[0-9a-f]{32}$/) });
@@ -153,7 +153,7 @@ describe("checkout", () => {
       userId: ownerId,
       email: "owner@sunrise.ke",
       size: "micro_small",
-      interval: "month",
+      item: { kind: "subscription", interval: "month" },
       callbackUrl: "x",
     });
     expect(r).toHaveProperty("error");
@@ -168,7 +168,7 @@ describe("checkout", () => {
         userId: ownerId,
         email: "owner@sunrise.ke",
         size: "micro_small",
-        interval: "month",
+        item: { kind: "subscription", interval: "month" },
         callbackUrl: "x",
       });
     const rejected = await attempt(new PaystackError("failed (400)", 400, '"email" must be a valid email'));
@@ -309,7 +309,7 @@ describe("receipts", () => {
       userId: admin.id,
       email: "admin@sunrise.ke",
       size: "micro_small",
-      interval: "month",
+      item: { kind: "subscription", interval: "month" },
       callbackUrl: "http://localhost:3000/billing/callback",
     });
     if ("error" in r) throw new Error(r.error);

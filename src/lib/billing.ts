@@ -1,38 +1,65 @@
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, lt, ne, sql } from "drizzle-orm";
 import type { Db } from "@/db";
-import { billingAlertLog, organizations, payments, users, type Payment } from "@/db/schema";
+import { billingAlertLog, organizations, payments, serviceOrders, users, type Payment } from "@/db/schema";
 import { formatDate, todayInKenya } from "./dates";
 import { formatKsh, type OrgSize } from "./dpa";
 import type { SendEmail } from "./email";
 import { PaystackError, type Paystack, type PaystackTransaction } from "./paystack";
 import { accessFor, addPeriod, PLAN_PRICES, toSubunits, type BillingInterval } from "./plans";
 import { ownerEmails } from "./reminders";
+import { SERVICES, type ServiceKey } from "./services";
 
 const DAY = 86_400_000;
 export const CURRENCY = "KES";
+export type PaymentKind = Payment["kind"];
 /** Pending checkouts nobody finished are dropped after this long. */
 export const PENDING_PAYMENT_KEEP_MS = 30 * DAY;
 
 /** Shown when payment is attempted but PAYSTACK_SECRET_KEY isn't set. */
 export const PAYMENTS_UNAVAILABLE = "Online payment isn't set up yet. Contact us to pay by invoice.";
 
+/** What a checkout pays for: a month or year of the subscription, or a one-off service. */
+export type CheckoutItem =
+  | { kind: "subscription"; interval: BillingInterval }
+  | { kind: "service"; service: ServiceKey; notes: string | null };
+
+export function checkoutPrice(item: CheckoutItem, size: OrgSize): number {
+  return item.kind === "subscription" ? PLAN_PRICES[size][item.interval] : SERVICES[item.service].prices[size];
+}
+
 /**
- * Records a pending payment and starts a Paystack checkout for it. The amount
- * is fixed now from the organisation's size, so a later price or size change
- * can't alter what this checkout credits.
+ * Records a pending payment (and, for a service, its order) and starts a
+ * Paystack checkout for it. The amount is fixed now from the organisation's
+ * size, so a later price or size change can't alter what this checkout credits.
  */
 export async function startCheckout(
   db: Db,
   paystack: Paystack,
-  p: { orgId: string; userId: string; email: string; size: OrgSize; interval: BillingInterval; callbackUrl: string },
+  p: { orgId: string; userId: string; email: string; size: OrgSize; item: CheckoutItem; callbackUrl: string },
 ): Promise<{ url: string } | { error: string }> {
   // Paystack allows letters, digits, "-", "." and "=" in references.
   const reference = `kinga-${randomUUID().replaceAll("-", "")}`;
-  const amount = toSubunits(PLAN_PRICES[p.size][p.interval]);
-  await db
-    .insert(payments)
-    .values({ orgId: p.orgId, reference, interval: p.interval, amount, currency: CURRENCY, startedBy: p.userId });
+  const amount = toSubunits(checkoutPrice(p.item, p.size));
+  const item = p.item;
+  await db.transaction(async (tx) => {
+    const [payment] = await tx
+      .insert(payments)
+      .values({
+        orgId: p.orgId,
+        reference,
+        kind: item.kind,
+        interval: item.kind === "subscription" ? item.interval : null,
+        service: item.kind === "service" ? item.service : null,
+        amount,
+        currency: CURRENCY,
+        startedBy: p.userId,
+      })
+      .returning({ id: payments.id });
+    if (item.kind === "service") {
+      await tx.insert(serviceOrders).values({ orgId: p.orgId, paymentId: payment.id, notes: item.notes, requestedBy: p.userId });
+    }
+  });
   try {
     const { authorizationUrl } = await paystack.initialize({
       email: p.email,
@@ -40,7 +67,7 @@ export async function startCheckout(
       currency: CURRENCY,
       reference,
       callbackUrl: p.callbackUrl,
-      metadata: { orgId: p.orgId, interval: p.interval },
+      metadata: { orgId: p.orgId, ...(item.kind === "subscription" ? { interval: item.interval } : { service: item.service }) },
     });
     return { url: authorizationUrl };
   } catch (err) {
@@ -62,17 +89,18 @@ function checkoutError(err: unknown): string {
 }
 
 export type RecordResult =
-  | { result: "credited"; orgId: string; paymentId: string; periodEnd: Date }
+  | { result: "credited"; orgId: string; paymentId: string; kind: PaymentKind; periodEnd: Date | null }
   | { result: "already_credited"; orgId: string; periodEnd: Date | null }
   | { result: "not_paid" | "mismatch"; orgId: string }
   | { result: "unknown" };
 
 /**
  * Credits a payment once Paystack reports it succeeded: marks it succeeded and
- * extends the organisation's paid period by its interval, from whichever is
- * latest of now, the end of the trial and the end of the current period (so
- * paying early never loses time). Runs for both the webhook and the return
- * from checkout, in either order, and credits each payment once.
+ * gives it a receipt number. A subscription payment extends the organisation's
+ * paid period by its interval, from whichever is latest of now, the end of the
+ * trial and the end of the current period (so paying early never loses time);
+ * a service payment marks its order paid. Runs for both the webhook and the
+ * return from checkout, in either order, and credits each payment once.
  */
 export async function recordPayment(db: Db, txn: PaystackTransaction, now: Date = new Date()): Promise<RecordResult> {
   return db.transaction(async (tx) => {
@@ -92,6 +120,23 @@ export async function recordPayment(db: Db, txn: PaystackTransaction, now: Date 
       return { result: "mismatch", orgId };
     }
 
+    const billed = {
+      status: "succeeded" as const,
+      channel: txn.channel,
+      paidAt: txn.paidAt ?? now,
+      receiptNumber: sql`nextval('receipt_number_seq')`,
+      billedName: org.name,
+      billedKraPin: org.kraPin,
+    };
+    if (locked.kind === "service") {
+      await tx.update(payments).set(billed).where(eq(payments.id, locked.id));
+      await tx
+        .update(serviceOrders)
+        .set({ status: "paid" })
+        .where(and(eq(serviceOrders.paymentId, locked.id), eq(serviceOrders.status, "awaiting_payment")));
+      return { result: "credited", orgId, paymentId: locked.id, kind: "service", periodEnd: null };
+    }
+
     const start = [now, org.trialEndsAt, org.paidUntil].reduce<Date>(
       (latest, d) => (d && d > latest ? d : latest),
       now,
@@ -99,19 +144,10 @@ export async function recordPayment(db: Db, txn: PaystackTransaction, now: Date 
     const periodEnd = addPeriod(start, locked.interval as BillingInterval);
     await tx
       .update(payments)
-      .set({
-        status: "succeeded",
-        channel: txn.channel,
-        paidAt: txn.paidAt ?? now,
-        periodStart: start,
-        periodEnd,
-        receiptNumber: sql`nextval('receipt_number_seq')`,
-        billedName: org.name,
-        billedKraPin: org.kraPin,
-      })
+      .set({ ...billed, periodStart: start, periodEnd })
       .where(eq(payments.id, locked.id));
     await tx.update(organizations).set({ paidUntil: periodEnd }).where(eq(organizations.id, orgId));
-    return { result: "credited", orgId, paymentId: locked.id, periodEnd };
+    return { result: "credited", orgId, paymentId: locked.id, kind: "subscription", periodEnd };
   });
 }
 
@@ -188,8 +224,12 @@ export function paymentMethod(channel: string | null): string {
   return "Paystack";
 }
 
-/** What was paid for, e.g. "Kinga subscription, annual plan: 5 Oct 2026 to 5 Oct 2027". */
-export function receiptDescription(p: Pick<Payment, "interval" | "periodStart" | "periodEnd">): string {
+/**
+ * What was paid for, e.g. "Kinga subscription, annual plan: 5 Oct 2026 to 5
+ * Oct 2027" or "Kinga expert DPIA review".
+ */
+export function receiptDescription(p: Pick<Payment, "kind" | "interval" | "service" | "periodStart" | "periodEnd">): string {
+  if (p.kind === "service") return `Kinga ${SERVICES[p.service as ServiceKey].noun}`;
   const plan = `Kinga subscription, ${p.interval === "year" ? "annual" : "monthly"} plan`;
   if (!p.periodStart || !p.periodEnd) return plan;
   return `${plan}: ${formatDate(todayInKenya(p.periodStart))} to ${formatDate(todayInKenya(p.periodEnd))}`;
