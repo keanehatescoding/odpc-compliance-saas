@@ -329,6 +329,17 @@ describe("invoices", () => {
     expect(await invoiceOf(p.paymentId)).toMatchObject({ status: "failed", attempts: ETIMS_MAX_ATTEMPTS });
   });
 
+  it("doesn't throw if the database fails before the invoice is claimed", async () => {
+    const p = await creditedPayment();
+    const etims = fakeEtims();
+    const broken = { update: () => { throw new Error("connection terminated"); } } as unknown as Db;
+    expect(await issueEtimsInvoice(broken, etims, p.paymentId, t0)).toEqual({ result: "retrying", error: "connection terminated" });
+    expect(etims.sales).toEqual([]);
+    // Nothing was claimed, so the next run sends it.
+    expect(await invoiceOf(p.paymentId)).toMatchObject({ status: "pending", attempts: 0 });
+    expect(await runEtimsRetries(db, etims, { now: t0 })).toMatchObject({ signed: [p.paymentId] });
+  });
+
   it("stops at once when KRA already has the invoice number", async () => {
     const p = await creditedPayment();
     const etims = fakeEtims(async () => {

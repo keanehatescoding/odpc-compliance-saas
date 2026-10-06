@@ -117,6 +117,11 @@ export default async function ReceiptPage({ params }: PageProps<"/billing/receip
               </a>
             )}
           </section>
+        ) : invoice?.status === "failed" ? (
+          <p className="mt-8 border-t border-stone-300 pt-4 text-stone-600">
+            KRA eTIMS invoice not issued yet. KRA didn&apos;t sign it automatically, so we&apos;re sorting it out with them
+            {seller.email ? <>. Contact us at {seller.email} if you need it sooner.</> : "."}
+          </p>
         ) : (
           invoice && (
             <p className="mt-8 border-t border-stone-300 pt-4 text-stone-600">

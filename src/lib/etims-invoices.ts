@@ -97,11 +97,19 @@ export type IssueResult =
  * signature again; it's marked failed for someone to look up on the eTIMS portal.
  */
 export async function issueEtimsInvoice(db: Db, etims: Etims, paymentId: string, now: Date = new Date()): Promise<IssueResult> {
-  const [claimed] = await db
-    .update(etimsInvoices)
-    .set({ attempts: sql`${etimsInvoices.attempts} + 1`, nextAttemptAt: new Date(now.getTime() + ATTEMPT_LEASE_MS) })
-    .where(and(eq(etimsInvoices.paymentId, paymentId), eq(etimsInvoices.status, "pending"), lte(etimsInvoices.nextAttemptAt, now)))
-    .returning();
+  let claimed: EtimsInvoice | undefined;
+  try {
+    [claimed] = await db
+      .update(etimsInvoices)
+      .set({ attempts: sql`${etimsInvoices.attempts} + 1`, nextAttemptAt: new Date(now.getTime() + ATTEMPT_LEASE_MS) })
+      .where(and(eq(etimsInvoices.paymentId, paymentId), eq(etimsInvoices.status, "pending"), lte(etimsInvoices.nextAttemptAt, now)))
+      .returning();
+  } catch (err) {
+    // Nothing was claimed, so the invoice is still pending and due: the next run sends it.
+    const error = err instanceof Error ? err.message : String(err);
+    console.error(`eTIMS invoice for payment ${paymentId} couldn't be claimed: ${error}`);
+    return { result: "retrying", error };
+  }
   if (!claimed) return { result: "skipped" };
   const stillPending = and(eq(etimsInvoices.id, claimed.id), eq(etimsInvoices.status, "pending"));
 
@@ -138,14 +146,19 @@ export async function issueEtimsInvoice(db: Db, etims: Etims, paymentId: string,
     const error = duplicate
       ? `KRA already has invoice ${claimed.invcNo}, so an earlier attempt probably went through; look its signature up on the eTIMS portal. (${message})`
       : message;
-    await db
-      .update(etimsInvoices)
-      .set(
-        giveUp
-          ? { status: "failed", lastError: error }
-          : { lastError: error, nextAttemptAt: new Date(now.getTime() + etimsRetryDelay(claimed.attempts)) },
-      )
-      .where(stillPending);
+    try {
+      await db
+        .update(etimsInvoices)
+        .set(
+          giveUp
+            ? { status: "failed", lastError: error }
+            : { lastError: error, nextAttemptAt: new Date(now.getTime() + etimsRetryDelay(claimed.attempts)) },
+        )
+        .where(stillPending);
+    } catch (saveErr) {
+      // Left as claimed: it's retried once the lease runs out.
+      console.error(`eTIMS invoice ${claimed.invcNo}: couldn't record the failure:`, saveErr);
+    }
     console.error(`eTIMS invoice ${claimed.invcNo} for payment ${paymentId}: ${error}`);
     return { result: giveUp ? "failed" : "retrying", error };
   }
