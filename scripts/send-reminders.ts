@@ -5,6 +5,8 @@ import { prunePayments, runBillingAlerts } from "@/lib/billing";
 import { runBreachAlerts } from "@/lib/breach-alerts";
 import { createEmailSender } from "@/lib/email";
 import { pruneVerificationTokens } from "@/lib/email-verification";
+import { etimsFromEnv } from "@/lib/etims";
+import { runEtimsRetries } from "@/lib/etims-invoices";
 import { pruneResetTokens } from "@/lib/password-reset";
 import { paystackFromEnv } from "@/lib/paystack";
 import { pruneRateLimits } from "@/lib/rate-limit";
@@ -47,6 +49,16 @@ console.log(
 );
 for (const f of billing.failed) console.error(`  ${f.orgId}: ${f.error}`);
 
+// Send KRA any eTIMS invoices that didn't go through when their payment was credited.
+const etimsClient = etimsFromEnv();
+const etims = etimsClient ? await runEtimsRetries(db, etimsClient) : null;
+if (etims) {
+  console.log(
+    `Sent ${etims.checked} pending eTIMS invoices; ${etims.signed.length} signed, ${etims.retrying.length} to retry, ${etims.failed.length} given up on.`,
+  );
+  for (const f of [...etims.retrying, ...etims.failed]) console.error(`  payment ${f.paymentId}: ${f.error}`);
+}
+
 // Housekeeping: drop stale login counters, expired reset, verification and invitation links, and unpaid checkouts.
 await pruneRateLimits(db);
 await pruneResetTokens(db);
@@ -55,7 +67,7 @@ await pruneInvitations(db);
 await prunePayments(db);
 
 process.exit(
-  result.failed.length + breaches.failed.length + requests.failed.length + (renewals?.failed.length ?? 0) + billing.failed.length > 0
+  result.failed.length + breaches.failed.length + requests.failed.length + (renewals?.failed.length ?? 0) + billing.failed.length + (etims?.failed.length ?? 0) > 0
     ? 1
     : 0,
 );

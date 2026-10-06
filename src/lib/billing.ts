@@ -1,10 +1,22 @@
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, lt, ne, sql } from "drizzle-orm";
 import type { Db } from "@/db";
-import { billingAlertLog, organizations, payments, savedCards, serviceOrders, users, type Payment, type SavedCard } from "@/db/schema";
+import {
+  billingAlertLog,
+  etimsInvoices,
+  organizations,
+  payments,
+  savedCards,
+  serviceOrders,
+  users,
+  type EtimsInvoice,
+  type Payment,
+  type SavedCard,
+} from "@/db/schema";
 import { formatDate, todayInKenya } from "./dates";
 import { formatKsh, type OrgSize } from "./dpa";
 import type { SendEmail } from "./email";
+import { etimsConfigFromEnv, formatCuInvoiceNumber } from "./etims";
 import { PaystackError, type Paystack, type PaystackTransaction } from "./paystack";
 import {
   accessFor,
@@ -114,10 +126,17 @@ export type RecordResult =
  * trial and the end of the current period (so paying early never loses time);
  * a service payment marks its order paid. If the payer agreed to save their
  * card and paid with one Paystack can charge again, it's saved and automatic
- * renewal turned on for the same interval. Runs for both the webhook and the
- * return from checkout, in either order, and credits each payment once.
+ * renewal turned on for the same interval. With `etims` (on when eTIMS is set
+ * up), it also creates the payment's pending eTIMS invoice, so none is missed.
+ * Runs for both the webhook and the return from checkout, in either order, and
+ * credits each payment once.
  */
-export async function recordPayment(db: Db, txn: PaystackTransaction, now: Date = new Date()): Promise<RecordResult> {
+export async function recordPayment(
+  db: Db,
+  txn: PaystackTransaction,
+  now: Date = new Date(),
+  etims: boolean = etimsConfigFromEnv() !== null,
+): Promise<RecordResult> {
   return db.transaction(async (tx) => {
     const [payment] = await tx.select().from(payments).where(eq(payments.reference, txn.reference)).limit(1);
     if (!payment) return { result: "unknown" };
@@ -143,6 +162,7 @@ export async function recordPayment(db: Db, txn: PaystackTransaction, now: Date 
       billedName: org.name,
       billedKraPin: org.kraPin,
     };
+    if (etims) await tx.insert(etimsInvoices).values({ paymentId: locked.id, nextAttemptAt: now });
     if (locked.kind === "service") {
       await tx.update(payments).set(billed).where(eq(payments.id, locked.id));
       await tx
@@ -268,7 +288,18 @@ export function receiptDescription(p: Pick<Payment, "kind" | "interval" | "servi
   return `${plan}: ${formatDate(todayInKenya(p.periodStart))} to ${formatDate(todayInKenya(p.periodEnd))}`;
 }
 
-export function receiptEmail(to: string[], p: Payment, link: string) {
+/** The KRA eTIMS lines of a receipt email, if the payment has an invoice. */
+function etimsLines(inv: EtimsInvoice | null): string[] {
+  if (!inv) return [];
+  if (inv.status !== "signed") return ["KRA eTIMS invoice: being issued; it will show on the receipt once KRA has signed it."];
+  return [
+    `KRA eTIMS invoice: ${formatCuInvoiceNumber(inv)}`,
+    `Receipt signature: ${inv.rcptSign}`,
+    `Internal data: ${inv.intrlData}`,
+  ];
+}
+
+export function receiptEmail(to: string[], p: Payment, link: string, invoice: EtimsInvoice | null = null) {
   const number = formatReceiptNumber(p.receiptNumber!);
   return {
     to,
@@ -283,6 +314,7 @@ export function receiptEmail(to: string[], p: Payment, link: string) {
       `For: ${receiptDescription(p)}`,
       `Amount: ${formatPaymentAmount(p)} by ${paymentMethod(p.channel).toLowerCase()}`,
       `Reference: ${p.reference}`,
+      ...etimsLines(invoice),
       "",
       "View or print the receipt here:",
       "",
@@ -305,15 +337,16 @@ export async function sendReceipt(
 ): Promise<void> {
   try {
     const [row] = await db
-      .select({ payment: payments, payerEmail: users.email, payerVerified: users.emailVerifiedAt })
+      .select({ payment: payments, payerEmail: users.email, payerVerified: users.emailVerifiedAt, invoice: etimsInvoices })
       .from(payments)
       .leftJoin(users, eq(users.id, payments.startedBy))
+      .leftJoin(etimsInvoices, eq(etimsInvoices.paymentId, payments.id))
       .where(eq(payments.id, paymentId))
       .limit(1);
     if (!row || row.payment.receiptNumber === null) return;
     const to = row.payerEmail && row.payerVerified ? [row.payerEmail] : await ownerEmails(db, row.payment.orgId);
     if (to.length === 0) return;
-    await sendEmail(receiptEmail(to, row.payment, `${appUrl}/billing/receipts/${row.payment.id}`));
+    await sendEmail(receiptEmail(to, row.payment, `${appUrl}/billing/receipts/${row.payment.id}`, row.invoice));
   } catch (err) {
     console.error("Failed to send receipt", paymentId, err);
   }

@@ -12,6 +12,7 @@ Kinga ("protection" in Swahili; a placeholder name) helps small organisations me
 - **Billing.** New organisations get a 14-day free trial. After that they pay through Paystack by M-Pesa or card: KSh 3,000 a month for micro and small organisations, KSh 5,000 for medium and KSh 8,000 for large (the size set in Settings), or ten times that for a year. Payments are prepaid. Each one adds a month or a year after the trial or current period ends, so paying early loses nothing. A payment is credited once, by whichever arrives first: Paystack's signed webhook or the payer's return from checkout, which looks the transaction up with Paystack. Owners get an email 3 days before access ends and another once it has, and the app shows a banner in the last 7 days. Once access lapses, registrations, the RoPA, DPIAs and data subject requests become read-only until someone pays. Breaches, the team and settings keep working, so a lapsed organisation can still meet the 72-hour deadline, and exports, printouts, renewal reminders and deadline alerts carry on. Each payment gets a numbered receipt, printable from the Billing page and emailed to whoever paid. It shows the organisation's name and KRA PIN as they were when it was paid. Owners and admins can pay; members see the status.
 - **Automatic renewal.** Someone paying by card can tick "Save my card and renew automatically". If Paystack says the card can be charged again, it's saved and charged for the same plan as each period ends: a day before, then, if that fails, 1 and 3 days after. Owners are told the amount and card 3 days ahead instead of being asked to pay, get a receipt for each charge, and an email for each failure. After the third failure renewal turns off (the card stays saved). A card that will have expired by the end date isn't charged, and the reminder says so. Each charge is claimed in the database before it's made, with a reference fixed by the organisation, period and attempt, so overlapping jobs can't charge twice, and a charge whose outcome was lost is looked up before trying again. From the Billing page, owners and admins can switch between monthly and annual, turn renewal off, or remove the card (which also deactivates it on Paystack). Owners are emailed when renewal is turned off or the card removed. M-Pesa payments can't be charged again, so they don't renew.
 - **Expert services.** Owners and admins can order an expert DPIA review or a compliance audit from the Services page, at a fixed price for the organisation's size, saying what they want covered. Payment goes through the same Paystack checkout and gets a numbered receipt, but doesn't change the subscription, so a lapsed organisation can still order. Once paid, the order is emailed to `SELLER_EMAIL`. Staff move it through in progress, delivered or cancelled with `npm run service-order`, and owners get an email when it's delivered. Everyone in the organisation sees its orders and their status.
+- **KRA eTIMS invoices.** Once eTIMS is set up, each credited payment is sent to KRA as a sale through its OSCU API and signed. The receipt then shows the control unit invoice number, internal data, receipt signature and date, and a QR code that opens KRA's check for the invoice; until KRA signs it, the receipt says the invoice is pending. Kinga isn't VAT-registered, so every line is tax type D (Non-VAT) and prices are unchanged. The buyer's KRA PIN goes on the invoice when it's a valid one. An invoice that doesn't go through is retried by the hourly job, with the same invoice number, for 10 attempts.
 - **Account security.** New accounts confirm their email before using the app, because renewal reminders and breach alerts go there. The link is single use, expires in 24 hours, and never signs anyone in. Until it's opened, the user can resend it (5 an hour) or fix a mistyped address, and owners who haven't confirmed get no compliance emails. Password reset by emailed link (single use, expires in 1 hour, signs you out on every device). Signed-in users can change their password in Settings by confirming their current one (10 tries per 15 minutes). This signs out their other devices, cancels any reset links and emails them a notice. Login, signup and reset attempts are rate-limited per IP address, and sign-in attempts per email address (cleared when you sign in), with counters kept in Postgres so every app instance shares them.
 
 See [BRIEF.md](BRIEF.md) for the product brief.
@@ -44,7 +45,9 @@ Open http://localhost:3000. The seed creates a school, "Sunrise Academy", whose 
 | `npm run db:generate` | Generate a migration after editing `src/db/schema.ts` |
 | `npm run db:migrate` | Apply migrations |
 | `npm run db:seed` | Reset the demo organisation |
-| `npm run reminders` | Run the reminder, breach-alert, request-deadline, automatic-renewal and billing-email job once (also prunes stale rate-limit counters, expired reset and verification links, invitations that expired over 30 days ago, and checkouts left unpaid for 30 days) |
+| `npm run reminders` | Run the reminder, breach-alert, request-deadline, automatic-renewal, billing-email and eTIMS-retry job once (also prunes stale rate-limit counters, expired reset and verification links, invitations that expired over 30 days ago, and checkouts left unpaid for 30 days) |
+| `npm run etims:init` | Set this server up as a KRA eTIMS device, once, and print the `ETIMS_CMC_KEY` and `ETIMS_SDC_ID` to set (see [eTIMS](#etims)) |
+| `npm run etims:items` | Register what Kinga sells with eTIMS (safe to run again). `npm run etims:items -- --classes <word>` searches KRA's item classifications for `ETIMS_ITEM_CLASS` |
 | `npm run service-order` | List paid service orders not yet delivered. `npm run service-order -- <orderId> in_progress\|delivered\|cancelled` moves one on (delivering emails the owners; refund a cancelled order in the Paystack dashboard) |
 
 ## Environment
@@ -56,6 +59,7 @@ Open http://localhost:3000. The seed creates a school, "Sunrise Academy", whose 
 | `CRON_SECRET` | for the cron endpoint | Bearer token for `/api/cron/reminders` |
 | `PAYSTACK_SECRET_KEY` | for payments | Paystack secret key (`sk_test_…` or `sk_live_…`). Without it the billing page says online payment isn't set up, and saved cards aren't charged |
 | `SELLER_NAME`, `SELLER_KRA_PIN`, `SELLER_ADDRESS`, `SELLER_EMAIL` | for receipts | The business shown on receipts. The name defaults to Kinga, and the others are left off when unset. Write line breaks in the address as `\n`. `SELLER_EMAIL` also receives each paid service order |
+| `ETIMS_URL`, `ETIMS_TIN`, `ETIMS_BHF_ID`, `ETIMS_CMC_KEY`, `ETIMS_SDC_ID`, `ETIMS_ITEM_CLASS` | for eTIMS | eTIMS is off unless the URL, PIN, key and control unit ID are all set. `ETIMS_BHF_ID` is the branch (default `00`). `ETIMS_DEVICE_SERIAL` is needed only by `etims:init`. See [eTIMS](#etims) |
 | `SMTP_URL` | in production | Without it, emails are printed to the log. The production server won't start without it unless `EMAIL_LOG_ONLY=true` |
 | `EMAIL_LOG_ONLY` | no | `true` lets a production server (say, a demo) print emails to the log instead of sending them |
 | `EMAIL_FROM` | no | Sender address |
@@ -76,7 +80,7 @@ or over HTTP (for Vercel Cron, GitHub Actions and similar):
 curl -H "Authorization: Bearer $CRON_SECRET" https://your-host/api/cron/reminders
 ```
 
-It runs five jobs: renewal reminders, breach alerts, alerts for data subject requests that are close to or past their response deadline, automatic renewal charges to saved cards, and billing emails for trials and subscriptions that are about to end or have ended. The endpoint returns `{ reminders, breaches, requests, renewals, billing }` with the results of each job; `renewals` is `null` when Paystack isn't configured. All five are safe to run more than once. Each (certificate, expiry date, threshold) is claimed in `reminder_log`, each (breach, alert stage) in `breach_alert_log`, each (request, alert stage) in `subject_request_alert_log`, and each (organisation, email, end date) in `billing_alert_log`, before sending. The claim is released if the send fails. Each renewal charge is claimed in `renewal_attempts` (organisation, end date, attempt) before the card is charged, and is never released, so a card is charged at most once per attempt. After downtime, each job sends only the most recent missed alert, not every one. Logging a breach or a request also triggers its first alert straight away, and editing a request so that its deadline moves clears its alerts so they are sent again for the new deadline.
+It runs six jobs: renewal reminders, breach alerts, alerts for data subject requests that are close to or past their response deadline, charging saved cards for automatic renewal, billing emails for trials and subscriptions that are about to end or have ended, and resending eTIMS invoices KRA hasn't signed yet. The endpoint returns `{ reminders, breaches, requests, renewals, billing, etims }` with the results of each job (`renewals` and `etims` are null when Paystack or eTIMS isn't set up). All six are safe to run more than once. Each (certificate, expiry date, threshold) is claimed in `reminder_log`, each (breach, alert stage) in `breach_alert_log`, each (request, alert stage) in `subject_request_alert_log`, and each (organisation, email, end date) in `billing_alert_log`, before sending. The claim is released if the send fails. Each renewal charge is claimed in `renewal_attempts` (organisation, end date, attempt) before the card is charged, and is never released, so a card is charged at most once per attempt. After downtime, each job sends only the most recent missed alert, not every one. Logging a breach or a request also triggers its first alert straight away, and editing a request so that its deadline moves clears its alerts so they are sent again for the new deadline.
 
 ## Layout
 
@@ -86,7 +90,7 @@ src/db/           Drizzle schema and client
 src/app/actions/  server actions
 src/app/(app)/    signed-in pages
 src/app/(auth)/   login, signup, password reset, email verification and accepting invitations
-scripts/          migrate, seed, reminder job, service orders
+scripts/          migrate, seed, reminder job, service orders, eTIMS setup
 tests/            vitest
 ```
 
@@ -124,6 +128,18 @@ Server errors are logged as one JSON line with `"event":"server_error"`, and the
 4. Run the reminder job at least hourly (see above): it charges saved cards, so a renewal can only be as punctual as the job.
 5. Set the `SELLER_*` variables to the legal name, KRA PIN, address and email of the business taking payments, so receipts carry them.
 
+### eTIMS
+
+KRA signs each sale through its OSCU API, so getting there takes KRA's involvement:
+
+1. On the [eTIMS portal](https://etims.kra.go.ke), apply for OSCU as the business taking payments, and ask for sandbox access. KRA gives you a device serial number for the sandbox.
+2. Set `ETIMS_URL=https://etims-api-sbx.kra.go.ke/etims-api`, `ETIMS_TIN` (the business's KRA PIN), `ETIMS_BHF_ID` (`00` for the head office) and `ETIMS_DEVICE_SERIAL`, then run `npm run etims:init`. It prints `ETIMS_CMC_KEY` and `ETIMS_SDC_ID`; set them. Keep the key secret. KRA only hands it out once per device.
+3. Find a classification for software and compliance services with `npm run etims:items -- --classes service`, set `ETIMS_ITEM_CLASS` to its code, and run `npm run etims:items` to register the monthly plan, the annual plan and each service (codes `KE3NTU0000001` onwards; never reuse a number for something else).
+4. Make test payments and check the receipts show a signed invoice and that the QR code opens KRA's page for it. KRA vets the integration before giving production credentials.
+5. Repeat steps 2 and 3 with `ETIMS_URL=https://etims-api.kra.go.ke/etims-api` and the production serial.
+
+Only payments credited while eTIMS is set up get an invoice. Invoice numbers come from `etims_invoice_seq`, starting at 1; if the branch has issued invoices through another system, move it past them first (`SELECT setval('etims_invoice_seq', <last number>)`). An invoice the hourly job gives up on stays `failed` in `etims_invoices` with the reason in `last_error`, and is logged by `npm run reminders`. If KRA answers that it already has the invoice number, an earlier attempt went through but its answer was lost: look the signature up on the eTIMS portal.
+
 The migration that adds receipts numbers any payments already credited, in the order they were paid, and bills them to each organisation's current name and KRA PIN.
 
 The migration that adds billing gives every existing organisation a 14-day trial from the moment it runs, so current users aren't locked out on deploy.
@@ -144,8 +160,8 @@ This is an MVP, not legal advice. Check these against current ODPC guidance:
 - **Prices** in `src/lib/plans.ts` follow the brief's KSh 3,000–8,000 a month range. Organisations choose their own size in Settings, as they do for ODPC fees, so check it when you invoice larger customers.
 - **Automatic renewal** depends on the card's bank allowing charges without the payer present. Some banks ask for approval (Paystack reports the charge as `paused`), which counts as a failure here, so try it with a live card from your customers' main banks before relying on it. Paystack has no way to charge M-Pesa again.
 - **Service prices** in `src/lib/services.ts` are placeholders. Set them, and the turnaround times, before launch.
-- **Receipts** are payment receipts, not KRA eTIMS tax invoices, and they say nothing about VAT. KRA expects businesses to issue eTIMS invoices, and customers may need one to claim the expense, so check what you must issue before launch.
+- **eTIMS** follows KRA's OSCU API specification v2.0. The sale fields, the tax type D treatment for a seller not registered for VAT, the payment method codes and the QR code's link (`…/common/link/etims/receipt/indexEtimsReceiptData?Data=<PIN><branch><signature>`) need checking against the sandbox and KRA's vetting. Register for VAT once turnover passes KSh 5M a year, and then the tax type and prices must change. Refunds would need a credit note (`rcptTyCd` R), which isn't built.
 
 ## Not built yet
 
-KRA eTIMS invoices.
+eTIMS credit notes for refunds.
