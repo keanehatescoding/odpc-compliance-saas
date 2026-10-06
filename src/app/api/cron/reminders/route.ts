@@ -1,10 +1,12 @@
 import { timingSafeEqual } from "node:crypto";
 import { db } from "@/db";
+import { runAutoRenewals } from "@/lib/auto-renew";
 import { prunePayments, runBillingAlerts } from "@/lib/billing";
 import { runBreachAlerts } from "@/lib/breach-alerts";
 import { createEmailSender } from "@/lib/email";
 import { pruneVerificationTokens } from "@/lib/email-verification";
 import { pruneResetTokens } from "@/lib/password-reset";
+import { paystackFromEnv } from "@/lib/paystack";
 import { pruneRateLimits } from "@/lib/rate-limit";
 import { runReminders } from "@/lib/reminders";
 import { runSubjectRequestAlerts } from "@/lib/subject-request-alerts";
@@ -26,6 +28,9 @@ export async function GET(request: Request) {
   const reminders = await runReminders(db, send);
   const breaches = await runBreachAlerts(db, send);
   const requests = await runSubjectRequestAlerts(db, send);
+  // Charge saved cards before the billing emails, so a renewal that goes through isn't followed by an "ended" email.
+  const paystack = paystackFromEnv();
+  const renewals = paystack ? await runAutoRenewals(db, paystack, send) : null;
   const billing = await runBillingAlerts(db, send);
   // Housekeeping: drop stale login counters, expired reset, verification and invitation links, and unpaid checkouts.
   await pruneRateLimits(db);
@@ -33,6 +38,7 @@ export async function GET(request: Request) {
   await pruneVerificationTokens(db);
   await pruneInvitations(db);
   await prunePayments(db);
-  const failed = reminders.failed.length + breaches.failed.length + requests.failed.length + billing.failed.length > 0;
-  return Response.json({ reminders, breaches, requests, billing }, { status: failed ? 500 : 200 });
+  const failed =
+    reminders.failed.length + breaches.failed.length + requests.failed.length + (renewals?.failed.length ?? 0) + billing.failed.length > 0;
+  return Response.json({ reminders, breaches, requests, renewals, billing }, { status: failed ? 500 : 200 });
 }

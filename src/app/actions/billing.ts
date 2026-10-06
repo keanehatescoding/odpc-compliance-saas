@@ -1,10 +1,13 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/db";
+import { removeSavedCard, setAutoRenew } from "@/lib/auto-renew";
 import { PAYMENTS_UNAVAILABLE, startCheckout } from "@/lib/billing";
 import type { OrgSize } from "@/lib/dpa";
+import { createEmailSender } from "@/lib/email";
 import { fieldErrors, formValues, type FormState } from "@/lib/forms";
 import { paystackFromEnv } from "@/lib/paystack";
 import { BILLING_INTERVAL_KEYS, type BillingInterval } from "@/lib/plans";
@@ -12,7 +15,10 @@ import { SERVICE_KEYS, SERVICE_NOTES_MAX, type ServiceKey } from "@/lib/services
 import { hitRateLimit, RATE_LIMITS, tooManyAttempts } from "@/lib/rate-limit";
 import { requireOrgContext } from "@/lib/session";
 
-/** Starts a Paystack checkout for the chosen interval and sends the user there. */
+/**
+ * Starts a Paystack checkout for the chosen interval and sends the user there.
+ * Ticking save_card agrees to keep the card for automatic renewal.
+ */
 export async function startPayment(_prev: FormState, formData: FormData): Promise<FormState> {
   const { user, org, role } = await requireOrgContext();
   if (role === "member") return { message: "Only owners and admins can pay for Kinga." };
@@ -32,7 +38,7 @@ export async function startPayment(_prev: FormState, formData: FormData): Promis
     userId: user.id,
     email: user.email,
     size: org.size as OrgSize,
-    item: { kind: "subscription", interval: interval.data },
+    item: { kind: "subscription", interval: interval.data, saveCard: formData.get("save_card") === "on" },
     callbackUrl: `${appUrl}/billing/callback`,
   });
   if ("error" in result) return { message: result.error };
@@ -75,4 +81,27 @@ export async function startServicePayment(_prev: FormState, formData: FormData):
   });
   if ("error" in result) return { message: result.error, values: formValues(formData) };
   redirect(result.url);
+}
+
+const RENEWAL_CHOICES = ["month", "year", "off"] as const;
+
+/** Turns automatic renewal on (monthly or annual) or off, for the saved card. */
+export async function changeAutoRenew(_prev: FormState, formData: FormData): Promise<FormState> {
+  const { user, org, role } = await requireOrgContext();
+  if (role === "member") return { message: "Only owners and admins can change automatic renewal." };
+  const choice = z.enum(RENEWAL_CHOICES).safeParse(formData.get("renew"));
+  if (!choice.success) return { message: "Choose monthly, annual or off." };
+  const result = await setAutoRenew(db, createEmailSender(), org.id, choice.data === "off" ? null : choice.data, user);
+  if ("error" in result) return { message: result.error };
+  revalidatePath("/billing");
+  return { message: "Saved." };
+}
+
+/** Forgets the saved card, here and on Paystack. */
+export async function removeCard(_prev: FormState): Promise<FormState> {
+  const { user, org, role } = await requireOrgContext();
+  if (role === "member") return { message: "Only owners and admins can remove the card." };
+  const result = await removeSavedCard(db, paystackFromEnv(), createEmailSender(), org.id, user);
+  if ("error" in result) return { message: result.error };
+  revalidatePath("/billing");
 }

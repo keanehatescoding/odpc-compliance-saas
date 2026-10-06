@@ -132,6 +132,9 @@ export const organizations = pgTable("organizations", {
     .default(sql.raw(`now() + interval '${TRIAL_DAYS} days'`)),
   // End of the last paid period. Each payment extends it; null until the first one.
   paidUntil: timestamp("paid_until", { withTimezone: true }),
+  // Set while the saved card should be charged for another period when this
+  // one ends; null when automatic renewal is off.
+  autoRenewInterval: billingIntervalEnum("auto_renew_interval"),
   ...timestamps,
 });
 
@@ -172,6 +175,9 @@ export const payments = pgTable(
     receiptNumber: integer("receipt_number"),
     billedName: text("billed_name"),
     billedKraPin: text("billed_kra_pin"),
+    // The payer agreed to save their card for automatic renewal. Only acted on
+    // if they pay by card and Paystack says the card can be charged again.
+    saveCard: boolean("save_card").notNull().default(false),
     startedBy: uuid("started_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -208,6 +214,52 @@ export const serviceOrders = pgTable(
     ...timestamps,
   },
   (t) => [uniqueIndex("service_orders_payment_idx").on(t.paymentId), index("service_orders_org_idx").on(t.orgId, t.createdAt)],
+);
+
+/**
+ * The card an organisation renews with: a Paystack authorization that can be
+ * charged again. One per organisation; saving another replaces it.
+ */
+export const savedCards = pgTable(
+  "saved_cards",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    authorizationCode: text("authorization_code").notNull(),
+    // The Paystack customer the card belongs to; charges must use it.
+    email: text("email").notNull(),
+    brand: text("brand"),
+    last4: text("last4"),
+    expMonth: integer("exp_month"),
+    expYear: integer("exp_year"),
+    savedBy: uuid("saved_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("saved_cards_org_idx").on(t.orgId)],
+);
+
+/**
+ * Each automatic renewal charge, claimed before it is made, keyed by the
+ * access end date it renews, so two jobs can't charge the same period twice.
+ */
+export const renewalAttempts = pgTable(
+  "renewal_attempts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+    // 1, 2 or 3.
+    attempt: integer("attempt").notNull(),
+    paymentId: uuid("payment_id").references(() => payments.id, { onDelete: "set null" }),
+    // Why it failed, from Paystack, if it did.
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("renewal_attempts_unique_idx").on(t.orgId, t.endsAt, t.attempt)],
 );
 
 /** One row per billing email, keyed by the access end date it was about, so paying starts a fresh set. */
@@ -556,6 +608,7 @@ export const reminderLogRelations = relations(reminderLog, ({ one }) => ({
 
 export type User = typeof users.$inferSelect;
 export type Organization = typeof organizations.$inferSelect;
+export type SavedCard = typeof savedCards.$inferSelect;
 export type MemberRole = (typeof memberRoleEnum.enumValues)[number];
 export type Registration = typeof registrations.$inferSelect;
 export type ProcessingActivity = typeof processingActivities.$inferSelect;

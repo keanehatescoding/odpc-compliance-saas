@@ -1,7 +1,8 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-// The two Paystack calls billing needs: start a hosted checkout, and look up
-// how a transaction ended. https://paystack.com/docs/api/transaction/
+// The Paystack calls billing needs: start a hosted checkout, look up how a
+// transaction ended, and charge or forget a saved card for automatic renewal.
+// https://paystack.com/docs/api/transaction/
 
 const API = "https://api.paystack.co";
 
@@ -15,6 +16,22 @@ export interface PaystackTransaction {
   currency: string;
   channel: string | null;
   paidAt: Date | null;
+  /** The card or account used, when Paystack says. */
+  authorization?: PaystackAuthorization | null;
+  /** The Paystack customer's email, which a saved card must be charged with. */
+  customerEmail?: string | null;
+}
+
+/** A payment method Paystack can charge again, if `reusable` (cards only, in practice). */
+export interface PaystackAuthorization {
+  code: string;
+  reusable: boolean;
+  channel: string | null;
+  brand: string | null;
+  last4: string | null;
+  /** 1–12. */
+  expMonth: number | null;
+  expYear: number | null;
 }
 
 export interface Paystack {
@@ -28,6 +45,20 @@ export interface Paystack {
     metadata: Record<string, string>;
   }): Promise<{ authorizationUrl: string }>;
   verify(reference: string): Promise<PaystackTransaction>;
+  /**
+   * Charges a saved card without the payer present. `paused` means the bank
+   * wants the payer to approve it (e.g. by OTP), so it can't complete now.
+   */
+  chargeAuthorization(p: {
+    authorizationCode: string;
+    email: string;
+    amount: number;
+    currency: string;
+    reference: string;
+    metadata: Record<string, string>;
+  }): Promise<PaystackTransaction & { paused: boolean; gatewayResponse: string | null }>;
+  /** Stops a saved card being charged again. */
+  deactivateAuthorization(authorizationCode: string): Promise<void>;
 }
 
 /** Paystack answered, but refused the request. `reason` is Paystack's own message. */
@@ -83,12 +114,37 @@ export function createPaystack(secretKey: string, fetchImpl: typeof fetch = fetc
     async verify(reference) {
       return parseTransaction(await call(`/transaction/verify/${encodeURIComponent(reference)}`));
     },
+    async chargeAuthorization(p) {
+      const data = await call("/transaction/charge_authorization", {
+        method: "POST",
+        body: JSON.stringify({
+          authorization_code: p.authorizationCode,
+          email: p.email,
+          amount: p.amount,
+          currency: p.currency,
+          reference: p.reference,
+          metadata: p.metadata,
+        }),
+      });
+      return {
+        ...parseTransaction(data),
+        paused: data.paused === true,
+        gatewayResponse: typeof data.gateway_response === "string" ? data.gateway_response : null,
+      };
+    },
+    async deactivateAuthorization(authorizationCode) {
+      await call("/customer/deactivate_authorization", {
+        method: "POST",
+        body: JSON.stringify({ authorization_code: authorizationCode }),
+      });
+    },
   };
 }
 
 /** Reads the fields billing uses from a Paystack transaction object (API response or webhook `data`). */
 export function parseTransaction(data: Record<string, unknown>): PaystackTransaction {
   const paidAt = typeof data.paid_at === "string" ? new Date(data.paid_at) : null;
+  const customer = data.customer && typeof data.customer === "object" ? (data.customer as Record<string, unknown>) : null;
   return {
     reference: String(data.reference ?? ""),
     status: String(data.status ?? ""),
@@ -96,6 +152,28 @@ export function parseTransaction(data: Record<string, unknown>): PaystackTransac
     currency: String(data.currency ?? ""),
     channel: typeof data.channel === "string" ? data.channel : null,
     paidAt: paidAt && !Number.isNaN(paidAt.getTime()) ? paidAt : null,
+    authorization: parseAuthorization(data.authorization),
+    customerEmail: typeof customer?.email === "string" ? customer.email : null,
+  };
+}
+
+function parseAuthorization(a: unknown): PaystackAuthorization | null {
+  if (!a || typeof a !== "object") return null;
+  const r = a as Record<string, unknown>;
+  if (typeof r.authorization_code !== "string" || !r.authorization_code) return null;
+  const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+  const int = (v: unknown) => {
+    const n = Number(v);
+    return v !== null && v !== "" && Number.isInteger(n) ? n : null;
+  };
+  return {
+    code: r.authorization_code,
+    reusable: r.reusable === true,
+    channel: str(r.channel),
+    brand: str(r.brand) ?? str(r.card_type),
+    last4: str(r.last4),
+    expMonth: int(r.exp_month),
+    expYear: int(r.exp_year),
   };
 }
 

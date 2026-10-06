@@ -61,3 +61,72 @@ export function accessFor(org: { trialEndsAt: Date; paidUntil: Date | null }, no
 export function toSubunits(ksh: number): number {
   return Math.round(ksh * 100);
 }
+
+// ---------------------------------------------------------------------------
+// Automatic renewal: a saved card is charged for another period as the current
+// one ends. Up to three tries per period: a day before it ends, a day after,
+// and three days after. Access lapses in between, as it would without renewal.
+// ---------------------------------------------------------------------------
+
+const DAY = 86_400_000;
+
+/** When each attempt is due, relative to the end of access. */
+export const RENEWAL_ATTEMPT_OFFSETS_MS = [-DAY, DAY, 3 * DAY] as const;
+export const RENEWAL_ATTEMPTS = RENEWAL_ATTEMPT_OFFSETS_MS.length;
+/** If the job hasn't run for this long after access ended, don't charge for that period at all. */
+export const RENEWAL_GIVE_UP_MS = 7 * DAY;
+
+/**
+ * The attempt (1-based) due at `now` for access ending at `endsAt`: the latest
+ * one whose time has come, so a job that missed a run catches up with one
+ * charge, not several.
+ */
+export function dueRenewalAttempt(endsAt: Date, now: Date): number | null {
+  const since = now.getTime() - endsAt.getTime();
+  if (since > RENEWAL_GIVE_UP_MS) return null;
+  for (let n = RENEWAL_ATTEMPTS; n >= 1; n--) {
+    if (since >= RENEWAL_ATTEMPT_OFFSETS_MS[n - 1]) return n;
+  }
+  return null;
+}
+
+/** When the attempt after `attempt` is due, or null if that was the last. */
+export function nextRenewalAttemptAt(endsAt: Date, attempt: number): Date | null {
+  return attempt < RENEWAL_ATTEMPTS ? new Date(endsAt.getTime() + RENEWAL_ATTEMPT_OFFSETS_MS[attempt]) : null;
+}
+
+export interface CardDetails {
+  brand: string | null;
+  last4: string | null;
+  expMonth: number | null;
+  expYear: number | null;
+}
+
+/** A card works to the end of its expiry month. One without a known expiry is assumed to work. */
+export function cardUsable(card: CardDetails, at: Date): boolean {
+  if (!card.expMonth || !card.expYear) return true;
+  return at.getTime() < Date.UTC(card.expYear, card.expMonth, 1);
+}
+
+/** E.g. "Visa ending 4242". */
+export function cardLabel(card: CardDetails): string {
+  const brand = card.brand ? card.brand.charAt(0).toUpperCase() + card.brand.slice(1) : "Card";
+  return card.last4 ? `${brand} ending ${card.last4}` : `saved ${brand === "Card" ? "card" : brand}`;
+}
+
+/** E.g. "09/2027". */
+export function cardExpiry(card: CardDetails): string | null {
+  return card.expMonth && card.expYear ? `${String(card.expMonth).padStart(2, "0")}/${card.expYear}` : null;
+}
+
+/**
+ * Whether the period ending at `endsAt` will be renewed automatically: renewal
+ * is on and the saved card hasn't expired by then.
+ */
+export function willAutoRenew(
+  org: { autoRenewInterval: string | null },
+  card: CardDetails | null,
+  endsAt: Date,
+): org is { autoRenewInterval: BillingInterval } {
+  return org.autoRenewInterval !== null && card !== null && cardUsable(card, endsAt);
+}
