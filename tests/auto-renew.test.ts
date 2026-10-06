@@ -5,6 +5,7 @@ import { migrate } from "drizzle-orm/pglite/migrator";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "@/db";
 import * as schema from "@/db/schema";
+import { deleteOrganization } from "@/lib/account";
 import { removeSavedCard, renewalReference, runAutoRenewals, setAutoRenew } from "@/lib/auto-renew";
 import { dueBillingAlert, recordPayment, runBillingAlerts, startCheckout } from "@/lib/billing";
 import type { EmailMessage } from "@/lib/email";
@@ -113,6 +114,20 @@ async function pay(opts: { saveCard?: boolean; channel?: string; authorization?:
 async function org() {
   const [o] = await db.select().from(organizations).where(eq(organizations.id, orgId));
   return o;
+}
+
+/** The test database, running `between` just before its nth transaction starts. */
+function beforeTransaction(n: number, between: () => Promise<unknown>): Db {
+  let count = 0;
+  return new Proxy(db, {
+    get(target, prop, receiver) {
+      if (prop !== "transaction") return Reflect.get(target, prop, receiver);
+      return async (...args: Parameters<Db["transaction"]>) => {
+        if (++count === n) await between();
+        return target.transaction(...args);
+      };
+    },
+  });
 }
 
 function inbox() {
@@ -321,6 +336,28 @@ describe("charging the saved card", () => {
     expect(charges).toHaveLength(1);
     const [p] = await db.select().from(payments).where(eq(payments.reference, renewalReference(orgId, ends, 1)));
     expect(p.status).toBe("pending");
+  });
+
+  it("doesn't charge if the organisation is deleted after the claim", async () => {
+    await pay();
+    const { paystack, charges } = fakePaystack();
+    // Transaction 1 claims the attempt; 2 makes the charge.
+    const racing = beforeTransaction(2, () => deleteOrganization(db, { orgId, actorId: ownerId }, at(-HOUR)));
+    const r = await runAutoRenewals(racing, paystack, inbox().send, { now: at(-HOUR) });
+    expect(r).toMatchObject({ renewed: [], declined: [], failed: [] });
+    expect(charges).toEqual([]);
+    expect(await db.select().from(payments).where(eq(payments.status, "pending"))).toEqual([]);
+  });
+
+  it("doesn't charge a card removed after the claim, and drops the claim", async () => {
+    await pay();
+    const { paystack, charges } = fakePaystack();
+    const by = { name: "Wanjiku", email: "owner@sunrise.ke" };
+    const racing = beforeTransaction(2, () => removeSavedCard(db, null, inbox().send, orgId, by, { now: at(-HOUR) }));
+    await runAutoRenewals(racing, paystack, inbox().send, { now: at(-HOUR) });
+    expect(charges).toEqual([]);
+    expect(await db.select().from(renewalAttempts)).toEqual([]);
+    expect(await db.select().from(payments).where(eq(payments.status, "pending"))).toEqual([]);
   });
 
   it("doesn't charge a card that will have expired", async () => {
