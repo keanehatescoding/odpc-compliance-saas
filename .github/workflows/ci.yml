@@ -1,0 +1,32 @@
+# Lints, typechecks, tests and builds every pull request and every push to
+# master. The tests run against PGlite, so no Postgres service is needed.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+# A new push to a pull request cancels the run for the one before it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
