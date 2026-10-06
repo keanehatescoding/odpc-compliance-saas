@@ -6,6 +6,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 // https://paystack.com/docs/api/transaction/
 
 const API = "https://api.paystack.co";
+/** Refunds asked for per page when listing a transaction's refunds. */
+const REFUND_PAGE = 100;
 
 /** What billing needs to know about a Paystack transaction. */
 export interface PaystackTransaction {
@@ -160,8 +162,15 @@ export function createPaystack(secretKey: string, fetchImpl: typeof fetch = fetc
       // Refunds are listed by Paystack's transaction ID, not our reference.
       const txn = await call(`/transaction/verify/${encodeURIComponent(reference)}`);
       if (txn.id === undefined || txn.id === null) throw new Error(`Paystack didn't return an ID for transaction ${reference}.`);
-      const list = (await call(`/refund?transaction=${encodeURIComponent(String(txn.id))}&perPage=100`)) as unknown;
-      return (Array.isArray(list) ? (list as Record<string, unknown>[]) : [])
+      const list: Record<string, unknown>[] = [];
+      // A page shorter than asked for is the last.
+      for (let page = 1; ; page++) {
+        const data = (await call(`/refund?transaction=${encodeURIComponent(String(txn.id))}&perPage=${REFUND_PAGE}&page=${page}`)) as unknown;
+        const rows = Array.isArray(data) ? (data as Record<string, unknown>[]) : [];
+        list.push(...rows);
+        if (rows.length < REFUND_PAGE) break;
+      }
+      return list
         .filter((r) => {
           // Guards against the filter being ignored: keep only this transaction's refunds.
           const t = r.transaction && typeof r.transaction === "object" ? (r.transaction as Record<string, unknown>).id : r.transaction;

@@ -404,11 +404,35 @@ describe("Paystack refunds", () => {
       return new Response(JSON.stringify({ status: true, message: "ok", data }));
     }) as unknown as typeof fetch;
     const list = await createPaystack("sk_test_x", impl).refunds("ref-1");
-    expect(urls).toEqual(["https://api.paystack.co/transaction/verify/ref-1", "https://api.paystack.co/refund?transaction=4099&perPage=100"]);
+    expect(urls).toEqual([
+      "https://api.paystack.co/transaction/verify/ref-1",
+      "https://api.paystack.co/refund?transaction=4099&perPage=100&page=1",
+    ]);
     expect(list).toEqual([
       { id: "11", status: "processed", amount: 100_000, currency: "KES", refundedAt: new Date("2026-10-08T07:00:00Z") },
       { id: "12", status: "pending", amount: 50_000, currency: "KES", refundedAt: null },
     ]);
+  });
+
+  it("reads every page of refunds", async () => {
+    const urls: string[] = [];
+    const refund = (id: number) => ({ id, transaction: 4099, amount: 100, currency: "KES", status: "processed", refunded_at: "2026-10-08T07:00:00.000Z" });
+    const impl = (async (url: string) => {
+      urls.push(url);
+      const page = Number(new URL(url).searchParams.get("page"));
+      const data = url.includes("/transaction/verify/")
+        ? { id: 4099 }
+        : page === 1
+          ? Array.from({ length: 100 }, (_, i) => refund(i + 1))
+          : page === 2
+            ? [refund(101)]
+            : [];
+      return new Response(JSON.stringify({ status: true, message: "ok", data }));
+    }) as unknown as typeof fetch;
+    const list = await createPaystack("sk_test_x", impl).refunds("ref-1");
+    expect(list).toHaveLength(101);
+    expect(list.at(-1)?.id).toBe("101");
+    expect(urls.slice(1).map((u) => new URL(u).searchParams.get("page"))).toEqual(["1", "2"]);
   });
 });
 
