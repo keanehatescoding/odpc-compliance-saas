@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import { joinOrganization, signupFromInvitation } from "@/app/actions/team";
 import { SubmitButton } from "@/components/submit-button";
+import { TermsConsent } from "@/components/terms-consent";
 import { FormMessage, TextField } from "@/components/ui";
 
 export function JoinForm({ token, orgName }: { token: string; orgName: string }) {
@@ -34,6 +35,7 @@ export function InviteSignupForm({ token, email }: { token: string; email: strin
         required
         errors={state?.errors}
       />
+      <TermsConsent errors={state?.errors} />
       <SubmitButton pendingText="Creating account…">Create account and join</SubmitButton>
     </form>
   );

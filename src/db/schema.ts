@@ -56,6 +56,10 @@ export const users = pgTable(
     passwordHash: text("password_hash").notNull(),
     // Null until the user opens the link emailed to them; the app is gated on it.
     emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
+    // The terms (TERMS_VERSION in lib/legal) agreed to at signup. Null for
+    // accounts made before signup asked.
+    termsVersion: text("terms_version"),
+    termsAcceptedAt: timestamp("terms_accepted_at", { withTimezone: true }),
     ...timestamps,
   },
   (t) => [uniqueIndex("users_email_lower_idx").on(sql`lower(${t.email})`)],
@@ -136,6 +140,9 @@ export const organizations = pgTable("organizations", {
   // Set while the saved card should be charged for another period when this
   // one ends; null when automatic renewal is off.
   autoRenewInterval: billingIntervalEnum("auto_renew_interval"),
+  // Set when an owner deletes the organisation. Its records and team are gone;
+  // the row stays with its payments, which tax law says to keep (see lib/account).
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
   ...timestamps,
 });
 

@@ -11,6 +11,7 @@ import { isUniqueViolation } from "@/lib/db-errors";
 import { ORG_SIZE_KEYS, SECTOR_KEYS, type OrgSize, type Sector } from "@/lib/dpa";
 import { createEmailSender } from "@/lib/email";
 import { fieldErrors, formValues, type FormState } from "@/lib/forms";
+import { termsAgreed, TERMS_VERSION } from "@/lib/legal";
 import { hashPassword } from "@/lib/password";
 import { hitRateLimit, RATE_LIMITS, tooManyAttempts } from "@/lib/rate-limit";
 import { clientIp } from "@/lib/request";
@@ -131,6 +132,7 @@ const inviteSignupSchema = z.object({
   token: z.string().min(1),
   name: z.string().trim().min(2, { error: "Enter your name." }).max(120),
   password: z.string().min(10, { error: "Use at least 10 characters." }).max(200),
+  terms: termsAgreed,
 });
 
 /** Creates an account for the invited address and signs it in. */
@@ -150,6 +152,7 @@ export async function signupFromInvitation(_prev: FormState, formData: FormData)
     userId = await createAccountFromInvitation(db, parsed.data.token, {
       name: parsed.data.name,
       passwordHash: await hashPassword(parsed.data.password),
+      termsVersion: TERMS_VERSION,
     });
   } catch (err) {
     // Someone created an account with this address since the page loaded.
