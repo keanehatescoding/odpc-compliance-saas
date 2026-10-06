@@ -37,6 +37,7 @@ export const paymentStatusEnum = pgEnum("payment_status", ["pending", "succeeded
 export const paymentKindEnum = pgEnum("payment_kind", ["subscription", "service"]);
 export const serviceEnum = pgEnum("service", SERVICE_KEYS as [string, ...string[]]);
 export const serviceOrderStatusEnum = pgEnum("service_order_status", SERVICE_ORDER_STATUS_KEYS as [string, ...string[]]);
+export const etimsInvoiceStatusEnum = pgEnum("etims_invoice_status", ["pending", "signed", "failed"]);
 
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -580,6 +581,48 @@ export const subjectRequestAlertLog = pgTable(
   (t) => [uniqueIndex("subject_request_alert_log_unique_idx").on(t.requestId, t.kind)],
 );
 
+/** eTIMS invoice numbers. KRA expects each branch's to run 1, 2, 3, ... */
+export const etimsInvoiceSeq = pgSequence("etims_invoice_seq");
+
+/**
+ * A credited payment's sale, as sent to KRA eTIMS for signing. Created with
+ * its invoice number when the payment is credited (if eTIMS is set up), then
+ * sent until KRA signs it; every attempt sends the same invoice number.
+ */
+export const etimsInvoices = pgTable(
+  "etims_invoices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    paymentId: uuid("payment_id")
+      .notNull()
+      .references(() => payments.id, { onDelete: "cascade" }),
+    invcNo: integer("invc_no")
+      .notNull()
+      .default(sql`nextval('etims_invoice_seq')`),
+    status: etimsInvoiceStatusEnum("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    // When to send it next; moved on while an attempt is under way, so two can't send at once.
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+    lastError: text("last_error"),
+    // KRA's signature, once signed. The PIN, branch and control unit are those it was sent from.
+    tin: text("tin"),
+    bhfId: text("bhf_id"),
+    sdcId: text("sdc_id"),
+    rcptNo: integer("rcpt_no"),
+    totRcptNo: integer("tot_rcpt_no"),
+    intrlData: text("intrl_data"),
+    rcptSign: text("rcpt_sign"),
+    sdcDateTime: timestamp("sdc_date_time", { withTimezone: true }),
+    signedAt: timestamp("signed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("etims_invoices_payment_idx").on(t.paymentId),
+    uniqueIndex("etims_invoices_invc_no_idx").on(t.invcNo),
+    index("etims_invoices_due_idx").on(t.nextAttemptAt).where(sql`${t.status} = 'pending'`),
+  ],
+);
+
 export const organizationsRelations = relations(organizations, ({ many }) => ({
   memberships: many(memberships),
   registrations: many(registrations),
@@ -618,3 +661,4 @@ export type DpiaRisk = typeof dpiaRisks.$inferSelect;
 export type SubjectRequest = typeof subjectRequests.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
 export type ServiceOrder = typeof serviceOrders.$inferSelect;
+export type EtimsInvoice = typeof etimsInvoices.$inferSelect;

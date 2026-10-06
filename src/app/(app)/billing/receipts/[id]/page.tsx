@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import QRCode from "qrcode";
 import { PrintButton } from "@/components/print-button";
 import { BackLink } from "@/components/ui";
 import { db } from "@/db";
@@ -12,6 +13,8 @@ import {
   sellerFromEnv,
 } from "@/lib/billing";
 import { formatDate, todayInKenya } from "@/lib/dates";
+import { etimsConfigFromEnv, etimsVerifyUrl, formatCuInvoiceNumber } from "@/lib/etims";
+import { etimsInvoiceFor } from "@/lib/etims-invoices";
 import { requireOrgContext } from "@/lib/session";
 import { isUuid } from "@/lib/uuid";
 
@@ -24,6 +27,11 @@ export default async function ReceiptPage({ params }: PageProps<"/billing/receip
   if (!payment || payment.receiptNumber === null || !payment.paidAt) notFound();
   const seller = sellerFromEnv();
   const amount = formatPaymentAmount(payment);
+  const invoice = await etimsInvoiceFor(db, payment.id);
+  const config = etimsConfigFromEnv();
+  const signed = invoice?.status === "signed" && invoice.tin && invoice.bhfId && invoice.rcptSign ? invoice : null;
+  const verifyUrl = signed && config ? etimsVerifyUrl(config, signed.tin!, signed.bhfId!, signed.rcptSign!) : null;
+  const qr = verifyUrl ? await QRCode.toString(verifyUrl, { type: "svg", margin: 0, errorCorrectionLevel: "M" }) : null;
 
   return (
     <div className="bg-white p-8 print:p-0">
@@ -80,6 +88,42 @@ export default async function ReceiptPage({ params }: PageProps<"/billing/receip
             </tr>
           </tfoot>
         </table>
+
+        {signed ? (
+          <section className="mt-8 flex flex-wrap items-start gap-6 border-t border-stone-300 pt-4">
+            <div className="grow">
+              <h2 className="mb-2 font-semibold">KRA eTIMS invoice</h2>
+              <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1">
+                <dt className="text-stone-600">CU invoice number</dt>
+                <dd className="font-mono text-xs leading-5">{formatCuInvoiceNumber(signed)}</dd>
+                {signed.sdcDateTime && (
+                  <>
+                    <dt className="text-stone-600">CU date and time</dt>
+                    <dd>
+                      {formatDate(todayInKenya(signed.sdcDateTime))}{" "}
+                      {signed.sdcDateTime.toLocaleTimeString("en-KE", { timeZone: "Africa/Nairobi", hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                    </dd>
+                  </>
+                )}
+                <dt className="text-stone-600">Internal data</dt>
+                <dd className="font-mono text-xs leading-5 break-all">{signed.intrlData}</dd>
+                <dt className="text-stone-600">Receipt signature</dt>
+                <dd className="font-mono text-xs leading-5 break-all">{signed.rcptSign}</dd>
+              </dl>
+            </div>
+            {qr && verifyUrl && (
+              <a href={verifyUrl} className="block size-28 shrink-0" aria-label="Check this invoice with KRA">
+                <span dangerouslySetInnerHTML={{ __html: qr }} className="block size-full [&>svg]:size-full" />
+              </a>
+            )}
+          </section>
+        ) : (
+          invoice && (
+            <p className="mt-8 border-t border-stone-300 pt-4 text-stone-600">
+              KRA eTIMS invoice pending. It will show here once KRA has signed it.
+            </p>
+          )
+        )}
 
         <p className="mt-8 text-stone-600">Thank you for your payment.</p>
       </article>
