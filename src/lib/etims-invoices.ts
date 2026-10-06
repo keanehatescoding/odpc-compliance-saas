@@ -1,8 +1,9 @@
-import { and, asc, eq, lte, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, lte, or, sql, type SQL } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import type { Db } from "@/db";
-import { etimsInvoices, payments, type EtimsInvoice, type Payment } from "@/db/schema";
+import { etimsInvoices, payments, refunds, type EtimsInvoice, type Payment } from "@/db/schema";
 import { formatReceiptNumber } from "./billing";
-import { ETIMS_DUPLICATE, EtimsError, etimsItemCode, type Etims, type EtimsItem } from "./etims";
+import { ETIMS_DUPLICATE, EtimsError, etimsItemCode, type Etims, type EtimsItem, type EtimsSale } from "./etims";
 import { PLAN_PRICES, type BillingInterval } from "./plans";
 import { SERVICES, SERVICE_KEYS, type ServiceKey } from "./services";
 
@@ -78,15 +79,30 @@ export async function registerEtimsItems(etims: Etims): Promise<{ itemCd: string
 }
 
 // ---------------------------------------------------------------------------
-// Invoices. recordPayment creates a pending invoice when it credits a payment;
-// it's sent straight after, and the hourly job retries any that didn't go.
+// Invoices. recordPayment creates a pending invoice when it credits a payment,
+// and recordRefunds a pending credit note for each refund of an invoiced
+// payment; each is sent straight after, and the hourly job retries any that
+// didn't go. A credit note isn't sent until KRA has signed its sale.
 // ---------------------------------------------------------------------------
 
 export type IssueResult =
   | { result: "signed" }
   | { result: "retrying" | "failed"; error: string }
-  /** Not pending, not due, or another attempt holds it. */
+  /** Not pending, not due, waiting for its sale, or another attempt holds it. */
   | { result: "skipped" };
+
+/** Our number for a credit note, sent to KRA as its trader invoice number. */
+export function formatCreditNoteNumber(invcNo: number): string {
+  return `CN-${String(invcNo).padStart(6, "0")}`;
+}
+
+const sale = alias(etimsInvoices, "sale");
+const isSale = isNull(etimsInvoices.refundId);
+/** A sale, or a credit note whose sale KRA has signed. */
+const ready = or(
+  isSale,
+  sql`exists (select 1 from ${etimsInvoices} s where s.payment_id = ${etimsInvoices.paymentId} and s.refund_id is null and s.status = 'signed')`,
+);
 
 /**
  * Sends a payment's invoice to KRA for signing, if it's pending and due, and
@@ -96,27 +112,37 @@ export type IssueResult =
  * through but its answer was lost) can't be retried, since KRA won't send the
  * signature again; it's marked failed for someone to look up on the eTIMS portal.
  */
-export async function issueEtimsInvoice(db: Db, etims: Etims, paymentId: string, now: Date = new Date()): Promise<IssueResult> {
+export function issueEtimsInvoice(db: Db, etims: Etims, paymentId: string, now: Date = new Date()): Promise<IssueResult> {
+  return issue(db, etims, and(eq(etimsInvoices.paymentId, paymentId), isSale)!, `payment ${paymentId}`, now);
+}
+
+/** Sends a refund's credit note to KRA, as issueEtimsInvoice does an invoice, once its sale is signed. */
+export function issueEtimsCreditNote(db: Db, etims: Etims, refundId: string, now: Date = new Date()): Promise<IssueResult> {
+  return issue(db, etims, eq(etimsInvoices.refundId, refundId), `refund ${refundId}`, now);
+}
+
+async function issue(db: Db, etims: Etims, which: SQL, what: string, now: Date): Promise<IssueResult> {
   let claimed: EtimsInvoice | undefined;
   try {
     [claimed] = await db
       .update(etimsInvoices)
       .set({ attempts: sql`${etimsInvoices.attempts} + 1`, nextAttemptAt: new Date(now.getTime() + ATTEMPT_LEASE_MS) })
-      .where(and(eq(etimsInvoices.paymentId, paymentId), eq(etimsInvoices.status, "pending"), lte(etimsInvoices.nextAttemptAt, now)))
+      .where(and(which, eq(etimsInvoices.status, "pending"), lte(etimsInvoices.nextAttemptAt, now), ready))
       .returning();
   } catch (err) {
     // Nothing was claimed, so the invoice is still pending and due: the next run sends it.
     const error = err instanceof Error ? err.message : String(err);
-    console.error(`eTIMS invoice for payment ${paymentId} couldn't be claimed: ${error}`);
+    console.error(`eTIMS invoice for ${what} couldn't be claimed: ${error}`);
     return { result: "retrying", error };
   }
   if (!claimed) return { result: "skipped" };
   const stillPending = and(eq(etimsInvoices.id, claimed.id), eq(etimsInvoices.status, "pending"));
+  const kind = claimed.refundId ? "credit note" : "invoice";
 
   try {
-    const [payment] = await db.select().from(payments).where(eq(payments.id, paymentId));
+    const [payment] = await db.select().from(payments).where(eq(payments.id, claimed.paymentId));
     if (!payment?.paidAt || payment.receiptNumber === null) throw new Error("The payment hasn't been credited.");
-    const sig = await etims.saveSale({
+    const base = {
       invcNo: claimed.invcNo,
       trdInvcNo: formatReceiptNumber(payment.receiptNumber),
       custTin: payment.billedKraPin,
@@ -125,7 +151,23 @@ export async function issueEtimsInvoice(db: Db, etims: Etims, paymentId: string,
       paidAt: payment.paidAt,
       item: etimsItemForPayment(payment, etims.config.itemClass),
       amount: payment.amount / 100,
-    });
+    };
+    let toSend: EtimsSale = base;
+    if (claimed.refundId) {
+      const [row] = await db
+        .select({ refund: refunds, orgInvcNo: sale.invcNo })
+        .from(refunds)
+        .innerJoin(sale, and(eq(sale.paymentId, refunds.paymentId), isNull(sale.refundId)))
+        .where(eq(refunds.id, claimed.refundId));
+      if (!row) throw new Error("The refund or its sale's invoice is missing.");
+      toSend = {
+        ...base,
+        trdInvcNo: formatCreditNoteNumber(claimed.invcNo),
+        amount: row.refund.amount / 100,
+        creditNote: { orgInvcNo: row.orgInvcNo, refundedAt: row.refund.refundedAt },
+      };
+    }
+    const sig = await etims.saveSale(toSend);
     await db
       .update(etimsInvoices)
       .set({
@@ -157,32 +199,33 @@ export async function issueEtimsInvoice(db: Db, etims: Etims, paymentId: string,
         .where(stillPending);
     } catch (saveErr) {
       // Left as claimed: it's retried once the lease runs out.
-      console.error(`eTIMS invoice ${claimed.invcNo}: couldn't record the failure:`, saveErr);
+      console.error(`eTIMS ${kind} ${claimed.invcNo}: couldn't record the failure:`, saveErr);
     }
-    console.error(`eTIMS invoice ${claimed.invcNo} for payment ${paymentId}: ${error}`);
+    console.error(`eTIMS ${kind} ${claimed.invcNo} for ${what}: ${error}`);
     return { result: giveUp ? "failed" : "retrying", error };
   }
 }
 
 export interface EtimsRunResult {
   checked: number;
+  /** Payments whose invoice or credit note was signed. */
   signed: string[];
   retrying: { paymentId: string; error: string }[];
   /** Given up on in this run. */
   failed: { paymentId: string; error: string }[];
 }
 
-/** Sends every pending invoice that's due, oldest first. Run hourly with the other jobs. */
+/** Sends every pending invoice and credit note that's due, oldest first. Run hourly with the other jobs. */
 export async function runEtimsRetries(db: Db, etims: Etims, opts: { now?: Date } = {}): Promise<EtimsRunResult> {
   const now = opts.now ?? new Date();
   const due = await db
-    .select({ paymentId: etimsInvoices.paymentId })
+    .select({ id: etimsInvoices.id, paymentId: etimsInvoices.paymentId })
     .from(etimsInvoices)
-    .where(and(eq(etimsInvoices.status, "pending"), lte(etimsInvoices.nextAttemptAt, now)))
+    .where(and(eq(etimsInvoices.status, "pending"), lte(etimsInvoices.nextAttemptAt, now), ready))
     .orderBy(asc(etimsInvoices.invcNo));
   const out: EtimsRunResult = { checked: due.length, signed: [], retrying: [], failed: [] };
-  for (const { paymentId } of due) {
-    const r = await issueEtimsInvoice(db, etims, paymentId, now);
+  for (const { id, paymentId } of due) {
+    const r = await issue(db, etims, eq(etimsInvoices.id, id), `payment ${paymentId}`, now);
     if (r.result === "signed") out.signed.push(paymentId);
     else if (r.result === "retrying") out.retrying.push({ paymentId, error: r.error });
     else if (r.result === "failed") out.failed.push({ paymentId, error: r.error });
@@ -190,7 +233,8 @@ export async function runEtimsRetries(db: Db, etims: Etims, opts: { now?: Date }
   return out;
 }
 
+/** A payment's invoice (not its credit notes). */
 export async function etimsInvoiceFor(db: Db, paymentId: string): Promise<EtimsInvoice | null> {
-  const [inv] = await db.select().from(etimsInvoices).where(eq(etimsInvoices.paymentId, paymentId));
+  const [inv] = await db.select().from(etimsInvoices).where(and(eq(etimsInvoices.paymentId, paymentId), isSale));
   return inv ?? null;
 }

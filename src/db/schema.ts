@@ -585,9 +585,34 @@ export const subjectRequestAlertLog = pgTable(
 export const etimsInvoiceSeq = pgSequence("etims_invoice_seq");
 
 /**
- * A credited payment's sale, as sent to KRA eTIMS for signing. Created with
- * its invoice number when the payment is credited (if eTIMS is set up), then
- * sent until KRA signs it; every attempt sends the same invoice number.
+ * Money Paystack has refunded on a payment. Refunds are made in the Paystack
+ * dashboard; each one is recorded from Paystack's refund.processed webhook,
+ * or by `npm run refunds`, looked up by its transaction.
+ */
+export const refunds = pgTable(
+  "refunds",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    paymentId: uuid("payment_id")
+      .notNull()
+      .references(() => payments.id, { onDelete: "cascade" }),
+    // Paystack's refund ID, so each refund is recorded once.
+    paystackId: text("paystack_id").notNull(),
+    // In subunits (cents).
+    amount: integer("amount").notNull(),
+    currency: text("currency").notNull(),
+    refundedAt: timestamp("refunded_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("refunds_paystack_idx").on(t.paystackId), index("refunds_payment_idx").on(t.paymentId)],
+);
+
+/**
+ * A credited payment's sale, or a refund's credit note, as sent to KRA eTIMS
+ * for signing. A sale is created with its invoice number when the payment is
+ * credited (if eTIMS is set up), and a credit note when a refund of an
+ * invoiced payment is recorded. Each is sent until KRA signs it, with the
+ * same invoice number every attempt; a credit note waits for its sale.
  */
 export const etimsInvoices = pgTable(
   "etims_invoices",
@@ -599,6 +624,8 @@ export const etimsInvoices = pgTable(
     invcNo: integer("invc_no")
       .notNull()
       .default(sql`nextval('etims_invoice_seq')`),
+    // Set on a credit note: the refund it's for. The sale is the payment's invoice without one.
+    refundId: uuid("refund_id").references(() => refunds.id, { onDelete: "cascade" }),
     status: etimsInvoiceStatusEnum("status").notNull().default("pending"),
     attempts: integer("attempts").notNull().default(0),
     // When to send it next; moved on while an attempt is under way, so two can't send at once.
@@ -617,7 +644,8 @@ export const etimsInvoices = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("etims_invoices_payment_idx").on(t.paymentId),
+    uniqueIndex("etims_invoices_payment_idx").on(t.paymentId).where(sql`${t.refundId} is null`),
+    uniqueIndex("etims_invoices_refund_idx").on(t.refundId),
     uniqueIndex("etims_invoices_invc_no_idx").on(t.invcNo),
     index("etims_invoices_due_idx").on(t.nextAttemptAt).where(sql`${t.status} = 'pending'`),
   ],
@@ -662,3 +690,4 @@ export type SubjectRequest = typeof subjectRequests.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
 export type ServiceOrder = typeof serviceOrders.$inferSelect;
 export type EtimsInvoice = typeof etimsInvoices.$inferSelect;
+export type Refund = typeof refunds.$inferSelect;

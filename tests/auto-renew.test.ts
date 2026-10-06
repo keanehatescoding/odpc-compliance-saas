@@ -73,6 +73,9 @@ function fakePaystack(replies: ChargeReply[] = [], verifies: (Partial<PaystackTr
     async deactivateAuthorization(code) {
       deactivated.push(code);
     },
+    async refunds() {
+      throw new Error("not used");
+    },
   };
   return { paystack, charges, verified, deactivated };
 }

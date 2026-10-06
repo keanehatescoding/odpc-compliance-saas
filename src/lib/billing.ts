@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, lt, ne, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, ne, sql } from "drizzle-orm";
 import type { Db } from "@/db";
 import {
   billingAlertLog,
@@ -340,7 +340,7 @@ export async function sendReceipt(
       .select({ payment: payments, payerEmail: users.email, payerVerified: users.emailVerifiedAt, invoice: etimsInvoices })
       .from(payments)
       .leftJoin(users, eq(users.id, payments.startedBy))
-      .leftJoin(etimsInvoices, eq(etimsInvoices.paymentId, payments.id))
+      .leftJoin(etimsInvoices, and(eq(etimsInvoices.paymentId, payments.id), isNull(etimsInvoices.refundId)))
       .where(eq(payments.id, paymentId))
       .limit(1);
     if (!row || row.payment.receiptNumber === null) return;

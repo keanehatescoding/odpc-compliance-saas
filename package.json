@@ -15,6 +15,7 @@
     "db:seed": "tsx --env-file-if-exists=.env scripts/seed.ts",
     "reminders": "tsx --env-file-if-exists=.env scripts/send-reminders.ts",
     "service-order": "tsx --env-file-if-exists=.env scripts/service-order.ts",
+    "refunds": "tsx --env-file-if-exists=.env scripts/refunds.ts",
     "etims:init": "tsx --env-file-if-exists=.env scripts/etims-init.ts",
     "etims:items": "tsx --env-file-if-exists=.env scripts/etims-items.ts",
     "test": "vitest run",

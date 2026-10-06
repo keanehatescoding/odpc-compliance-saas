@@ -43,5 +43,5 @@ if (result.emailed.length > 0) console.log(`Emailed ${result.emailed.join(", ")}
 if (result.emailError) {
   console.error(`Couldn't email the owners (${result.emailError}). Tell them it's delivered yourself.`);
 }
-if (status === "cancelled") console.log("If they paid, refund them from the Paystack dashboard.");
+if (status === "cancelled") console.log("If they paid, refund them from the Paystack dashboard; the eTIMS credit note follows.");
 process.exit(result.emailError ? 1 : 0);

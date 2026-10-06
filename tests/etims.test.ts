@@ -1,12 +1,12 @@
 import { PGlite } from "@electric-sql/pglite";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "@/db";
 import * as schema from "@/db/schema";
 import { afterPaymentCredited } from "@/lib/after-payment";
-import { recordPayment, type RecordResult } from "@/lib/billing";
+import { recordPayment, sendReceipt, type RecordResult } from "@/lib/billing";
 import type { EmailMessage } from "@/lib/email";
 import {
   createEtims,
@@ -20,10 +20,19 @@ import {
   type EtimsConfig,
   type EtimsSale,
 } from "@/lib/etims";
-import { ETIMS_MAX_ATTEMPTS, etimsRetryDelay, issueEtimsInvoice, registerEtimsItems, runEtimsRetries } from "@/lib/etims-invoices";
+import {
+  ETIMS_MAX_ATTEMPTS,
+  etimsRetryDelay,
+  issueEtimsCreditNote,
+  issueEtimsInvoice,
+  registerEtimsItems,
+  runEtimsRetries,
+} from "@/lib/etims-invoices";
+import { createPaystack, type Paystack, type PaystackRefund } from "@/lib/paystack";
+import { recordRefunds, refundsFor } from "@/lib/refunds";
 import { TRIAL_DAYS } from "@/lib/plans";
 
-const { etimsInvoices, memberships, organizations, payments, users } = schema;
+const { etimsInvoices, memberships, organizations, payments, refunds, users } = schema;
 
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
@@ -76,11 +85,14 @@ async function creditedPayment(opts: { channel?: string; etims?: boolean } = {})
     opts.etims ?? true,
   );
   if (r.result !== "credited") throw new Error(r.result);
-  return r;
+  return { ...r, reference };
 }
 
 async function invoiceOf(paymentId: string) {
-  const [inv] = await db.select().from(etimsInvoices).where(eq(etimsInvoices.paymentId, paymentId));
+  const [inv] = await db
+    .select()
+    .from(etimsInvoices)
+    .where(and(eq(etimsInvoices.paymentId, paymentId), isNull(etimsInvoices.refundId)));
   return inv;
 }
 
@@ -137,6 +149,33 @@ describe("the sale sent to KRA", () => {
     });
     const [line] = body.itemList as Record<string, unknown>[];
     expect(line).toMatchObject({ itemSeq: 1, itemCd: "KE3NTU0000001", qty: 1, prc: 2500, taxTyCd: "D", taxblAmt: 2500, taxAmt: 0, totAmt: 2500 });
+  });
+
+  it("makes a credit note for a refund: type R, citing the sale, dated when refunded", () => {
+    const body = saleBody({
+      ...sale,
+      invcNo: 15,
+      trdInvcNo: "CN-000015",
+      amount: 1000,
+      creditNote: { orgInvcNo: 12, refundedAt: new Date("2026-10-08T07:00:00Z") },
+    });
+    expect(body).toMatchObject({
+      invcNo: 15,
+      orgInvcNo: 12,
+      trdInvcNo: "CN-000015",
+      rcptTyCd: "R",
+      salesTyCd: "N",
+      salesSttsCd: "02",
+      rfdRsnCd: "06",
+      rfdDt: "20261008100000",
+      cfmDt: "20261008100000",
+      salesDt: "20261008",
+      taxblAmtD: 1000,
+      totAmt: 1000,
+    });
+    expect((body.itemList as Record<string, unknown>[])[0]).toMatchObject({ prc: 1000, totAmt: 1000, taxTyCd: "D" });
+    // A sale cites no invoice.
+    expect(saleBody(sale)).toMatchObject({ orgInvcNo: 0, rfdDt: null, rfdRsnCd: null });
   });
 
   it("names mobile money and leaves out a PIN that isn't one", () => {
@@ -347,5 +386,165 @@ describe("invoices", () => {
     });
     expect(await issueEtimsInvoice(db, etims, p.paymentId, t0)).toMatchObject({ result: "failed" });
     expect(await invoiceOf(p.paymentId)).toMatchObject({ status: "failed", lastError: expect.stringContaining("KRA already has invoice 1") });
+  });
+});
+
+describe("Paystack refunds", () => {
+  it("looks the transaction's ID up, then lists its refunds", async () => {
+    const urls: string[] = [];
+    const impl = (async (url: string) => {
+      urls.push(url);
+      const data = url.includes("/transaction/verify/")
+        ? { id: 4099, reference: "ref-1", status: "success" }
+        : [
+            { id: 11, transaction: 4099, amount: 100_000, currency: "KES", status: "processed", refunded_at: "2026-10-08T07:00:00.000Z" },
+            { id: 12, transaction: { id: 4099 }, amount: 50_000, currency: "KES", status: "pending", refunded_at: null },
+            { id: 13, transaction: 5000, amount: 1, currency: "KES", status: "processed" },
+          ];
+      return new Response(JSON.stringify({ status: true, message: "ok", data }));
+    }) as unknown as typeof fetch;
+    const list = await createPaystack("sk_test_x", impl).refunds("ref-1");
+    expect(urls).toEqual([
+      "https://api.paystack.co/transaction/verify/ref-1",
+      "https://api.paystack.co/refund?transaction=4099&perPage=100&page=1",
+    ]);
+    expect(list).toEqual([
+      { id: "11", status: "processed", amount: 100_000, currency: "KES", refundedAt: new Date("2026-10-08T07:00:00Z") },
+      { id: "12", status: "pending", amount: 50_000, currency: "KES", refundedAt: null },
+    ]);
+  });
+
+  it("reads every page of refunds", async () => {
+    const urls: string[] = [];
+    const refund = (id: number) => ({ id, transaction: 4099, amount: 100, currency: "KES", status: "processed", refunded_at: "2026-10-08T07:00:00.000Z" });
+    const impl = (async (url: string) => {
+      urls.push(url);
+      const page = Number(new URL(url).searchParams.get("page"));
+      const data = url.includes("/transaction/verify/")
+        ? { id: 4099 }
+        : page === 1
+          ? Array.from({ length: 100 }, (_, i) => refund(i + 1))
+          : page === 2
+            ? [refund(101)]
+            : [];
+      return new Response(JSON.stringify({ status: true, message: "ok", data }));
+    }) as unknown as typeof fetch;
+    const list = await createPaystack("sk_test_x", impl).refunds("ref-1");
+    expect(list).toHaveLength(101);
+    expect(list.at(-1)?.id).toBe("101");
+    expect(urls.slice(1).map((u) => new URL(u).searchParams.get("page"))).toEqual(["1", "2"]);
+  });
+});
+
+describe("credit notes", () => {
+  const refundedAt = later(2 * DAY);
+  function fakePaystack(list: PaystackRefund[]): Paystack & { list: PaystackRefund[] } {
+    const notUsed = async () => {
+      throw new Error("not used");
+    };
+    const p = {
+      list,
+      initialize: notUsed,
+      verify: notUsed,
+      chargeAuthorization: notUsed,
+      deactivateAuthorization: notUsed,
+      async refunds() {
+        return p.list;
+      },
+    };
+    return p;
+  }
+  const processed = (id: string, amount: number): PaystackRefund => ({ id, status: "processed", amount, currency: "KES", refundedAt });
+
+  async function creditNotes(paymentId: string) {
+    return (await refundsFor(db, paymentId)).map((r) => r.creditNote);
+  }
+
+  it("records each processed refund once and sends its credit note, citing the signed sale", async () => {
+    const p = await creditedPayment({ channel: "card" });
+    const etims = fakeEtims();
+    await issueEtimsInvoice(db, etims, p.paymentId, t0);
+    const paystack = fakePaystack([processed("11", 100_000), { ...processed("12", 50_000), status: "pending" }]);
+
+    const first = await recordRefunds(db, paystack, p.reference, etims, refundedAt);
+    expect(first).toMatchObject({ result: "recorded", paymentId: p.paymentId, refundIds: [expect.any(String)] });
+    expect(etims.sales[1]).toMatchObject({
+      invcNo: 2,
+      trdInvcNo: "CN-000002",
+      amount: 1000,
+      custTin: "P051234567X",
+      channel: "card",
+      item: { itemCd: "KE3NTU0000001" },
+      creditNote: { orgInvcNo: 1, refundedAt },
+    });
+    expect(await creditNotes(p.paymentId)).toEqual([expect.objectContaining({ status: "signed", invcNo: 2, ...signature })]);
+
+    // Delivered again, and once the pending refund has gone through.
+    paystack.list = [processed("11", 100_000), processed("12", 50_000)];
+    const again = await recordRefunds(db, paystack, p.reference, etims, later(3 * DAY));
+    expect(again.result === "recorded" && again.refundIds).toHaveLength(1);
+    expect(etims.sales.map((s) => [s.invcNo, s.creditNote?.orgInvcNo, s.amount])).toEqual([
+      [1, undefined, 2500],
+      [2, 1, 1000],
+      [3, 1, 500],
+    ]);
+    expect(await db.select().from(refunds)).toHaveLength(2);
+    // The sale is still the payment's invoice.
+    expect(await invoiceOf(p.paymentId)).toMatchObject({ invcNo: 1 });
+  });
+
+  it("holds a credit note until its sale is signed, then the hourly job sends it", async () => {
+    const p = await creditedPayment();
+    let up = false;
+    const etims = fakeEtims(async () => {
+      if (!up) throw new EtimsError("eTIMS /saveTrnsSalesOsdc couldn't be reached: timeout", null);
+      return signature;
+    });
+    await issueEtimsInvoice(db, etims, p.paymentId, t0);
+    const r = await recordRefunds(db, fakePaystack([processed("11", 250_000)]), p.reference, etims, refundedAt);
+    const [refundId] = r.result === "recorded" ? r.refundIds : [];
+    // Only the sale was tried: the credit note waits, without using up attempts.
+    expect(etims.sales.map((s) => s.invcNo)).toEqual([1]);
+    expect(await creditNotes(p.paymentId)).toEqual([expect.objectContaining({ status: "pending", attempts: 0 })]);
+    expect(await issueEtimsCreditNote(db, etims, refundId, refundedAt)).toEqual({ result: "skipped" });
+
+    up = true;
+    const run = await runEtimsRetries(db, etims, { now: later(3 * DAY) });
+    // The sale first, which lets the credit note go in the next run.
+    expect(run).toMatchObject({ checked: 1, signed: [p.paymentId] });
+    expect(await runEtimsRetries(db, etims, { now: later(3 * DAY) })).toMatchObject({ checked: 1, signed: [p.paymentId] });
+    expect(etims.sales.map((s) => [s.invcNo, s.creditNote?.orgInvcNo])).toEqual([
+      [1, undefined],
+      [1, undefined],
+      [2, 1],
+    ]);
+  });
+
+  it("records a refund of a payment made before eTIMS without a credit note", async () => {
+    const p = await creditedPayment({ etims: false });
+    const etims = fakeEtims();
+    const r = await recordRefunds(db, fakePaystack([processed("11", 250_000)]), p.reference, etims, refundedAt);
+    expect(r).toMatchObject({ result: "recorded", refundIds: [expect.any(String)] });
+    expect(await creditNotes(p.paymentId)).toEqual([null]);
+    expect(etims.sales).toEqual([]);
+  });
+
+  it("ignores references that aren't paid Kinga payments", async () => {
+    await db.insert(payments).values({ orgId, reference: "unpaid", kind: "subscription", interval: "month", amount: 250_000, currency: "KES" });
+    const paystack = fakePaystack([processed("11", 250_000)]);
+    expect(await recordRefunds(db, paystack, "unpaid", null)).toEqual({ result: "unknown" });
+    expect(await recordRefunds(db, paystack, "dashboard-charge", null)).toEqual({ result: "unknown" });
+    expect(await db.select().from(refunds)).toEqual([]);
+  });
+
+  it("keeps the receipt email on the sale's invoice once there are credit notes", async () => {
+    const p = await creditedPayment();
+    const etims = fakeEtims();
+    await issueEtimsInvoice(db, etims, p.paymentId, t0);
+    await recordRefunds(db, fakePaystack([processed("11", 100_000)]), p.reference, etims, refundedAt);
+    const sent: EmailMessage[] = [];
+    await sendReceipt(db, async (m) => void sent.push(m), p.paymentId);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].text).toContain(`KRA eTIMS invoice: ${config.sdcId}/7`);
   });
 });
