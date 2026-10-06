@@ -104,13 +104,15 @@ const NEXT_STATUSES: Record<ServiceOrderStatus, ServiceOrderStatus[]> = {
 };
 
 export type SetStatusResult =
-  | { ok: true; emailed: string[] }
+  /** `emailError` is set when the status changed but the delivery email couldn't be sent. */
+  | { ok: true; emailed: string[]; emailError?: string }
   | { ok: false; error: string };
 
 /**
  * Moves an order on, for Kinga staff (see scripts/service-order.ts). Owners
- * are emailed when it's delivered. Refunding a cancelled order is done in the
- * Paystack dashboard.
+ * are emailed when it's delivered. The status is saved first, so a failed
+ * email is returned rather than thrown: the order can't be delivered twice to
+ * retry it. Refunding a cancelled order is done in the Paystack dashboard.
  */
 export async function setServiceOrderStatus(
   db: Db,
@@ -145,8 +147,12 @@ export async function setServiceOrderStatus(
   if (status !== "delivered") return { ok: true, emailed: [] };
 
   const to = await ownerEmails(db, moved.orgId);
-  if (to.length > 0) {
+  if (to.length === 0) return { ok: true, emailed: [] };
+  try {
     await sendEmail(serviceDeliveredEmail(to, moved.orgName, moved.service, `${appUrl}/services`));
+  } catch (err) {
+    console.error("Failed to send service delivered email", orderId, err);
+    return { ok: true, emailed: [], emailError: err instanceof Error ? err.message : String(err) };
   }
   return { ok: true, emailed: to };
 }

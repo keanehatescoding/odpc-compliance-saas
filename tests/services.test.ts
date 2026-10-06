@@ -181,6 +181,20 @@ describe("moving an order on", () => {
     expect(o).toMatchObject({ status: "delivered", deliveredAt: t0 });
   });
 
+  it("keeps the order delivered and says so when the delivery email fails", async () => {
+    const { payment, order } = await orderService();
+    await succeed(payment);
+    const failing = async () => {
+      throw new Error("SMTP down");
+    };
+    expect(await setServiceOrderStatus(db, failing, order.id, "delivered", { now: t0 })).toEqual({
+      ok: true,
+      emailed: [],
+      emailError: "SMTP down",
+    });
+    expect(await orderStatus(order.id)).toBe("delivered");
+  });
+
   it("refuses moves that make no sense", async () => {
     const send = async () => {};
     const { order: unpaid } = await orderService();
