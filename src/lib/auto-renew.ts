@@ -253,7 +253,10 @@ async function claimRenewal(db: Db, orgId: string, now: Date): Promise<Claimed |
  * nor the card removed or renewal turned off, between the last check and the
  * charge. If one of those happened since the claim, drops the claim instead
  * and returns null. Once the request is made the lock goes; a charge whose
- * outcome is still open settles later, as any payment does.
+ * outcome is still open settles later, as any payment does. Meanwhile it holds
+ * a pooled connection, and that organisation's billing changes and payments
+ * wait; organisations are charged one at a time, so a run holds one at most
+ * (README, "Scheduling reminders and alerts").
  */
 async function chargeClaimed(db: Db, paystack: Paystack, claim: Claimed) {
   return db.transaction(async (tx) => {
