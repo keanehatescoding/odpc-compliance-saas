@@ -14,7 +14,8 @@ import {
 } from "@/lib/billing";
 import { formatDate, todayInKenya } from "@/lib/dates";
 import { etimsConfigFromEnv, etimsVerifyUrl, formatCuInvoiceNumber } from "@/lib/etims";
-import { etimsInvoiceFor } from "@/lib/etims-invoices";
+import { etimsInvoiceFor, formatCreditNoteNumber } from "@/lib/etims-invoices";
+import { refundsFor } from "@/lib/refunds";
 import { requireOrgContext } from "@/lib/session";
 import { isUuid } from "@/lib/uuid";
 
@@ -32,6 +33,7 @@ export default async function ReceiptPage({ params }: PageProps<"/billing/receip
   const signed = invoice?.status === "signed" && invoice.tin && invoice.bhfId && invoice.rcptSign ? invoice : null;
   const verifyUrl = signed && config ? etimsVerifyUrl(config, signed.tin!, signed.bhfId!, signed.rcptSign!) : null;
   const qr = verifyUrl ? await QRCode.toString(verifyUrl, { type: "svg", margin: 0, errorCorrectionLevel: "M" }) : null;
+  const refunded = await refundsFor(db, payment.id);
 
   return (
     <div className="bg-white p-8 print:p-0">
@@ -128,6 +130,53 @@ export default async function ReceiptPage({ params }: PageProps<"/billing/receip
               KRA eTIMS invoice pending. It will show here once KRA has signed it.
             </p>
           )
+        )}
+
+        {refunded.length > 0 && (
+          <section className="mt-8 border-t border-stone-300 pt-4">
+            <h2 className="mb-2 font-semibold">Refunds</h2>
+            <ul className="space-y-4">
+              {refunded.map(({ refund, creditNote }) => {
+                const signedNote = creditNote?.status === "signed" && creditNote.tin && creditNote.bhfId && creditNote.rcptSign ? creditNote : null;
+                return (
+                  <li key={refund.id}>
+                    <p>
+                      {formatPaymentAmount(refund)} refunded on {formatDate(todayInKenya(refund.refundedAt))}
+                    </p>
+                    {signedNote ? (
+                      <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-6 gap-y-1">
+                        <dt className="text-stone-600">Credit note</dt>
+                        <dd>{formatCreditNoteNumber(signedNote.invcNo)}</dd>
+                        <dt className="text-stone-600">CU invoice number</dt>
+                        <dd className="font-mono text-xs leading-5">{formatCuInvoiceNumber(signedNote)}</dd>
+                        <dt className="text-stone-600">Internal data</dt>
+                        <dd className="font-mono text-xs leading-5 break-all">{signedNote.intrlData}</dd>
+                        <dt className="text-stone-600">Receipt signature</dt>
+                        <dd className="font-mono text-xs leading-5 break-all">{signedNote.rcptSign}</dd>
+                        {config && (
+                          <>
+                            <dt className="no-print text-stone-600">Check</dt>
+                            <dd className="no-print">
+                              <a href={etimsVerifyUrl(config, signedNote.tin!, signedNote.bhfId!, signedNote.rcptSign!)} className="underline">
+                                Check this credit note with KRA
+                              </a>
+                            </dd>
+                          </>
+                        )}
+                      </dl>
+                    ) : creditNote?.status === "failed" ? (
+                      <p className="text-stone-600">
+                        KRA eTIMS credit note not issued yet. We&apos;re sorting it out with KRA
+                        {seller.email ? <>; contact us at {seller.email} if you need it sooner.</> : "."}
+                      </p>
+                    ) : (
+                      creditNote && <p className="text-stone-600">KRA eTIMS credit note pending. It will show here once KRA has signed it.</p>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
         )}
 
         <p className="mt-8 text-stone-600">Thank you for your payment.</p>

@@ -58,6 +58,9 @@ const fakePaystack = (fail: boolean | Error = false): Paystack & { calls: unknow
     async deactivateAuthorization() {
       throw new Error("not used");
     },
+    async refunds() {
+      throw new Error("not used");
+    },
   };
 };
 

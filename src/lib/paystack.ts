@@ -1,7 +1,8 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 // The Paystack calls billing needs: start a hosted checkout, look up how a
-// transaction ended, and charge or forget a saved card for automatic renewal.
+// transaction ended, charge or forget a saved card for automatic renewal, and
+// list what has been refunded.
 // https://paystack.com/docs/api/transaction/
 
 const API = "https://api.paystack.co";
@@ -34,6 +35,17 @@ export interface PaystackAuthorization {
   expYear: number | null;
 }
 
+/** Money given back on a transaction, from the Paystack dashboard or API. */
+export interface PaystackRefund {
+  id: string;
+  /** "pending", "processing", "needs-attention", "failed" or "processed". */
+  status: string;
+  /** In subunits (cents). */
+  amount: number;
+  currency: string;
+  refundedAt: Date | null;
+}
+
 export interface Paystack {
   /** Starts a checkout and returns the URL to send the payer to. */
   initialize(p: {
@@ -59,6 +71,8 @@ export interface Paystack {
   }): Promise<PaystackTransaction & { paused: boolean; gatewayResponse: string | null }>;
   /** Stops a saved card being charged again. */
   deactivateAuthorization(authorizationCode: string): Promise<void>;
+  /** Every refund of a transaction, in any status. */
+  refunds(reference: string): Promise<PaystackRefund[]>;
 }
 
 /** Paystack answered, but refused the request. `reason` is Paystack's own message. */
@@ -94,6 +108,10 @@ export function createPaystack(secretKey: string, fetchImpl: typeof fetch = fetc
     }
     return body.data as Record<string, unknown>;
   }
+  const date = (v: unknown) => {
+    const d = typeof v === "string" ? new Date(v) : null;
+    return d && !Number.isNaN(d.getTime()) ? d : null;
+  };
 
   return {
     async initialize(p) {
@@ -137,6 +155,26 @@ export function createPaystack(secretKey: string, fetchImpl: typeof fetch = fetc
         method: "POST",
         body: JSON.stringify({ authorization_code: authorizationCode }),
       });
+    },
+    async refunds(reference) {
+      // Refunds are listed by Paystack's transaction ID, not our reference.
+      const txn = await call(`/transaction/verify/${encodeURIComponent(reference)}`);
+      if (txn.id === undefined || txn.id === null) throw new Error(`Paystack didn't return an ID for transaction ${reference}.`);
+      const list = (await call(`/refund?transaction=${encodeURIComponent(String(txn.id))}&perPage=100`)) as unknown;
+      return (Array.isArray(list) ? (list as Record<string, unknown>[]) : [])
+        .filter((r) => {
+          // Guards against the filter being ignored: keep only this transaction's refunds.
+          const t = r.transaction && typeof r.transaction === "object" ? (r.transaction as Record<string, unknown>).id : r.transaction;
+          return t === undefined || String(t) === String(txn.id);
+        })
+        .map((r) => ({
+          id: String(r.id ?? ""),
+          status: String(r.status ?? ""),
+          amount: Number(r.amount),
+          currency: String(r.currency ?? ""),
+          refundedAt: date(r.refunded_at),
+        }))
+        .filter((r) => r.id && Number.isInteger(r.amount));
     },
   };
 }

@@ -41,6 +41,9 @@ const fakePaystack = (): Paystack & { calls: Parameters<Paystack["initialize"]>[
     async deactivateAuthorization() {
       throw new Error("not used");
     },
+    async refunds() {
+      throw new Error("not used");
+    },
   };
 };
 

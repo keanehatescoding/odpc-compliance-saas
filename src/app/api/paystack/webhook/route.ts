@@ -2,7 +2,8 @@ import { db } from "@/db";
 import { afterPaymentCredited } from "@/lib/after-payment";
 import { recordPayment } from "@/lib/billing";
 import { createEmailSender } from "@/lib/email";
-import { parseTransaction, verifyWebhookSignature } from "@/lib/paystack";
+import { createPaystack, parseTransaction, verifyWebhookSignature } from "@/lib/paystack";
+import { recordRefunds } from "@/lib/refunds";
 
 // Set this URL as the webhook in the Paystack dashboard. Paystack retries
 // deliveries that don't get a 200, so errors return 500 and are retried, and
@@ -21,6 +22,11 @@ export async function POST(request: Request) {
     event = JSON.parse(body);
   } catch {
     return new Response("Invalid JSON", { status: 400 });
+  }
+  if (event.event === "refund.processed" && event.data) {
+    // A refund made in the Paystack dashboard: record it and send KRA its credit note.
+    const result = await recordRefunds(db, createPaystack(secret), String(event.data.transaction_reference ?? ""));
+    return Response.json({ result: result.result });
   }
   if (event.event !== "charge.success" || !event.data) return new Response(null, { status: 200 });
 

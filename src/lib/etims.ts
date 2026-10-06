@@ -209,10 +209,14 @@ export function etimsItemCode(n: number): string {
   return `KE${ITEM_TYPE_SERVICE}${PACKAGING_UNIT}${QUANTITY_UNIT}${String(n).padStart(7, "0")}`;
 }
 
-/** A sale as Kinga makes them: one line, paid in full. Amounts in shillings. */
+/**
+ * A sale as Kinga makes them: one line, paid in full. Amounts in shillings.
+ * With `creditNote`, it's instead a credit note for a refund of that sale,
+ * for the amount refunded.
+ */
 export interface EtimsSale {
   invcNo: number;
-  /** Our receipt number, e.g. R-000123. */
+  /** Our receipt number, e.g. R-000123, or credit note number, e.g. CN-000004. */
   trdInvcNo: string;
   custTin: string | null;
   custNm: string | null;
@@ -221,7 +225,11 @@ export interface EtimsSale {
   paidAt: Date;
   item: { itemCd: string; itemClsCd: string | null; itemNm: string };
   amount: number;
+  creditNote?: { orgInvcNo: number; refundedAt: Date };
 }
+
+/** KRA's credit note reason (spec 4.17) for money given back. */
+const CREDIT_NOTE_REASON_REFUND = "06";
 
 /** KRA's payment method codes (spec 4.11). */
 export function paymentTypeCode(channel: string | null): string {
@@ -235,19 +243,20 @@ export function isKraPin(pin: string | null | undefined): pin is string {
   return typeof pin === "string" && /^[AP]\d{9}[A-Z]$/.test(pin);
 }
 
-/** The body of /saveTrnsSalesOsdc, field for field as in the spec's sample. */
+/** The body of /saveTrnsSalesOsdc, field for field as in the spec's sample. A credit note is dated when the refund was made. */
 export function saleBody(s: EtimsSale): Record<string, unknown> {
-  const at = kenyaStamp(s.paidAt);
+  const cn = s.creditNote;
+  const at = kenyaStamp(cn ? cn.refundedAt : s.paidAt);
   const custTin = isKraPin(s.custTin) ? s.custTin : null;
   const amt = Math.round(s.amount * 100) / 100;
   return {
     trdInvcNo: s.trdInvcNo,
     invcNo: s.invcNo,
-    orgInvcNo: 0,
+    orgInvcNo: cn ? cn.orgInvcNo : 0,
     custTin,
     custNm: s.custNm ? s.custNm.slice(0, 60) : null,
     salesTyCd: "N",
-    rcptTyCd: "S",
+    rcptTyCd: cn ? "R" : "S",
     pmtTyCd: paymentTypeCode(s.channel),
     salesSttsCd: "02",
     cfmDt: at,
@@ -255,8 +264,8 @@ export function saleBody(s: EtimsSale): Record<string, unknown> {
     stockRlsDt: null,
     cnclReqDt: null,
     cnclDt: null,
-    rfdDt: null,
-    rfdRsnCd: null,
+    rfdDt: cn ? at : null,
+    rfdRsnCd: cn ? CREDIT_NOTE_REASON_REFUND : null,
     totItemCnt: 1,
     taxblAmtA: 0,
     taxblAmtB: 0,
