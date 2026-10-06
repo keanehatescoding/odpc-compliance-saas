@@ -287,6 +287,39 @@ describe("charging the saved card", () => {
     expect(r.failed).toEqual([]);
   });
 
+  it("treats a bad key or rate limiting as an error in the job, not a decline", async () => {
+    await pay();
+    const { paystack, charges } = fakePaystack(
+      [new PaystackError("bad key", 401, "Invalid key")],
+      [new PaystackError("not found", 400, "Transaction reference not found")],
+    );
+    const { sent, send } = inbox();
+    const first = await runAutoRenewals(db, paystack, send, { now: at(-HOUR) });
+    expect(first.declined).toEqual([]);
+    expect(first.failed).toEqual([{ orgId, error: "bad key" }]);
+    expect(sent).toEqual([]);
+    expect((await org()).autoRenewInterval).toBe("month");
+
+    // Once the key is fixed, the attempt Paystack never saw is made again.
+    const second = await runAutoRenewals(db, paystack, send, { now: at(-HOUR / 2) });
+    expect(second.renewed).toHaveLength(1);
+    expect(charges.map((c) => c.reference)).toEqual([renewalReference(orgId, ends, 1), renewalReference(orgId, ends, 1)]);
+  });
+
+  it("doesn't take a charge another run has just made for a lost one", async () => {
+    await pay();
+    const { paystack, charges } = fakePaystack(
+      [new Error("socket hang up")],
+      [new PaystackError("not found", 400, "Transaction reference not found")],
+    );
+    await runAutoRenewals(db, paystack, inbox().send, { now: at(-HOUR) });
+    const r = await runAutoRenewals(db, paystack, inbox().send, { now: at(-HOUR + 60_000) });
+    expect(r.pending).toEqual([{ orgId, reference: renewalReference(orgId, ends, 1) }]);
+    expect(charges).toHaveLength(1);
+    const [p] = await db.select().from(payments).where(eq(payments.reference, renewalReference(orgId, ends, 1)));
+    expect(p.status).toBe("pending");
+  });
+
   it("doesn't charge a card that will have expired", async () => {
     await pay({ authorization: { ...card, expMonth: ends.getUTCMonth(), expYear: ends.getUTCFullYear() } });
     const { paystack, charges } = fakePaystack();
@@ -380,6 +413,34 @@ describe("changing renewal", () => {
     await pay({ authorization: { ...card, expMonth: 1, expYear: 2026 } });
     await setAutoRenew(db, send, orgId, null, by, { now: t0 });
     expect(await setAutoRenew(db, send, orgId, "month", by, { now: t0 })).toMatchObject({ error: expect.stringMatching(/expires/) });
+  });
+
+  it("can't turn renewal back on once no charge is left for the ended period", async () => {
+    await pay();
+    const declines = Array.from({ length: 3 }, () => ({ status: "failed" as const, gatewayResponse: "Insufficient Funds" }));
+    const { paystack } = fakePaystack(declines);
+    const { send } = inbox();
+    await runAutoRenewals(db, paystack, send, { now: at(-HOUR) });
+    await runAutoRenewals(db, paystack, send, { now: at(DAY) });
+
+    // Turned off and on between attempts: the last attempt is still to come.
+    await setAutoRenew(db, send, orgId, null, by, { now: at(2 * DAY) });
+    expect(await setAutoRenew(db, send, orgId, "month", by, { now: at(2 * DAY) })).toEqual({ ok: true });
+
+    await runAutoRenewals(db, paystack, send, { now: at(3 * DAY) });
+    expect((await org()).autoRenewInterval).toBeNull();
+    expect(await setAutoRenew(db, send, orgId, "month", by, { now: at(4 * DAY) })).toMatchObject({
+      error: expect.stringMatching(/can't be renewed automatically/),
+    });
+  });
+
+  it("can't turn renewal on too long after the period ended", async () => {
+    await pay();
+    const { send } = inbox();
+    await setAutoRenew(db, send, orgId, null, by, { now: t0 });
+    expect(await setAutoRenew(db, send, orgId, "month", by, { now: at(8 * DAY) })).toMatchObject({
+      error: expect.stringMatching(/can't be renewed automatically/),
+    });
   });
 
   it("removes the card here and on Paystack, turning renewal off", async () => {

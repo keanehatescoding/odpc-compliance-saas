@@ -13,6 +13,7 @@ import {
   dueRenewalAttempt,
   nextRenewalAttemptAt,
   PLAN_PRICES,
+  RENEWAL_ATTEMPTS,
   RENEWAL_GIVE_UP_MS,
   toSubunits,
   willAutoRenew,
@@ -23,6 +24,8 @@ import { ownerEmails } from "./reminders";
 const DAY = 86_400_000;
 /** Paystack statuses for a charge that hasn't finished either way. */
 const STILL_GOING = new Set(["pending", "ongoing", "processing", "queued"]);
+/** How long after an attempt is claimed Paystack may not yet know of its charge. */
+const IN_FLIGHT_MS = 10 * 60_000;
 
 export async function savedCardFor(db: Db, orgId: string): Promise<SavedCard | null> {
   const [card] = await db.select().from(savedCards).where(eq(savedCards.orgId, orgId)).limit(1);
@@ -108,7 +111,9 @@ export async function runAutoRenewals(
           metadata: { orgId: id, interval: claim.interval, renewal: String(claim.attempt) },
         });
       } catch (err) {
-        if (err instanceof PaystackError && err.status >= 400 && err.status < 500) {
+        // A bad key (401, 403) or rate limiting (429) says nothing about the card. Those
+        // are errors in the job: the payment stays pending, and the next run looks it up.
+        if (err instanceof PaystackError && err.status >= 400 && err.status < 500 && ![401, 403, 429].includes(err.status)) {
           await declineRenewal(db, sendEmail, claim, err.reason ?? "Paystack refused the charge", appUrl, result);
           continue;
         }
@@ -153,10 +158,20 @@ async function settlePendingRenewal(
     txn = await paystack.verify(row.payment.reference);
   } catch (err) {
     if (err instanceof PaystackError && (err.status === 400 || err.status === 404)) {
-      // Paystack never saw it, so it wasn't charged. Forget the attempt so it's made again.
+      // Another run may still be making this charge, and Paystack not know of it yet.
+      if (now.getTime() - row.attempt.createdAt.getTime() < IN_FLIGHT_MS) {
+        result.pending.push({ orgId, reference: row.payment.reference });
+        return false;
+      }
+      // Paystack never saw it, so it wasn't charged. Forget the attempt so it's made
+      // again, unless it was credited or declined meanwhile (under the same lock).
       await db.transaction(async (tx) => {
-        await tx.delete(renewalAttempts).where(eq(renewalAttempts.id, row.attempt.id));
-        await tx.delete(payments).where(eq(payments.id, row.payment.id));
+        await tx.select({ id: organizations.id }).from(organizations).where(eq(organizations.id, orgId)).for("update");
+        const [gone] = await tx
+          .delete(payments)
+          .where(and(eq(payments.id, row.payment.id), eq(payments.status, "pending")))
+          .returning({ id: payments.id });
+        if (gone) await tx.delete(renewalAttempts).where(eq(renewalAttempts.id, row.attempt.id));
       });
       return true;
     }
@@ -205,7 +220,8 @@ async function claimRenewal(db: Db, orgId: string, now: Date): Promise<Claimed |
 
     const [claimed] = await tx
       .insert(renewalAttempts)
-      .values({ orgId, endsAt, attempt })
+      // Timed by our clock, which is what IN_FLIGHT_MS is measured against.
+      .values({ orgId, endsAt, attempt, createdAt: now })
       .onConflictDoNothing()
       .returning({ id: renewalAttempts.id });
     if (!claimed) return null;
@@ -375,6 +391,20 @@ export async function setAutoRenew(
       return { error: `The ${cardLabel(card)} expires before your current period ends. Pay with another card to save it.` };
     }
     if (org.autoRenewInterval === interval) return { unchanged: true };
+    if (interval) {
+      // Once the period has ended, only a charge still to come can renew it. After
+      // the last attempt, or too long after the end, none will.
+      const { endsAt } = accessFor(org, now);
+      if (endsAt <= now) {
+        const [made] = await tx
+          .select({ last: sql<number | null>`max(${renewalAttempts.attempt})` })
+          .from(renewalAttempts)
+          .where(and(eq(renewalAttempts.orgId, orgId), eq(renewalAttempts.endsAt, endsAt)));
+        if (!dueRenewalAttempt(endsAt, now) || (made?.last ?? 0) >= RENEWAL_ATTEMPTS) {
+          return { error: "This period can't be renewed automatically any more. Pay now, and renewal will continue from the next period." };
+        }
+      }
+    }
     await tx.update(organizations).set({ autoRenewInterval: interval }).where(eq(organizations.id, orgId));
     return { org };
   });
