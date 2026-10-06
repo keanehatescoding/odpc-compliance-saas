@@ -1,12 +1,21 @@
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, lt, ne, sql } from "drizzle-orm";
 import type { Db } from "@/db";
-import { billingAlertLog, organizations, payments, serviceOrders, users, type Payment } from "@/db/schema";
+import { billingAlertLog, organizations, payments, savedCards, serviceOrders, users, type Payment, type SavedCard } from "@/db/schema";
 import { formatDate, todayInKenya } from "./dates";
 import { formatKsh, type OrgSize } from "./dpa";
 import type { SendEmail } from "./email";
 import { PaystackError, type Paystack, type PaystackTransaction } from "./paystack";
-import { accessFor, addPeriod, PLAN_PRICES, toSubunits, type BillingInterval } from "./plans";
+import {
+  accessFor,
+  addPeriod,
+  cardLabel,
+  cardUsable,
+  PLAN_PRICES,
+  toSubunits,
+  willAutoRenew,
+  type BillingInterval,
+} from "./plans";
 import { ownerEmails } from "./reminders";
 import { SERVICES, type ServiceKey } from "./services";
 
@@ -19,9 +28,12 @@ export const PENDING_PAYMENT_KEEP_MS = 30 * DAY;
 /** Shown when payment is attempted but PAYSTACK_SECRET_KEY isn't set. */
 export const PAYMENTS_UNAVAILABLE = "Online payment isn't set up yet. Contact us to pay by invoice.";
 
-/** What a checkout pays for: a month or year of the subscription, or a one-off service. */
+/**
+ * What a checkout pays for: a month or year of the subscription, or a one-off
+ * service. `saveCard` is the payer's consent to keep the card for automatic renewal.
+ */
 export type CheckoutItem =
-  | { kind: "subscription"; interval: BillingInterval }
+  | { kind: "subscription"; interval: BillingInterval; saveCard?: boolean }
   | { kind: "service"; service: ServiceKey; notes: string | null };
 
 export function checkoutPrice(item: CheckoutItem, size: OrgSize): number {
@@ -51,6 +63,7 @@ export async function startCheckout(
         kind: item.kind,
         interval: item.kind === "subscription" ? item.interval : null,
         service: item.kind === "service" ? item.service : null,
+        saveCard: item.kind === "subscription" && item.saveCard === true,
         amount,
         currency: CURRENCY,
         startedBy: p.userId,
@@ -99,7 +112,9 @@ export type RecordResult =
  * gives it a receipt number. A subscription payment extends the organisation's
  * paid period by its interval, from whichever is latest of now, the end of the
  * trial and the end of the current period (so paying early never loses time);
- * a service payment marks its order paid. Runs for both the webhook and the
+ * a service payment marks its order paid. If the payer agreed to save their
+ * card and paid with one Paystack can charge again, it's saved and automatic
+ * renewal turned on for the same interval. Runs for both the webhook and the
  * return from checkout, in either order, and credits each payment once.
  */
 export async function recordPayment(db: Db, txn: PaystackTransaction, now: Date = new Date()): Promise<RecordResult> {
@@ -147,6 +162,24 @@ export async function recordPayment(db: Db, txn: PaystackTransaction, now: Date 
       .set({ ...billed, periodStart: start, periodEnd })
       .where(eq(payments.id, locked.id));
     await tx.update(organizations).set({ paidUntil: periodEnd }).where(eq(organizations.id, orgId));
+
+    const auth = txn.authorization;
+    if (locked.saveCard && auth?.reusable && txn.channel === "card" && txn.customerEmail) {
+      const card = {
+        authorizationCode: auth.code,
+        email: txn.customerEmail,
+        brand: auth.brand,
+        last4: auth.last4,
+        expMonth: auth.expMonth,
+        expYear: auth.expYear,
+        savedBy: locked.startedBy,
+      };
+      await tx
+        .insert(savedCards)
+        .values({ orgId, ...card })
+        .onConflictDoUpdate({ target: savedCards.orgId, set: { ...card, createdAt: now } });
+      await tx.update(organizations).set({ autoRenewInterval: locked.interval }).where(eq(organizations.id, orgId));
+    }
     return { result: "credited", orgId, paymentId: locked.id, kind: "subscription", periodEnd };
   });
 }
@@ -294,21 +327,31 @@ export async function prunePayments(db: Db, now: Date = new Date()): Promise<voi
 }
 
 // ---------------------------------------------------------------------------
-// Billing emails: a reminder shortly before access ends, and a notice once it
-// has. Sent to owners, since they decide whether to pay.
+// Billing emails: a reminder shortly before access ends (or, with automatic
+// renewal on, notice of the coming charge), and a notice once it has ended.
+// Sent to owners, since they decide whether to pay.
 // ---------------------------------------------------------------------------
 
 export const ENDING_SOON_DAYS = 3;
 /** After downtime, don't tell an organisation that lapsed long ago. */
 export const ENDED_NOTICE_DAYS = 14;
 
-export type BillingAlertKind = "ending_soon" | "ended";
+export type BillingAlertKind = "ending_soon" | "renewal_notice" | "ended";
 
-export function dueBillingAlert(org: { trialEndsAt: Date; paidUntil: Date | null }, now: Date): BillingAlertKind | null {
+/**
+ * Which billing email is due. While the period is set to renew automatically,
+ * owners are told about the coming charge instead, and nothing is sent when it
+ * ends: the renewal job emails them if every charge fails.
+ */
+export function dueBillingAlert(
+  org: { trialEndsAt: Date; paidUntil: Date | null },
+  now: Date,
+  renewing = false,
+): BillingAlertKind | null {
   const { state, endsAt } = accessFor(org, now);
   const ms = endsAt.getTime() - now.getTime();
-  if (state !== "lapsed") return ms <= ENDING_SOON_DAYS * DAY ? "ending_soon" : null;
-  return -ms <= ENDED_NOTICE_DAYS * DAY ? "ended" : null;
+  if (state !== "lapsed") return ms <= ENDING_SOON_DAYS * DAY ? (renewing ? "renewal_notice" : "ending_soon") : null;
+  return -ms <= ENDED_NOTICE_DAYS * DAY && !renewing ? "ended" : null;
 }
 
 export interface BillingAlertRunResult {
@@ -351,20 +394,21 @@ export async function runBillingAlerts(
     const claim = await db.transaction(async (tx) => {
       const [org] = await tx.select().from(organizations).where(eq(organizations.id, id)).for("update");
       if (!org) return null;
-      const kind = dueBillingAlert(org, now);
-      if (!kind) return null;
+      const [card] = await tx.select().from(savedCards).where(eq(savedCards.orgId, id));
       const access = accessFor(org, now);
+      const kind = dueBillingAlert(org, now, willAutoRenew(org, card ?? null, access.endsAt));
+      if (!kind) return null;
       const [claimed] = await tx
         .insert(billingAlertLog)
         .values({ orgId: org.id, kind, endsAt: access.endsAt, recipients: to })
         .onConflictDoNothing()
         .returning({ id: billingAlertLog.id });
-      return claimed ? { id: claimed.id, org, kind, access } : null;
+      return claimed ? { id: claimed.id, org, card: card ?? null, kind, access } : null;
     });
     if (!claim) continue;
 
     try {
-      await sendEmail(billingEmail(to, claim.org, claim.kind, claim.access.endsAt, claim.org.paidUntil !== null, `${appUrl}/billing`));
+      await sendEmail(billingEmail(to, claim.org, claim.kind, claim.access.endsAt, claim.org.paidUntil !== null, `${appUrl}/billing`, claim.card));
       result.sent.push({ orgId: id, kind: claim.kind, to });
     } catch (err) {
       result.failed.push({ orgId: id, error: err instanceof Error ? err.message : String(err) });
@@ -379,15 +423,36 @@ export async function runBillingAlerts(
 
 export function billingEmail(
   to: string[],
-  org: { name: string; size: string },
+  org: { name: string; size: string; autoRenewInterval: string | null },
   kind: BillingAlertKind,
   endsAt: Date,
   hasPaid: boolean,
   link: string,
+  card: SavedCard | null = null,
 ) {
   const what = hasPaid ? "subscription" : "free trial";
   const on = formatDate(todayInKenya(endsAt));
   const prices = PLAN_PRICES[org.size as OrgSize];
+  if (kind === "renewal_notice" && card && org.autoRenewInterval) {
+    const interval = org.autoRenewInterval as BillingInterval;
+    return {
+      to,
+      subject: `${org.name}: your Kinga subscription renews on ${on}`,
+      text: [
+        "Hello,",
+        "",
+        `${org.name}'s Kinga subscription renews automatically on ${on}. We'll charge ${formatKsh(prices[interval])} to the ${cardLabel(card)} for another ${interval}, up to a day before then, and email a receipt.`,
+        "",
+        "To change the plan, use a different card or turn automatic renewal off, go to:",
+        "",
+        link,
+      ].join("\n"),
+    };
+  }
+  const cardExpired =
+    org.autoRenewInterval && card && !cardUsable(card, endsAt)
+      ? [`Automatic renewal is on, but the ${cardLabel(card)} expires before then, so we can't charge it. Pay with another card and tick "Save my card" to keep renewing automatically.`, ""]
+      : [];
   const priceLine = `Your plan costs ${formatKsh(prices.month)} a month, or ${formatKsh(prices.year)} a year (two months free). Pay by M-Pesa or card.`;
   const stillWorks =
     "You can still see and export all your records and log and manage data breaches, and renewal reminders and deadline alerts keep coming.";
@@ -402,6 +467,7 @@ export function billingEmail(
         "",
         link,
         "",
+        ...cardExpired,
         priceLine,
         "",
         `If it ends, Kinga becomes read-only until you pay. ${stillWorks}`,

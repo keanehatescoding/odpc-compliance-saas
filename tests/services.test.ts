@@ -35,6 +35,12 @@ const fakePaystack = (): Paystack & { calls: Parameters<Paystack["initialize"]>[
     async verify() {
       throw new Error("not used");
     },
+    async chargeAuthorization() {
+      throw new Error("not used");
+    },
+    async deactivateAuthorization() {
+      throw new Error("not used");
+    },
   };
 };
 

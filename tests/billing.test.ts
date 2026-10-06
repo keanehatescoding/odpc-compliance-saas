@@ -52,6 +52,12 @@ const fakePaystack = (fail: boolean | Error = false): Paystack & { calls: unknow
     async verify() {
       throw new Error("not used");
     },
+    async chargeAuthorization() {
+      throw new Error("not used");
+    },
+    async deactivateAuthorization() {
+      throw new Error("not used");
+    },
   };
 };
 
@@ -383,6 +389,8 @@ describe("paystack", () => {
       currency: "KES",
       channel: "card",
       paidAt: t0,
+      authorization: null,
+      customerEmail: null,
     });
     expect(requests[0].url).toBe("https://api.paystack.co/transaction/initialize");
     expect(JSON.parse(String(requests[0].init.body))).toMatchObject({ callback_url: "cb", amount: 300_000 });
@@ -409,6 +417,8 @@ describe("paystack", () => {
       currency: "KES",
       channel: null,
       paidAt: null,
+      authorization: null,
+      customerEmail: null,
     });
   });
 });

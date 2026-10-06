@@ -2,14 +2,25 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Card, FormMessage, PageHeader, Pill } from "@/components/ui";
 import { db } from "@/db";
+import { lastFailedRenewal, savedCardFor } from "@/lib/auto-renew";
 import { formatPaymentAmount, formatReceiptNumber, paymentHistory, paymentMethod } from "@/lib/billing";
 import { formatDate, formatDateTime, todayInKenya } from "@/lib/dates";
 import { formatKsh, ORG_SIZES, type OrgSize } from "@/lib/dpa";
 import { paystackFromEnv } from "@/lib/paystack";
-import { accessFor, BILLING_INTERVALS, PLAN_PRICES, type BillingInterval } from "@/lib/plans";
+import {
+  accessFor,
+  BILLING_INTERVALS,
+  cardExpiry,
+  cardLabel,
+  nextRenewalAttemptAt,
+  PLAN_PRICES,
+  willAutoRenew,
+  type BillingInterval,
+} from "@/lib/plans";
 import { SERVICES, type ServiceKey } from "@/lib/services";
 import { requireOrgContext } from "@/lib/session";
 import { PayForm } from "./pay-form";
+import { RenewalForm } from "./renewal-form";
 
 export const metadata: Metadata = { title: "Billing" };
 
@@ -33,6 +44,10 @@ export default async function BillingPage({ searchParams }: PageProps<"/billing"
   const access = accessFor(org);
   const prices = PLAN_PRICES[org.size as OrgSize];
   const history = await paymentHistory(db, org.id);
+  const card = await savedCardFor(db, org.id);
+  const renewing = willAutoRenew(org, card, access.endsAt);
+  const failedRenewal = renewing ? await lastFailedRenewal(db, org.id, access.endsAt) : null;
+  const nextTry = failedRenewal ? nextRenewalAttemptAt(access.endsAt, failedRenewal.attempt) : null;
   const canPay = role !== "member";
   const paymentsReady = paystackFromEnv() !== null;
   const notice = typeof payment === "string" && payment in PAYMENT_NOTICES ? PAYMENT_NOTICES[payment as keyof typeof PAYMENT_NOTICES] : null;
@@ -59,7 +74,8 @@ export default async function BillingPage({ searchParams }: PageProps<"/billing"
           </h2>
           <p className="mt-1 text-sm text-stone-600">
             {access.state === "trial" && `Your free trial ends on ${day(access.endsAt)}.`}
-            {access.state === "active" && `Paid up to ${day(access.endsAt)}.`}
+            {access.state === "active" &&
+              `Paid up to ${day(access.endsAt)}.${renewing ? ` Renews automatically on ${day(access.endsAt)}.` : ""}`}
             {access.state === "lapsed" &&
               `Your ${org.paidUntil ? "subscription" : "free trial"} ended on ${day(access.endsAt)}. Kinga is read-only until you pay: you can still see, print and export all your records, log and manage data breaches, and manage the team and settings. Renewal reminders and deadline alerts keep coming.`}
           </p>
@@ -74,14 +90,11 @@ export default async function BillingPage({ searchParams }: PageProps<"/billing"
           {canPay ? (
             paymentsReady ? (
               <>
-                <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-start">
-                  <PayForm interval="year" price={prices.year} primary />
-                  <PayForm interval="month" price={prices.month} />
-                </div>
+                <PayForm prices={prices} renewing={card !== null} />
                 <p className="mt-3 text-xs text-stone-500">
                   Pay by M-Pesa or card through Paystack. Each payment adds a month or a year after your current
-                  {access.state === "trial" ? " trial" : " period"} ends, so paying early doesn&apos;t lose any days. Nothing renews
-                  automatically: we&apos;ll email owners 3 days before it ends.
+                  {access.state === "trial" ? " trial" : " period"} ends, so paying early doesn&apos;t lose any days. Unless a
+                  card is saved for automatic renewal, we&apos;ll email owners 3 days before it ends.
                 </p>
                 {!org.kraPin && (
                   <p className="mt-2 text-xs text-stone-500">
@@ -100,6 +113,32 @@ export default async function BillingPage({ searchParams }: PageProps<"/billing"
             <p className="mt-4 text-sm text-stone-700">Ask an owner or admin to pay.</p>
           )}
         </Card>
+
+        {card && (
+          <Card>
+            <h2 className="flex flex-wrap items-center gap-2 font-semibold">
+              Automatic renewal
+              {renewing ? <Pill>On</Pill> : <Pill tone="amber">Off</Pill>}
+            </h2>
+            <p className="mt-1 text-sm text-stone-600">
+              Saved card: {cardLabel(card)}
+              {cardExpiry(card) && `, expires ${cardExpiry(card)}`}.{" "}
+              {renewing
+                ? `We'll charge ${formatKsh(PLAN_PRICES[org.size as OrgSize][org.autoRenewInterval])} for another ${org.autoRenewInterval} up to a day before ${day(access.endsAt)}, and email a receipt. If the charge fails we try again 1 and 3 days after.`
+                : org.autoRenewInterval
+                  ? `The card expires before ${day(access.endsAt)}, so it won't be charged. Pay with another card and tick “Save my card” to keep renewing automatically.`
+                  : "It won't be charged unless you turn automatic renewal on."}
+            </p>
+            {failedRenewal && (
+              <div className="mt-3">
+                <FormMessage
+                  message={`The last charge, on ${day(failedRenewal.at)}, didn't go through: ${failedRenewal.error}.${nextTry ? ` We'll try again on ${day(nextTry)}.` : ""}`}
+                />
+              </div>
+            )}
+            {canPay && <RenewalForm current={(org.autoRenewInterval as BillingInterval | null) ?? "off"} />}
+          </Card>
+        )}
 
         {history.length > 0 && (
           <Card className="p-0">

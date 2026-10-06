@@ -1,10 +1,12 @@
 // Run hourly (breach deadlines are measured in hours): npm run reminders
 import { db } from "@/db";
+import { runAutoRenewals } from "@/lib/auto-renew";
 import { prunePayments, runBillingAlerts } from "@/lib/billing";
 import { runBreachAlerts } from "@/lib/breach-alerts";
 import { createEmailSender } from "@/lib/email";
 import { pruneVerificationTokens } from "@/lib/email-verification";
 import { pruneResetTokens } from "@/lib/password-reset";
+import { paystackFromEnv } from "@/lib/paystack";
 import { pruneRateLimits } from "@/lib/rate-limit";
 import { runReminders } from "@/lib/reminders";
 import { runSubjectRequestAlerts } from "@/lib/subject-request-alerts";
@@ -29,6 +31,16 @@ console.log(
 );
 for (const f of requests.failed) console.error(`  ${f.requestId}: ${f.error}`);
 
+// Charge saved cards before the billing emails, so a renewal that goes through isn't followed by an "ended" email.
+const paystack = paystackFromEnv();
+const renewals = paystack ? await runAutoRenewals(db, paystack, send) : null;
+if (renewals) {
+  console.log(
+    `Checked ${renewals.checked} organisations for automatic renewal; renewed ${renewals.renewed.length}, ${renewals.declined.length} declined, ${renewals.pending.length} pending; ${renewals.failed.length} failed.`,
+  );
+  for (const f of renewals.failed) console.error(`  ${f.orgId}: ${f.error}`);
+}
+
 const billing = await runBillingAlerts(db, send);
 console.log(
   `Checked ${billing.checked} organisations near the end of their trial or subscription; sent ${billing.sent.length} billing emails; ${billing.failed.length} failed.`,
@@ -42,4 +54,8 @@ await pruneVerificationTokens(db);
 await pruneInvitations(db);
 await prunePayments(db);
 
-process.exit(result.failed.length + breaches.failed.length + requests.failed.length + billing.failed.length > 0 ? 1 : 0);
+process.exit(
+  result.failed.length + breaches.failed.length + requests.failed.length + (renewals?.failed.length ?? 0) + billing.failed.length > 0
+    ? 1
+    : 0,
+);
