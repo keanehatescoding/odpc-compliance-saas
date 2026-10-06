@@ -100,16 +100,10 @@ export async function runAutoRenewals(
       if (!(await settlePendingRenewal(db, paystack, sendEmail, id, now, appUrl, result))) continue;
       const claim = await claimRenewal(db, id, now);
       if (!claim) continue;
-      let txn: Awaited<ReturnType<Paystack["chargeAuthorization"]>>;
+      let txn: Awaited<ReturnType<Paystack["chargeAuthorization"]>> | null;
       try {
-        txn = await paystack.chargeAuthorization({
-          authorizationCode: claim.card.authorizationCode,
-          email: claim.card.email,
-          amount: claim.amount,
-          currency: CURRENCY,
-          reference: claim.reference,
-          metadata: { orgId: id, interval: claim.interval, renewal: String(claim.attempt) },
-        });
+        txn = await chargeClaimed(db, paystack, claim);
+        if (!txn) continue;
       } catch (err) {
         // A bad key (401, 403) or rate limiting (429) says nothing about the card. Those
         // are errors in the job: the payment stays pending, and the next run looks it up.
@@ -250,6 +244,37 @@ async function claimRenewal(db: Db, orgId: string, now: Date): Promise<Claimed |
       interval,
       card,
     };
+  });
+}
+
+/**
+ * Makes the claimed charge, holding the organisation's lock while Paystack
+ * answers (at most its request timeout), so the organisation can't be deleted,
+ * nor the card removed or renewal turned off, between the last check and the
+ * charge. If one of those happened since the claim, drops the claim instead
+ * and returns null. Once the request is made the lock goes; a charge whose
+ * outcome is still open settles later, as any payment does. Meanwhile it holds
+ * a pooled connection, and that organisation's billing changes and payments
+ * wait; organisations are charged one at a time, so a run holds one at most
+ * (README, "Scheduling reminders and alerts").
+ */
+async function chargeClaimed(db: Db, paystack: Paystack, claim: Claimed) {
+  return db.transaction(async (tx) => {
+    const [org] = await tx.select().from(organizations).where(eq(organizations.id, claim.orgId)).for("update");
+    const [card] = await tx.select().from(savedCards).where(eq(savedCards.orgId, claim.orgId));
+    if (!org || org.deletedAt || !org.autoRenewInterval || card?.authorizationCode !== claim.card.authorizationCode) {
+      await tx.delete(renewalAttempts).where(eq(renewalAttempts.id, claim.attemptId));
+      await tx.delete(payments).where(and(eq(payments.id, claim.paymentId), eq(payments.status, "pending")));
+      return null;
+    }
+    return paystack.chargeAuthorization({
+      authorizationCode: claim.card.authorizationCode,
+      email: claim.card.email,
+      amount: claim.amount,
+      currency: CURRENCY,
+      reference: claim.reference,
+      metadata: { orgId: claim.orgId, interval: claim.interval, renewal: String(claim.attempt) },
+    });
   });
 }
 

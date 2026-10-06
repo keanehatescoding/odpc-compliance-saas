@@ -116,7 +116,7 @@ function checkoutError(err: unknown): string {
 export type RecordResult =
   | { result: "credited"; orgId: string; paymentId: string; kind: PaymentKind; periodEnd: Date | null }
   | { result: "already_credited"; orgId: string; periodEnd: Date | null }
-  | { result: "not_paid" | "mismatch"; orgId: string }
+  | { result: "not_paid" | "mismatch" | "org_deleted"; orgId: string }
   | { result: "unknown" };
 
 /**
@@ -147,6 +147,11 @@ export async function recordPayment(
     const [locked] = await tx.select().from(payments).where(eq(payments.id, payment.id)).for("update");
     if (!org || !locked) return { result: "unknown" };
     if (locked.status === "succeeded") return { result: "already_credited", orgId, periodEnd: locked.periodEnd };
+    if (org.deletedAt) {
+      // A checkout started before the organisation was deleted, paid after. Nobody is left to credit it.
+      console.error(`Paystack payment ${txn.reference} arrived after its organisation was deleted. Refund it in the Paystack dashboard.`);
+      return { result: "org_deleted", orgId };
+    }
     if (txn.amount !== locked.amount || txn.currency.toUpperCase() !== locked.currency) {
       console.error(
         `Paystack payment ${txn.reference} doesn't match: expected ${locked.amount} ${locked.currency}, got ${txn.amount} ${txn.currency}`,

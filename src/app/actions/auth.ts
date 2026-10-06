@@ -12,6 +12,7 @@ import { ORG_SIZE_KEYS, SECTOR_KEYS, type OrgSize, type Sector } from "@/lib/dpa
 import { createEmailSender } from "@/lib/email";
 import { changeEmail, issueVerificationToken, verificationEmail } from "@/lib/email-verification";
 import { fieldErrors, formValues, type FormState } from "@/lib/forms";
+import { termsAgreed, TERMS_VERSION } from "@/lib/legal";
 import { safeNextPath } from "@/lib/next-path";
 import { getDummyHash, hashPassword, verifyPassword } from "@/lib/password";
 import { issueResetToken, passwordChangedEmail, resetEmail, resetPassword, updatePassword } from "@/lib/password-reset";
@@ -30,6 +31,7 @@ const signupSchema = z.object({
   orgName: z.string().trim().min(2, { error: "Enter your organisation's name." }).max(200),
   sector: z.enum(SECTOR_KEYS as [Sector, ...Sector[]], { error: "Choose a sector." }),
   size: z.enum(ORG_SIZE_KEYS as [OrgSize, ...OrgSize[]], { error: "Choose a size." }),
+  terms: termsAgreed,
 });
 
 const EMAIL_TAKEN = "An account with this email already exists. Sign in instead.";
@@ -76,6 +78,7 @@ function sendVerificationEmail(user: { id: string; name: string; email: string }
 export async function signup(_prev: FormState, formData: FormData): Promise<FormState> {
   const values = formValues(formData);
   delete values.password;
+  delete values.terms;
   const parsed = signupSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { errors: fieldErrors(parsed.error), values };
   const d = parsed.data;
@@ -91,7 +94,7 @@ export async function signup(_prev: FormState, formData: FormData): Promise<Form
     userId = await db.transaction(async (tx) => {
       const [user] = await tx
         .insert(users)
-        .values({ email: d.email, name: d.name, passwordHash })
+        .values({ email: d.email, name: d.name, passwordHash, termsVersion: TERMS_VERSION, termsAcceptedAt: new Date() })
         .returning({ id: users.id });
       const [org] = await tx
         .insert(organizations)

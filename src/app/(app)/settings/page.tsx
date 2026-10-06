@@ -6,6 +6,7 @@ import { memberships, users } from "@/db/schema";
 import { requireOrgContext } from "@/lib/session";
 import { ChangePasswordForm } from "./change-password-form";
 import { SettingsForm } from "./settings-form";
+import { YourData } from "./your-data";
 
 export const metadata: Metadata = { title: "Settings" };
 
@@ -19,10 +20,11 @@ export default async function SettingsPage() {
 
   return (
     <>
-      <PageHeader title="Settings" description="Organisation details, where renewal reminders are sent, and your password." />
+      <PageHeader title="Settings" description="Organisation details, where renewal reminders are sent, your password, and exporting or deleting your data." />
       <div className="space-y-6">
         <SettingsForm org={org} canEdit={role !== "member"} ownerEmails={owners.map((o) => o.email)} />
         <ChangePasswordForm />
+        <YourData orgName={org.name} role={role} />
       </div>
     </>
   );

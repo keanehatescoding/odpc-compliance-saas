@@ -8,6 +8,12 @@ on:
     - cron: "7 * * * *"
   workflow_dispatch:
 
+# One run at a time: a manual run waits for a scheduled one, and vice versa. Each
+# run holds a database connection while a renewal charge is with Paystack.
+concurrency:
+  group: reminders
+  cancel-in-progress: false
+
 # The job only calls the app, so it needs no access to the repository.
 permissions: {}
 

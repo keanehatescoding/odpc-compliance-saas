@@ -168,7 +168,7 @@ export async function acceptInvitation(
 export async function createAccountFromInvitation(
   db: Db,
   token: string,
-  p: { name: string; passwordHash: string },
+  p: { name: string; passwordHash: string; termsVersion?: string },
   now: Date = new Date(),
 ): Promise<string | null> {
   return db.transaction(async (tx) => {
@@ -179,7 +179,13 @@ export async function createAccountFromInvitation(
     if (!invite) return null;
     const [user] = await tx
       .insert(users)
-      .values({ email: invite.email, name: p.name, passwordHash: p.passwordHash, emailVerifiedAt: now })
+      .values({
+        email: invite.email,
+        name: p.name,
+        passwordHash: p.passwordHash,
+        emailVerifiedAt: now,
+        ...(p.termsVersion && { termsVersion: p.termsVersion, termsAcceptedAt: now }),
+      })
       .returning({ id: users.id });
     await tx.insert(memberships).values({ userId: user.id, orgId: invite.orgId, role: invite.role, createdAt: now });
     return user.id;

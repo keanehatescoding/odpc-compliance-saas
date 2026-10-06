@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { LegalLinks } from "@/components/legal-links";
 import { Logo } from "@/components/logo";
 import { buttonClass } from "@/components/ui";
 import { getCurrentUser } from "@/lib/session";
@@ -19,8 +20,9 @@ const features = [
   },
 ];
 
-export default async function Home() {
+export default async function Home({ searchParams }: PageProps<"/">) {
   if (await getCurrentUser()) redirect("/dashboard");
+  const { account } = await searchParams;
   return (
     <div className="mx-auto max-w-5xl px-4 sm:px-6">
       <header className="flex items-center justify-between py-6">
@@ -36,6 +38,11 @@ export default async function Home() {
       </header>
 
       <main className="py-16 sm:py-24">
+        {account === "deleted" && (
+          <p role="status" className="mb-10 rounded-md bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            Your account has been deleted.
+          </p>
+        )}
         <p className="text-sm font-medium text-brand-700">Kenya Data Protection Act, 2019</p>
         <h1 className="mt-3 max-w-3xl text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
           Stay registered with the ODPC and keep your processing records up to date.
@@ -63,8 +70,9 @@ export default async function Home() {
         </div>
       </main>
 
-      <footer className="border-t border-stone-200 py-6 text-xs text-stone-500">
-        Kinga helps you organise compliance work. It is not legal advice.
+      <footer className="flex flex-col gap-2 border-t border-stone-200 py-6 text-xs text-stone-500 sm:flex-row sm:justify-between">
+        <span>Kinga helps you organise compliance work. It is not legal advice.</span>
+        <LegalLinks />
       </footer>
     </div>
   );

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useActionState } from "react";
 import { signup } from "@/app/actions/auth";
 import { SubmitButton } from "@/components/submit-button";
+import { TermsConsent } from "@/components/terms-consent";
 import { Card, FormMessage, SelectField, TextField } from "@/components/ui";
 import { ORG_SIZES, SECTORS } from "@/lib/dpa";
 
@@ -38,6 +39,7 @@ export function SignupForm() {
           hint="Sets the indicative ODPC fee band."
           {...f}
         />
+        <TermsConsent errors={state?.errors} dpa />
         <SubmitButton pendingText="Creating account…">Create account</SubmitButton>
       </form>
       <p className="mt-6 text-sm text-stone-600">

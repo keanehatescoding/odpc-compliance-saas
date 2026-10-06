@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { logout } from "@/app/actions/auth";
+import { LegalLinks } from "@/components/legal-links";
 import { Logo } from "@/components/logo";
 import { NavLink } from "@/components/nav-link";
 import { accessFor } from "@/lib/plans";
@@ -38,6 +39,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
           <form action={logout} className="mt-2">
             <button className="text-xs font-medium text-stone-600 hover:text-stone-900">Sign out</button>
           </form>
+          <LegalLinks className="mt-3 text-xs text-stone-500" />
         </div>
       </aside>
       <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 sm:px-8">
