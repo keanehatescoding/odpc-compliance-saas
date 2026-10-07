@@ -43,7 +43,7 @@ export const EXPORT_FORMAT = "kinga-export/1";
  * elsewhere. Leaves out secrets (password hashes, invitation tokens, the card's
  * Paystack authorization) and our own bookkeeping, such as retry state.
  */
-export async function exportOrganization(db: Db, orgId: string, now: Date = new Date()) {
+export async function exportOrganization(db: Db | Tx, orgId: string, now: Date = new Date()) {
   const [org] = await db.select().from(organizations).where(eq(organizations.id, orgId));
   if (!org) return null;
 
