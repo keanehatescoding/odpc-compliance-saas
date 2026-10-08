@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/db";
 import { registrations } from "@/db/schema";
+import { changedFields, describe, editSummary, FIELD_LABELS, recordActivity } from "@/lib/activity";
 import { isIsoDate } from "@/lib/dates";
 import { fieldErrors, formValues, type FormState } from "@/lib/forms";
 import { defaultExpiry } from "@/lib/registration";
@@ -43,7 +44,7 @@ const schema = z
 
 /** Creates or updates a registration. Edits carry the registration id in a hidden `id` field. */
 export async function saveRegistration(_prev: FormState, formData: FormData): Promise<FormState> {
-  const { org } = await requireActiveOrg();
+  const { user, org } = await requireActiveOrg();
   const rawId = formData.get("id");
   const id = typeof rawId === "string" && rawId ? rawId : null;
   if (id && !isUuid(id)) return { message: "Registration not found." };
@@ -76,25 +77,41 @@ export async function saveRegistration(_prev: FormState, formData: FormData): Pr
     };
   }
 
-  if (id) {
-    const updated = await db
-      .update(registrations)
-      .set(parsed.data)
+  const saved = await db.transaction(async (tx) => {
+    if (!id) {
+      const [created] = await tx.insert(registrations).values({ ...parsed.data, orgId: org.id }).returning();
+      await recordActivity(tx, { orgId: org.id, actorId: user.id, area: "registration", subjectId: created.id, summary: `added ${describe.registration(created)}` });
+      return true;
+    }
+    const [before] = await tx
+      .select()
+      .from(registrations)
       .where(and(eq(registrations.id, id), eq(registrations.orgId, org.id)))
-      .returning({ id: registrations.id });
-    if (updated.length === 0) return { message: "Registration not found." };
-  } else {
-    await db.insert(registrations).values({ ...parsed.data, orgId: org.id });
-  }
+      .for("update");
+    if (!before) return false;
+    await tx.update(registrations).set(parsed.data).where(eq(registrations.id, id));
+    const summary = editSummary(describe.registration(parsed.data), changedFields(before, parsed.data, FIELD_LABELS.registration));
+    if (summary) await recordActivity(tx, { orgId: org.id, actorId: user.id, area: "registration", subjectId: id, summary });
+    return true;
+  });
+  if (!saved) return { message: "Registration not found." };
 
   revalidatePath("/", "layout");
   redirect("/registrations");
 }
 
 export async function deleteRegistration(id: string): Promise<void> {
-  const { org } = await requireActiveOrg();
+  const { user, org } = await requireActiveOrg();
   if (typeof id === "string" && isUuid(id)) {
-    await db.delete(registrations).where(and(eq(registrations.id, id), eq(registrations.orgId, org.id)));
+    await db.transaction(async (tx) => {
+      const [gone] = await tx
+        .delete(registrations)
+        .where(and(eq(registrations.id, id), eq(registrations.orgId, org.id)))
+        .returning();
+      if (gone) {
+        await recordActivity(tx, { orgId: org.id, actorId: user.id, area: "registration", subjectId: id, summary: `deleted ${describe.registration(gone)}` });
+      }
+    });
   }
   revalidatePath("/", "layout");
   redirect("/registrations");

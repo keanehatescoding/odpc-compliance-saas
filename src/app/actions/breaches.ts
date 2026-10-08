@@ -7,6 +7,7 @@ import { after } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { breachActivities, breaches, breachUpdates, processingActivities, type Breach } from "@/db/schema";
+import { changedFields, describe, editSummary, FIELD_LABELS, recordActivity } from "@/lib/activity";
 import { BREACH_RISKS, NOTIFY_WHOM } from "@/lib/breach";
 import { parseBreachForm, type BreachFormData } from "@/lib/breach-form";
 import { runBreachAlerts } from "@/lib/breach-alerts";
@@ -44,6 +45,7 @@ export async function saveBreach(_prev: FormState, formData: FormData): Promise<
   const breachId = await db.transaction(async (tx) => {
     let saved: Breach;
     let notes: string[];
+    let summary: string | null;
     if (id) {
       const [before] = await tx
         .select()
@@ -51,15 +53,24 @@ export async function saveBreach(_prev: FormState, formData: FormData): Promise<
         .where(and(eq(breaches.id, id), eq(breaches.orgId, org.id)))
         .for("update");
       if (!before) return null;
+      const linked = await tx.delete(breachActivities).where(eq(breachActivities.breachId, id)).returning();
       [saved] = await tx.update(breaches).set(data).where(eq(breaches.id, id)).returning();
       notes = changeNotes(before, data);
-      await tx.delete(breachActivities).where(eq(breachActivities.breachId, id));
+      summary = editSummary(
+        describe.breach(saved),
+        changedFields(
+          { ...before, activityIds: linked.map((l) => l.activityId).sort() },
+          { ...data, activityIds: [...activityIds].sort() },
+          FIELD_LABELS.breach,
+        ),
+      );
     } else {
       [saved] = await tx
         .insert(breaches)
         .values({ ...data, orgId: org.id, reportedBy: user.id })
         .returning();
       notes = [`Breach logged. Became aware ${formatDateTime(data.discoveredAt)}.`, ...changeNotes(null, data)];
+      summary = `logged ${describe.breach(saved)}`;
     }
     if (activityIds.length > 0) {
       await tx.insert(breachActivities).values(activityIds.map((activityId) => ({ breachId: saved.id, activityId })));
@@ -67,6 +78,7 @@ export async function saveBreach(_prev: FormState, formData: FormData): Promise<
     if (notes.length > 0) {
       await tx.insert(breachUpdates).values(notes.map((note) => ({ breachId: saved.id, userId: user.id, note })));
     }
+    if (summary) await recordActivity(tx, { orgId: org.id, actorId: user.id, area: "breach", subjectId: saved.id, summary });
     return saved.id;
   });
   if (!breachId) return { message: "Breach not found." };
@@ -115,9 +127,14 @@ export async function addBreachUpdate(_prev: FormState, formData: FormData): Pro
 }
 
 export async function deleteBreach(id: string): Promise<void> {
-  const { org } = await requireOrgContext();
+  const { user, org } = await requireOrgContext();
   if (typeof id === "string" && isUuid(id)) {
-    await db.delete(breaches).where(and(eq(breaches.id, id), eq(breaches.orgId, org.id)));
+    await db.transaction(async (tx) => {
+      const [gone] = await tx.delete(breaches).where(and(eq(breaches.id, id), eq(breaches.orgId, org.id))).returning();
+      if (gone) {
+        await recordActivity(tx, { orgId: org.id, actorId: user.id, area: "breach", subjectId: id, summary: `deleted ${describe.breach(gone)}` });
+      }
+    });
   }
   revalidatePath("/", "layout");
   redirect("/breaches");

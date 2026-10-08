@@ -110,6 +110,11 @@ export default async function PrivacyPage() {
         <li>Your account, until you delete it.</li>
         <li>Your organisation&apos;s records, until an owner deletes the organisation or deletes them.</li>
         <li>
+          The organisation&apos;s activity history, which names who made each change, until the organisation is deleted.
+          Deleting your account keeps your name on the changes you made, so the organisation can still show who did
+          what.
+        </li>
+        <li>
           Receipts, eTIMS invoices and refunds for {TAX_RECORD_YEARS} years after the payment, as tax law requires,
           even if the organisation is deleted. They keep the name and KRA PIN they were billed to.
         </li>

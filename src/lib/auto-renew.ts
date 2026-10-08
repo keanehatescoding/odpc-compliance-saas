@@ -1,6 +1,7 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { Db } from "@/db";
 import { billingAlertLog, organizations, payments, renewalAttempts, savedCards, type Organization, type SavedCard } from "@/db/schema";
+import { recordActivity } from "./activity";
 import { afterPaymentCredited } from "./after-payment";
 import { CURRENCY, recordPayment } from "./billing";
 import { formatDate, todayInKenya } from "./dates";
@@ -401,7 +402,7 @@ export async function setAutoRenew(
   sendEmail: SendEmail,
   orgId: string,
   interval: BillingInterval | null,
-  by: { name: string; email: string },
+  by: { id: string; name: string; email: string },
   opts: { now?: Date; appUrl?: string } = {},
 ): Promise<RenewalChangeResult> {
   const now = opts.now ?? new Date();
@@ -431,6 +432,21 @@ export async function setAutoRenew(
       }
     }
     await tx.update(organizations).set({ autoRenewInterval: interval }).where(eq(organizations.id, orgId));
+    const plan = (i: BillingInterval) => (i === "year" ? "annual" : "monthly");
+    await recordActivity(
+      tx,
+      {
+        orgId,
+        actorId: by.id,
+        area: "billing",
+        summary: !interval
+          ? "turned automatic renewal off"
+          : org.autoRenewInterval
+            ? `switched automatic renewal from ${plan(org.autoRenewInterval as BillingInterval)} to ${plan(interval)}`
+            : `turned automatic renewal on, ${plan(interval)}`,
+      },
+      now,
+    );
     return { org };
   });
   if ("error" in changed) return { error: changed.error };
@@ -448,7 +464,7 @@ export async function removeSavedCard(
   paystack: Paystack | null,
   sendEmail: SendEmail,
   orgId: string,
-  by: { name: string; email: string },
+  by: { id: string; name: string; email: string },
   opts: { now?: Date; appUrl?: string } = {},
 ): Promise<RenewalChangeResult> {
   const now = opts.now ?? new Date();
@@ -458,6 +474,7 @@ export async function removeSavedCard(
     const [card] = await tx.delete(savedCards).where(eq(savedCards.orgId, orgId)).returning();
     if (!org || !card) return null;
     await tx.update(organizations).set({ autoRenewInterval: null }).where(eq(organizations.id, orgId));
+    await recordActivity(tx, { orgId, actorId: by.id, area: "billing", summary: `removed the saved ${cardLabel(card)}` }, now);
     return { org, card };
   });
   if (!removed) return { error: "There's no saved card to remove." };

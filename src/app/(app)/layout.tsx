@@ -30,6 +30,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
           <NavLink href="/requests">Data subject requests</NavLink>
           <NavLink href="/services">Expert services</NavLink>
           <NavLink href="/team">Team</NavLink>
+          <NavLink href="/activity">Activity</NavLink>
           <NavLink href="/settings">Settings</NavLink>
           <NavLink href="/billing">Billing</NavLink>
         </nav>

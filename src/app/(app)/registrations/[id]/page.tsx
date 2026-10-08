@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { deleteRegistration } from "@/app/actions/registrations";
+import { RecordHistory } from "@/components/activity-list";
 import { DeleteButton } from "@/components/delete-button";
 import { BackLink, PageHeader } from "@/components/ui";
 import { REGISTRATION_ROLES, type RegistrationRole } from "@/lib/dpa";
@@ -26,6 +27,7 @@ export default async function EditRegistrationPage({ params }: PageProps<"/regis
         actions={<DeleteButton action={deleteRegistration.bind(null, registration.id)} />}
       />
       <RegistrationForm registration={registration} />
+      <RecordHistory orgId={org.id} subjectId={registration.id} />
     </>
   );
 }

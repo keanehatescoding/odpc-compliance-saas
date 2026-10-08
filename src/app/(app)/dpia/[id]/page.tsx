@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { deleteDpia } from "@/app/actions/dpia";
+import { RecordHistory } from "@/components/activity-list";
 import { DeleteButton } from "@/components/delete-button";
 import { BackLink, buttonClass, Card, cx, DpiaStatusBadge, FormMessage, PageHeader } from "@/components/ui";
 import { formatDate, todayInKenya } from "@/lib/dates";
@@ -87,6 +88,7 @@ export default async function DpiaPage({ params, searchParams }: PageProps<"/dpi
       </Card>
 
       <DpiaForm dpia={dpia} risks={risks} activities={activities.map(({ id, name }) => ({ id, name }))} />
+      <RecordHistory orgId={org.id} subjectId={dpia.id} />
     </>
   );
 }

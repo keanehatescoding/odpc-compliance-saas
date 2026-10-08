@@ -1,6 +1,7 @@
 import { and, asc, eq, gt, isNull, lte, sql } from "drizzle-orm";
 import type { Db } from "@/db";
 import { invitations, memberships, organizations, users, type MemberRole } from "@/db/schema";
+import { recordActivity } from "./activity";
 import type { EmailMessage } from "./email";
 import { assignableRoles, canManage, ROLE_LABEL } from "./roles";
 import { hashToken, newToken } from "./tokens";
@@ -13,6 +14,14 @@ const sameEmail = (column: typeof users.email | typeof invitations.email, email:
   eq(sql`lower(${column})`, email.toLowerCase());
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+/** "an admin", "a member", "an owner". */
+const asRole = (role: MemberRole) => `${role === "member" ? "a" : "an"} ${role}`;
+
+async function nameOf(tx: Tx, userId: string): Promise<string> {
+  const [u] = await tx.select({ name: users.name }).from(users).where(eq(users.id, userId));
+  return u?.name ?? "someone";
+}
 
 /** The org's memberships, locked so concurrent team changes queue behind each other. */
 async function lockTeam(tx: Tx, orgId: string) {
@@ -99,6 +108,16 @@ export async function issueInvitation(
       expiresAt: new Date(now.getTime() + INVITE_TTL_MS),
       createdAt: now,
     });
+    await recordActivity(
+      tx,
+      {
+        orgId: p.orgId,
+        actorId: p.actorId,
+        area: "team",
+        summary: existing ? `sent ${p.email} a new invitation link, as ${asRole(p.role)}` : `invited ${p.email} as ${asRole(p.role)}`,
+      },
+      now,
+    );
     return { token };
   });
 }
@@ -154,6 +173,7 @@ export async function acceptInvitation(
 
     await tx.insert(memberships).values({ userId, orgId: invite.orgId, role: invite.role, createdAt: now });
     await tx.delete(invitations).where(eq(invitations.id, invite.id));
+    await recordActivity(tx, { orgId: invite.orgId, actorId: userId, area: "team", summary: `joined the team as ${asRole(invite.role)}` }, now);
     await tx.update(users).set({ emailVerifiedAt: now }).where(and(eq(users.id, userId), isNull(users.emailVerifiedAt)));
     return { orgId: invite.orgId };
   });
@@ -188,22 +208,30 @@ export async function createAccountFromInvitation(
       })
       .returning({ id: users.id });
     await tx.insert(memberships).values({ userId: user.id, orgId: invite.orgId, role: invite.role, createdAt: now });
+    await recordActivity(tx, { orgId: invite.orgId, actorId: user.id, area: "team", summary: `joined the team as ${asRole(invite.role)}` }, now);
     return user.id;
   });
 }
 
 /** Withdraws an invitation. Returns an error to show, or null on success (including if it was already gone). */
-export async function revokeInvitation(db: Db, orgId: string, actorId: string, invitationId: string): Promise<string | null> {
+export async function revokeInvitation(
+  db: Db,
+  orgId: string,
+  actorId: string,
+  invitationId: string,
+  now: Date = new Date(),
+): Promise<string | null> {
   return db.transaction(async (tx) => {
     const team = await lockTeam(tx, orgId);
     const actor = team.find((m) => m.userId === actorId);
     const [invite] = await tx
-      .select({ role: invitations.role })
+      .select({ role: invitations.role, email: invitations.email })
       .from(invitations)
       .where(and(eq(invitations.id, invitationId), eq(invitations.orgId, orgId)));
     if (!invite) return null;
     if (!actor || !canManage(actor.role, invite.role)) return "Only an owner can withdraw an owner's invitation.";
     await tx.delete(invitations).where(eq(invitations.id, invitationId));
+    await recordActivity(tx, { orgId, actorId, area: "team", summary: `withdrew the invitation to ${invite.email}` }, now);
     return null;
   });
 }
@@ -212,6 +240,7 @@ export async function revokeInvitation(db: Db, orgId: string, actorId: string, i
 export async function changeMemberRole(
   db: Db,
   p: { orgId: string; actorId: string; userId: string; role: MemberRole },
+  now: Date = new Date(),
 ): Promise<string | null> {
   return db.transaction(async (tx) => {
     const team = await lockTeam(tx, p.orgId);
@@ -229,6 +258,14 @@ export async function changeMemberRole(
       .update(memberships)
       .set({ role: p.role })
       .where(and(eq(memberships.orgId, p.orgId), eq(memberships.userId, p.userId)));
+    const who = p.userId === p.actorId ? "their own" : `${await nameOf(tx, p.userId)}'s`;
+    await recordActivity(tx, {
+      orgId: p.orgId,
+      actorId: p.actorId,
+      area: "team",
+      subjectId: p.userId,
+      summary: `changed ${who} role from ${target.role} to ${p.role}`,
+    }, now);
     return null;
   });
 }
@@ -237,6 +274,7 @@ export async function changeMemberRole(
 export async function removeMember(
   db: Db,
   p: { orgId: string; actorId: string; userId: string },
+  now: Date = new Date(),
 ): Promise<string | null> {
   return db.transaction(async (tx) => {
     const team = await lockTeam(tx, p.orgId);
@@ -246,6 +284,13 @@ export async function removeMember(
     if (p.userId === p.actorId) return "You can't remove yourself. Ask another owner or admin.";
     if (!actor || !canManage(actor.role, target.role)) return "Only an owner can remove an owner.";
     await tx.delete(memberships).where(and(eq(memberships.orgId, p.orgId), eq(memberships.userId, p.userId)));
+    await recordActivity(tx, {
+      orgId: p.orgId,
+      actorId: p.actorId,
+      area: "team",
+      subjectId: p.userId,
+      summary: `removed ${await nameOf(tx, p.userId)} from the team`,
+    }, now);
     return null;
   });
 }

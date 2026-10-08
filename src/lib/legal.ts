@@ -5,7 +5,7 @@ import { z } from "zod";
  * whenever the Terms or the DPA change in substance; each account records the
  * version it agreed to at signup.
  */
-export const TERMS_VERSION = "2026-10-06";
+export const TERMS_VERSION = "2026-10-07";
 
 /** The signup forms' required "I agree" checkbox. */
 export const termsAgreed = z.literal("on", { error: "Agree to the terms to create an account." });

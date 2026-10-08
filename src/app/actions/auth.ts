@@ -6,6 +6,7 @@ import { after } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { memberships, organizations, users } from "@/db/schema";
+import { recordActivity } from "@/lib/activity";
 import { PASSWORD_CHANGED, RESET_LINK_INVALID, RESET_LINK_SENT, VERIFY_LINK_SENT } from "@/lib/auth-messages";
 import { isUniqueViolation } from "@/lib/db-errors";
 import { ORG_SIZE_KEYS, SECTOR_KEYS, type OrgSize, type Sector } from "@/lib/dpa";
@@ -101,6 +102,7 @@ export async function signup(_prev: FormState, formData: FormData): Promise<Form
         .values({ name: d.orgName, sector: d.sector, size: d.size })
         .returning({ id: organizations.id });
       await tx.insert(memberships).values({ userId: user.id, orgId: org.id, role: "owner" });
+      await recordActivity(tx, { orgId: org.id, actorId: user.id, area: "organization", subjectId: org.id, summary: "created the organisation" });
       return user.id;
     });
   } catch (err) {

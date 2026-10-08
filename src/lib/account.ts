@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, ne } from "drizzle-orm";
 import type { Db } from "@/db";
 import {
+  activityLog,
   billingAlertLog,
   breachActivities,
   breachAlertLog,
@@ -25,6 +26,7 @@ import {
   users,
   type SavedCard,
 } from "@/db/schema";
+import { recordActivity } from "./activity";
 import type { EmailMessage } from "./email";
 import { TAX_RECORD_YEARS } from "./legal";
 
@@ -41,11 +43,11 @@ export const EXPORT_FORMAT = "kinga-export/1";
  * elsewhere. Leaves out secrets (password hashes, invitation tokens, the card's
  * Paystack authorization) and our own bookkeeping, such as retry state.
  */
-export async function exportOrganization(db: Db, orgId: string, now: Date = new Date()) {
+export async function exportOrganization(db: Db | Tx, orgId: string, now: Date = new Date()) {
   const [org] = await db.select().from(organizations).where(eq(organizations.id, orgId));
   if (!org) return null;
 
-  const [team, invited, regs, activities, breachRows, dpiaRows, requests, paymentRows, orders, card] = await Promise.all([
+  const [team, invited, regs, activities, breachRows, dpiaRows, requests, paymentRows, orders, card, history] = await Promise.all([
     db
       .select({ id: users.id, name: users.name, email: users.email, role: memberships.role, joinedAt: memberships.createdAt })
       .from(memberships)
@@ -68,6 +70,7 @@ export async function exportOrganization(db: Db, orgId: string, now: Date = new 
       .orderBy(asc(payments.paidAt)),
     db.select().from(serviceOrders).where(eq(serviceOrders.orgId, orgId)).orderBy(asc(serviceOrders.createdAt)),
     db.select().from(savedCards).where(eq(savedCards.orgId, orgId)),
+    db.select().from(activityLog).where(eq(activityLog.orgId, orgId)).orderBy(asc(activityLog.createdAt), asc(activityLog.id)),
   ]);
 
   const ids = <T extends { id: string }>(rows: T[]) => rows.map((r) => r.id);
@@ -164,6 +167,7 @@ export async function exportOrganization(db: Db, orgId: string, now: Date = new 
       deliveredAt: o.deliveredAt,
       createdAt: o.createdAt,
     })),
+    activityLog: history.map(({ orgId: _o, id: _i, ...a }) => a),
     savedCard: card[0]
       ? { brand: card[0].brand, last4: card[0].last4, expMonth: card[0].expMonth, expYear: card[0].expYear, savedAt: card[0].createdAt }
       : null,
@@ -226,6 +230,8 @@ export async function deleteOrganization(
     await tx.delete(billingAlertLog).where(eq(billingAlertLog.orgId, p.orgId));
     await tx.delete(invitations).where(eq(invitations.orgId, p.orgId));
     await tx.delete(memberships).where(eq(memberships.orgId, p.orgId));
+    // It names the team and what they did, so it goes with them.
+    await tx.delete(activityLog).where(eq(activityLog.orgId, p.orgId));
     await tx.delete(payments).where(and(eq(payments.orgId, p.orgId), eq(payments.status, "failed")));
     // Pending checkouts lose who started them; paid ones keep it until that account goes.
     await tx
@@ -283,6 +289,7 @@ export function organizationDeletedEmail(
  */
 export async function deleteAccount(db: Db, userId: string): Promise<string | null> {
   return db.transaction(async (tx) => {
+    // An account belongs to at most one organisation (see acceptInvitation).
     const [membership] = await tx
       .select({ orgId: memberships.orgId, orgName: organizations.name })
       .from(memberships)
@@ -290,12 +297,18 @@ export async function deleteAccount(db: Db, userId: string): Promise<string | nu
       .where(eq(memberships.userId, userId));
     // Under the team lock, so two owners can't both leave at once.
     const team = membership ? await lockTeam(tx, membership.orgId) : [];
-    if (membership && team.find((m) => m.userId === userId)?.role === "owner") {
+    // From the locked team, since the organisation may have been deleted since the read above.
+    const member = team.find((m) => m.userId === userId);
+    if (membership && member?.role === "owner") {
       if (team.filter((m) => m.role === "owner").length === 1) {
         return team.length === 1
           ? `You're the only person in ${membership.orgName}. Delete the organisation first, then your account.`
           : `You're the only owner of ${membership.orgName}. Make someone else an owner, or delete the organisation first.`;
       }
+    }
+    // Logged while the account exists, so the entry carries their name.
+    if (membership && member) {
+      await recordActivity(tx, { orgId: membership.orgId, actorId: userId, area: "team", subjectId: userId, summary: "deleted their account and left the team" });
     }
     await tx.delete(users).where(eq(users.id, userId));
     return null;
