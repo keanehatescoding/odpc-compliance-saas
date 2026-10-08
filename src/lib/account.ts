@@ -297,7 +297,9 @@ export async function deleteAccount(db: Db, userId: string): Promise<string | nu
       .where(eq(memberships.userId, userId));
     // Under the team lock, so two owners can't both leave at once.
     const team = membership ? await lockTeam(tx, membership.orgId) : [];
-    if (membership && team.find((m) => m.userId === userId)?.role === "owner") {
+    // From the locked team, since the organisation may have been deleted since the read above.
+    const member = team.find((m) => m.userId === userId);
+    if (membership && member?.role === "owner") {
       if (team.filter((m) => m.role === "owner").length === 1) {
         return team.length === 1
           ? `You're the only person in ${membership.orgName}. Delete the organisation first, then your account.`
@@ -305,7 +307,7 @@ export async function deleteAccount(db: Db, userId: string): Promise<string | nu
       }
     }
     // Logged while the account exists, so the entry carries their name.
-    if (membership) {
+    if (membership && member) {
       await recordActivity(tx, { orgId: membership.orgId, actorId: userId, area: "team", subjectId: userId, summary: "deleted their account and left the team" });
     }
     await tx.delete(users).where(eq(users.id, userId));
