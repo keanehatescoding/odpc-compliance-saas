@@ -289,6 +289,7 @@ export function organizationDeletedEmail(
  */
 export async function deleteAccount(db: Db, userId: string): Promise<string | null> {
   return db.transaction(async (tx) => {
+    // An account belongs to at most one organisation (see acceptInvitation).
     const [membership] = await tx
       .select({ orgId: memberships.orgId, orgName: organizations.name })
       .from(memberships)
