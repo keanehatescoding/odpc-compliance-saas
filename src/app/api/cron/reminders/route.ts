@@ -7,6 +7,7 @@ import { createEmailSender } from "@/lib/email";
 import { pruneVerificationTokens } from "@/lib/email-verification";
 import { etimsFromEnv } from "@/lib/etims";
 import { runEtimsRetries } from "@/lib/etims-invoices";
+import { runLegalNotices } from "@/lib/legal-notices";
 import { pruneResetTokens } from "@/lib/password-reset";
 import { paystackFromEnv } from "@/lib/paystack";
 import { pruneRateLimits } from "@/lib/rate-limit";
@@ -37,6 +38,7 @@ export async function GET(request: Request) {
   // Send KRA any eTIMS invoices that didn't go through when their payment was credited.
   const etimsClient = etimsFromEnv();
   const etims = etimsClient ? await runEtimsRetries(db, etimsClient) : null;
+  const notices = await runLegalNotices(db, send);
   // Housekeeping: drop stale login counters, expired reset, verification and invitation links, and unpaid checkouts.
   await pruneRateLimits(db);
   await pruneResetTokens(db);
@@ -44,6 +46,6 @@ export async function GET(request: Request) {
   await pruneInvitations(db);
   await prunePayments(db);
   const failed =
-    reminders.failed.length + breaches.failed.length + requests.failed.length + (renewals?.failed.length ?? 0) + billing.failed.length + (etims?.failed.length ?? 0) > 0;
-  return Response.json({ reminders, breaches, requests, renewals, billing, etims }, { status: failed ? 500 : 200 });
+    reminders.failed.length + breaches.failed.length + requests.failed.length + (renewals?.failed.length ?? 0) + billing.failed.length + (etims?.failed.length ?? 0) + notices.failed.length > 0;
+  return Response.json({ reminders, breaches, requests, renewals, billing, etims, notices }, { status: failed ? 500 : 200 });
 }
