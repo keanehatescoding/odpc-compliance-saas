@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "@/db";
 import * as schema from "@/db/schema";
 import type { EmailMessage } from "@/lib/email";
-import { createLegalNotice, legalNoticeError, pendingLegalNotices, runLegalNotices } from "@/lib/legal-notices";
+import { createLegalNotice, legalNoticeError, legalNoticeRecipients, pendingLegalNotices, runLegalNotices } from "@/lib/legal-notices";
 
 const { legalNoticeLog, memberships, organizations, users } = schema;
 
@@ -99,6 +99,21 @@ describe("runLegalNotices", () => {
     expect(await pendingLegalNotices(db, t0)).toEqual([{ notice: n, sent: 2 }]);
   });
 
+  it("emails an owner of several organisations once, naming each", async () => {
+    await addOrg("Sunrise Academy", [{ email: "a@sunrise.ke", role: "owner" }]);
+    const [u] = await db.select().from(users).where(eq(users.email, "a@sunrise.ke"));
+    const [clinic] = await db.insert(organizations).values({ name: "Hope Clinic", sector: "education", size: "medium" }).returning();
+    await db.insert(memberships).values({ orgId: clinic.id, userId: u.id, role: "owner" });
+    await notice();
+
+    expect(await legalNoticeRecipients(db, null, t0)).toHaveLength(1);
+    const { sent, send } = capture();
+    await runLegalNotices(db, send, opts());
+    expect(sent.map((m) => m.to)).toEqual([["a@sunrise.ke"]]);
+    expect(sent[0].text).toContain("the terms Sunrise Academy and Hope Clinic use Kinga under");
+    expect(sent[0].text).toContain("an owner can delete Sunrise Academy or Hope Clinic from Settings");
+  });
+
   it("tells someone who becomes an owner before the change, but not after it takes effect", async () => {
     const org = await addOrg("Sunrise Academy", [{ email: "a@sunrise.ke", role: "owner" }]);
     await notice();
@@ -156,6 +171,37 @@ describe("runLegalNotices", () => {
     const again = capture();
     await runLegalNotices(db, again.send, opts(later(DAY)));
     expect(again.sent).toHaveLength(0);
+  });
+
+  it("doesn't mark sent a claim another run took over after the lease ran out", async () => {
+    await addOrg("Sunrise Academy", [{ email: "a@sunrise.ke", role: "owner" }]);
+    await notice();
+    const gate = () => {
+      let open!: () => void;
+      let entered!: () => void;
+      const opened = new Promise<void>((r) => (open = r));
+      const inside = new Promise<void>((r) => (entered = r));
+      return { open, inside, wait: () => (entered(), opened) };
+    };
+
+    const slow = gate();
+    const first = runLegalNotices(db, () => slow.wait(), opts());
+    await slow.inside;
+    await db.update(users).set({ email: "new@sunrise.ke" }).where(eq(users.email, "a@sunrise.ke"));
+    const failing = gate();
+    const second = runLegalNotices(
+      db,
+      () => failing.wait().then(() => Promise.reject(new Error("SMTP down"))),
+      opts(later(60 * 60 * 1000)),
+    );
+    await failing.inside;
+
+    slow.open();
+    await first;
+    failing.open();
+    await second;
+    // Only the old address got it, so the new one is still owed the notice.
+    expect(await db.select().from(legalNoticeLog)).toHaveLength(0);
   });
 
   it("sends overlapping runs' emails once", async () => {

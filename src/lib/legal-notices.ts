@@ -48,12 +48,17 @@ export async function pendingLegalNotices(db: Db, now: Date = new Date()) {
 
 /**
  * Owners of live organisations, with confirmed emails, not yet sent this notice and not claimed by a run
- * still within its lease (all of them for null: a preview).
+ * still within its lease (all of them for null: a preview). One row per owner, naming every organisation
+ * they own, since each owner gets one email.
  */
 export async function legalNoticeRecipients(db: Db, noticeId: string | null, now: Date = new Date()) {
   const staleBefore = new Date(now.getTime() - CLAIM_LEASE_MS);
   return db
-    .select({ userId: users.id, email: users.email, orgName: organizations.name })
+    .select({
+      userId: users.id,
+      email: users.email,
+      orgNames: sql<string[]>`array_agg(${organizations.name} order by ${organizations.createdAt})`,
+    })
     .from(memberships)
     .innerJoin(users, eq(users.id, memberships.userId))
     .innerJoin(organizations, eq(organizations.id, memberships.orgId))
@@ -69,24 +74,27 @@ export async function legalNoticeRecipients(db: Db, noticeId: string | null, now
         or(isNull(legalNoticeLog.userId), and(isNull(legalNoticeLog.sentAt), lt(legalNoticeLog.claimedAt, staleBefore))),
       ),
     )
+    .groupBy(users.id)
     .orderBy(asc(users.createdAt));
 }
 
 export function legalNoticeEmail(
   to: string,
-  orgName: string,
+  orgNames: string[],
   notice: Pick<LegalNotice, "effectiveOn" | "summary">,
   appUrl: string,
   seller: Seller,
 ) {
   const on = formatDate(notice.effectiveOn);
+  const orgs = new Intl.ListFormat("en-GB", { type: "conjunction" }).format(orgNames);
+  const anyOrg = new Intl.ListFormat("en-GB", { type: "disjunction" }).format(orgNames);
   return {
     to: [to],
     subject: `Kinga's terms are changing on ${on}`,
     text: [
       "Hello,",
       "",
-      `We're changing the terms ${orgName} uses Kinga under. The change takes effect on ${on}.`,
+      `We're changing the terms ${orgs} ${orgNames.length === 1 ? "uses" : "use"} Kinga under. The change takes effect on ${on}.`,
       "",
       notice.summary,
       "",
@@ -96,7 +104,7 @@ export function legalNoticeEmail(
       `Privacy Notice: ${appUrl}/privacy`,
       `Data Processing Agreement: ${appUrl}/dpa`,
       "",
-      `If you don't agree to the change, an owner can delete ${orgName} from Settings before ${on}.`,
+      `If you don't agree to the change, an owner can delete ${anyOrg} from Settings before ${on}.`,
       ...(seller.email ? ["", `Questions? Write to ${seller.email}.`] : []),
       "",
       `${seller.name}`,
@@ -152,7 +160,7 @@ export async function runLegalNotices(
         .returning({ userId: legalNoticeLog.userId });
       if (!claimed) continue;
       try {
-        await sendEmail(legalNoticeEmail(r.email, r.orgName, notice, appUrl, seller));
+        await sendEmail(legalNoticeEmail(r.email, r.orgNames, notice, appUrl, seller));
       } catch (err) {
         result.failed.push({ noticeId: notice.id, userId: r.userId, error: err instanceof Error ? err.message : String(err) });
         await db
@@ -166,7 +174,7 @@ export async function runLegalNotices(
       await db
         .update(legalNoticeLog)
         .set({ sentAt: now })
-        .where(and(eq(legalNoticeLog.noticeId, notice.id), eq(legalNoticeLog.userId, r.userId), isNull(legalNoticeLog.sentAt)))
+        .where(mine)
         .catch((markErr) => console.error("Failed to mark legal notice sent", markErr));
     }
   }

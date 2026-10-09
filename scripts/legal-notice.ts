@@ -46,7 +46,7 @@ if (error) {
 if (!send) {
   const recipients = await legalNoticeRecipients(db, null);
   const appUrl = process.env.APP_URL ?? "http://localhost:3000";
-  const email = legalNoticeEmail("owner@example.com", recipients[0]?.orgName ?? "Your organisation", { effectiveOn, summary }, appUrl, sellerFromEnv());
+  const email = legalNoticeEmail("owner@example.com", recipients[0]?.orgNames ?? ["Your organisation"], { effectiveOn, summary }, appUrl, sellerFromEnv());
   console.log(`Subject: ${email.subject}\n\n${email.text}\n`);
   console.log(`This would go to ${recipients.length} owner${recipients.length === 1 ? "" : "s"}. Add --send to send it.`);
   process.exit(0);
