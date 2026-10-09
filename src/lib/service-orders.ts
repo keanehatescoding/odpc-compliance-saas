@@ -45,7 +45,8 @@ export function serviceOrderNotice(
       "",
       o.notes?.trim() || "(nothing given)",
       "",
-      `When you start, run: npm run service-order -- ${o.orderId} in_progress`,
+      `When you start, mark it in progress at ${process.env.APP_URL ?? "http://localhost:3000"}/staff/orders, or run:`,
+      `npm run service-order -- ${o.orderId} in_progress`,
     ].join("\n"),
   };
 }
@@ -109,7 +110,7 @@ export type SetStatusResult =
   | { ok: false; error: string };
 
 /**
- * Moves an order on, for Kinga staff (see scripts/service-order.ts). Owners
+ * Moves an order on, for Kinga staff (from /staff/orders or scripts/service-order.ts). Owners
  * are emailed when it's delivered. The status is saved first, so a failed
  * email is returned rather than thrown: the order can't be delivered twice to
  * retry it. Refunding a cancelled order is done in the Paystack dashboard.

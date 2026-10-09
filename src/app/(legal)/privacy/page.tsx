@@ -77,6 +77,14 @@ export default async function PrivacyPage() {
               <td>Legitimate interest in keeping accounts secure</td>
             </tr>
             <tr>
+              <td>
+                Your organisation&apos;s team, billing, and how many records of each kind it keeps and when it last
+                changed one (never what the records say)
+              </td>
+              <td>To support you, follow up on orders and payments, and see how Kinga is being used</td>
+              <td>Legitimate interest in running and improving Kinga</td>
+            </tr>
+            <tr>
               <td>A session cookie</td>
               <td>To keep you signed in for up to 30 days</td>
               <td>Contract (it&apos;s strictly necessary)</td>
@@ -128,7 +136,8 @@ export default async function PrivacyPage() {
       <h2>How we protect it</h2>
       <p>
         Data travels over HTTPS. Passwords are hashed with scrypt, and sign-in, reset and invitation tokens are stored
-        only as hashes. Every record is scoped to its organisation, and only its team can see it. Card numbers never
+        only as hashes. Every record is scoped to its organisation, and only its team can see it. Kinga staff can see your
+        organisation&apos;s team and billing and how many records it keeps, but not the records themselves. Card numbers never
         reach us. If a breach of your personal data creates a real risk of harm, we&apos;ll tell you and the Data
         Commissioner as section 43 requires.
       </p>
