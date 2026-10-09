@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, gt, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import type { Db } from "@/db";
 import { legalNoticeLog, legalNotices, memberships, organizations, users } from "@/db/schema";
 import { sellerFromEnv, type Seller } from "./billing";
@@ -7,6 +7,9 @@ import type { SendEmail } from "./email";
 import { LEGAL_NOTICE_DAYS } from "./legal";
 
 export type LegalNotice = typeof legalNotices.$inferSelect;
+
+/** How long a run's claim on an email holds before another run may take it over, say after the first died mid-send. */
+const CLAIM_LEASE_MS = 30 * 60 * 1000;
 
 /** Why a notice can't be sent, or null. The Terms and DPA promise owners LEGAL_NOTICE_DAYS' warning. */
 export function legalNoticeError(effectiveOn: string, summary: string, now: Date = new Date()): string | null {
@@ -35,7 +38,7 @@ export async function createLegalNotice(
 /** Notices yet to take effect, soonest first, with how many owners each has gone to. */
 export async function pendingLegalNotices(db: Db, now: Date = new Date()) {
   return db
-    .select({ notice: legalNotices, sent: sql<number>`count(${legalNoticeLog.userId})::int` })
+    .select({ notice: legalNotices, sent: sql<number>`count(${legalNoticeLog.sentAt})::int` })
     .from(legalNotices)
     .leftJoin(legalNoticeLog, eq(legalNoticeLog.noticeId, legalNotices.id))
     .where(gt(legalNotices.effectiveOn, todayInKenya(now)))
@@ -43,8 +46,12 @@ export async function pendingLegalNotices(db: Db, now: Date = new Date()) {
     .orderBy(asc(legalNotices.effectiveOn), asc(legalNotices.createdAt));
 }
 
-/** Owners of live organisations, with confirmed emails, not yet sent this notice (all of them for null: a preview). */
-export async function legalNoticeRecipients(db: Db, noticeId: string | null) {
+/**
+ * Owners of live organisations, with confirmed emails, not yet sent this notice and not claimed by a run
+ * still within its lease (all of them for null: a preview).
+ */
+export async function legalNoticeRecipients(db: Db, noticeId: string | null, now: Date = new Date()) {
+  const staleBefore = new Date(now.getTime() - CLAIM_LEASE_MS);
   return db
     .select({ userId: users.id, email: users.email, orgName: organizations.name })
     .from(memberships)
@@ -59,7 +66,7 @@ export async function legalNoticeRecipients(db: Db, noticeId: string | null) {
         eq(memberships.role, "owner"),
         isNotNull(users.emailVerifiedAt),
         isNull(organizations.deletedAt),
-        isNull(legalNoticeLog.userId),
+        or(isNull(legalNoticeLog.userId), and(isNull(legalNoticeLog.sentAt), lt(legalNoticeLog.claimedAt, staleBefore))),
       ),
     )
     .orderBy(asc(users.createdAt));
@@ -107,8 +114,11 @@ export interface LegalNoticeRunResult {
  * Emails each notice that hasn't taken effect yet to every owner not yet sent
  * it, one email each so owners don't see each other's addresses. Run hourly,
  * so someone who becomes an owner before the change still hears of it. Each
- * email is claimed in legal_notice_log before it's sent and released if the
- * send fails, so overlapping runs don't send it twice and a failure is retried.
+ * email is claimed in legal_notice_log before it's sent, marked sent once it
+ * has gone, and released if the send fails, so overlapping runs don't send it
+ * twice and a failure is retried. A claim left unfinished, because the run died
+ * before marking it, expires after CLAIM_LEASE_MS and is sent again: an owner
+ * might hear twice, but never not at all.
  */
 export async function runLegalNotices(
   db: Db,
@@ -120,25 +130,44 @@ export async function runLegalNotices(
   const seller = opts.seller ?? sellerFromEnv();
   const result: LegalNoticeRunResult = { checked: 0, sent: [], failed: [] };
 
+  const staleBefore = new Date(now.getTime() - CLAIM_LEASE_MS);
+
   for (const { notice } of await pendingLegalNotices(db, now)) {
     result.checked++;
-    for (const r of await legalNoticeRecipients(db, notice.id)) {
+    for (const r of await legalNoticeRecipients(db, notice.id, now)) {
+      const mine = and(
+        eq(legalNoticeLog.noticeId, notice.id),
+        eq(legalNoticeLog.userId, r.userId),
+        isNull(legalNoticeLog.sentAt),
+        eq(legalNoticeLog.claimedAt, now),
+      );
       const [claimed] = await db
         .insert(legalNoticeLog)
-        .values({ noticeId: notice.id, userId: r.userId, email: r.email, sentAt: now })
-        .onConflictDoNothing()
+        .values({ noticeId: notice.id, userId: r.userId, email: r.email, claimedAt: now })
+        .onConflictDoUpdate({
+          target: [legalNoticeLog.noticeId, legalNoticeLog.userId],
+          set: { email: r.email, claimedAt: now },
+          setWhere: and(isNull(legalNoticeLog.sentAt), lt(legalNoticeLog.claimedAt, staleBefore)),
+        })
         .returning({ userId: legalNoticeLog.userId });
       if (!claimed) continue;
       try {
         await sendEmail(legalNoticeEmail(r.email, r.orgName, notice, appUrl, seller));
-        result.sent.push({ noticeId: notice.id, userId: r.userId, to: r.email });
       } catch (err) {
         result.failed.push({ noticeId: notice.id, userId: r.userId, error: err instanceof Error ? err.message : String(err) });
         await db
           .delete(legalNoticeLog)
-          .where(and(eq(legalNoticeLog.noticeId, notice.id), eq(legalNoticeLog.userId, r.userId)))
+          .where(mine)
           .catch((releaseErr) => console.error("Failed to release legal notice claim", releaseErr));
+        continue;
       }
+      result.sent.push({ noticeId: notice.id, userId: r.userId, to: r.email });
+      // If this fails the claim expires and the owner is emailed again.
+      await db
+        .update(legalNoticeLog)
+        .set({ sentAt: now })
+        .where(and(eq(legalNoticeLog.noticeId, notice.id), eq(legalNoticeLog.userId, r.userId), isNull(legalNoticeLog.sentAt)))
+        .catch((markErr) => console.error("Failed to mark legal notice sent", markErr));
     }
   }
   return result;

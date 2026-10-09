@@ -2,7 +2,8 @@ CREATE TABLE "legal_notice_log" (
 	"notice_id" uuid NOT NULL,
 	"user_id" uuid NOT NULL,
 	"email" text NOT NULL,
-	"sent_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"claimed_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"sent_at" timestamp with time zone,
 	CONSTRAINT "legal_notice_log_notice_id_user_id_pk" PRIMARY KEY("notice_id","user_id")
 );
 --> statement-breakpoint

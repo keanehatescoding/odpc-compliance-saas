@@ -136,6 +136,28 @@ describe("runLegalNotices", () => {
     expect(sent.map((m) => m.to)).toEqual([["a@sunrise.ke"]]);
   });
 
+  it("sends an email again if the run that claimed it died before sending", async () => {
+    const org = await addOrg("Sunrise Academy", [{ email: "a@sunrise.ke", role: "owner" }]);
+    const n = await notice();
+    const [owner] = await db.select().from(memberships).where(eq(memberships.orgId, org.id));
+    await db.insert(legalNoticeLog).values({ noticeId: n.id, userId: owner.userId, email: "a@sunrise.ke", claimedAt: t0 });
+    expect(await pendingLegalNotices(db, t0)).toEqual([{ notice: n, sent: 0 }]);
+
+    // Still within the lease: the first run might be sending it.
+    const soon = capture();
+    await runLegalNotices(db, soon.send, opts(later(10 * 60 * 1000)));
+    expect(soon.sent).toHaveLength(0);
+
+    const { sent, send } = capture();
+    await runLegalNotices(db, send, opts(later(60 * 60 * 1000)));
+    expect(sent.map((m) => m.to)).toEqual([["a@sunrise.ke"]]);
+    expect(await pendingLegalNotices(db, t0)).toEqual([{ notice: n, sent: 1 }]);
+
+    const again = capture();
+    await runLegalNotices(db, again.send, opts(later(DAY)));
+    expect(again.sent).toHaveLength(0);
+  });
+
   it("sends overlapping runs' emails once", async () => {
     await addOrg("Sunrise Academy", [{ email: "a@sunrise.ke", role: "owner" }]);
     await notice();

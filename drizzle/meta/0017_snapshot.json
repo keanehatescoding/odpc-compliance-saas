@@ -1,5 +1,5 @@
 {
-  "id": "87693087-d467-4fdc-9832-895267f95a6d",
+  "id": "d62d02dc-bebb-4cee-8c5e-2bc6eb136b07",
   "prevId": "2b015ea6-35d7-491d-8992-331765ec0d6b",
   "version": "7",
   "dialect": "postgresql",
@@ -1470,12 +1470,18 @@
           "primaryKey": false,
           "notNull": true
         },
-        "sent_at": {
-          "name": "sent_at",
+        "claimed_at": {
+          "name": "claimed_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "sent_at": {
+          "name": "sent_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {},

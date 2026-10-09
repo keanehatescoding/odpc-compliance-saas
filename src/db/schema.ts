@@ -299,7 +299,10 @@ export const legalNotices = pgTable("legal_notices", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-/** One row per owner emailed about a notice, so each is told once, including owners who join before it takes effect. */
+/**
+ * One row per owner emailed about a notice, so each is told once, including owners who join before it takes effect.
+ * A row with no sent_at is a run's claim on the email; another run takes it over once it's old enough.
+ */
 export const legalNoticeLog = pgTable(
   "legal_notice_log",
   {
@@ -310,7 +313,8 @@ export const legalNoticeLog = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     email: text("email").notNull(),
-    sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }).notNull().defaultNow(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
   },
   (t) => [primaryKey({ columns: [t.noticeId, t.userId] })],
 );
