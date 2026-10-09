@@ -7,6 +7,7 @@ import { createEmailSender } from "@/lib/email";
 import { pruneVerificationTokens } from "@/lib/email-verification";
 import { etimsFromEnv } from "@/lib/etims";
 import { runEtimsRetries } from "@/lib/etims-invoices";
+import { runLegalNotices } from "@/lib/legal-notices";
 import { pruneResetTokens } from "@/lib/password-reset";
 import { paystackFromEnv } from "@/lib/paystack";
 import { pruneRateLimits } from "@/lib/rate-limit";
@@ -59,6 +60,12 @@ if (etims) {
   for (const f of [...etims.retrying, ...etims.failed]) console.error(`  payment ${f.paymentId}: ${f.error}`);
 }
 
+const notices = await runLegalNotices(db, send);
+if (notices.checked > 0) {
+  console.log(`Checked ${notices.checked} legal notices not yet in effect; sent ${notices.sent.length}; ${notices.failed.length} failed.`);
+}
+for (const f of notices.failed) console.error(`  notice ${f.noticeId}, user ${f.userId}: ${f.error}`);
+
 // Housekeeping: drop stale login counters, expired reset, verification and invitation links, and unpaid checkouts.
 await pruneRateLimits(db);
 await pruneResetTokens(db);
@@ -67,7 +74,7 @@ await pruneInvitations(db);
 await prunePayments(db);
 
 process.exit(
-  result.failed.length + breaches.failed.length + requests.failed.length + (renewals?.failed.length ?? 0) + billing.failed.length + (etims?.failed.length ?? 0) > 0
+  result.failed.length + breaches.failed.length + requests.failed.length + (renewals?.failed.length ?? 0) + billing.failed.length + (etims?.failed.length ?? 0) + notices.failed.length > 0
     ? 1
     : 0,
 );

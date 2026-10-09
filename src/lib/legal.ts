@@ -7,6 +7,9 @@ import { z } from "zod";
  */
 export const TERMS_VERSION = "2026-10-07";
 
+/** How many days ahead the Terms and DPA promise to email owners about a change (see lib/legal-notices). */
+export const LEGAL_NOTICE_DAYS = 30;
+
 /** The signup forms' required "I agree" checkbox. */
 export const termsAgreed = z.literal("on", { error: "Agree to the terms to create an account." });
 
