@@ -3,6 +3,7 @@ import type { ComponentProps, ReactNode } from "react";
 import { BREACH_STATUS_LABEL, type BreachStatus } from "@/lib/breach";
 import { DPIA_STATUS_LABEL, RISK_LEVEL_LABEL, type DpiaStatus, type RiskLevel } from "@/lib/dpia";
 import type { FormValues } from "@/lib/forms";
+import { PROCESSOR_STATUS_LABEL, type ProcessorStatus } from "@/lib/processor";
 import { STATUS_LABEL, type RegistrationStatus } from "@/lib/registration";
 import { REQUEST_STATUS_LABEL, type RequestStatus } from "@/lib/subject-request";
 
@@ -81,6 +82,20 @@ export function RequestStatusBadge({ status }: { status: RequestStatus }) {
   return (
     <span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset", REQUEST_STATUS_STYLE[status])}>
       {REQUEST_STATUS_LABEL[status]}
+    </span>
+  );
+}
+
+const PROCESSOR_STATUS_STYLE: Record<ProcessorStatus, string> = {
+  no_contract: "bg-red-50 text-red-800 ring-red-300",
+  review_due: "bg-amber-50 text-amber-800 ring-amber-200",
+  in_place: "bg-emerald-50 text-emerald-800 ring-emerald-200",
+};
+
+export function ProcessorStatusBadge({ status }: { status: ProcessorStatus }) {
+  return (
+    <span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset", PROCESSOR_STATUS_STYLE[status])}>
+      {PROCESSOR_STATUS_LABEL[status]}
     </span>
   );
 }

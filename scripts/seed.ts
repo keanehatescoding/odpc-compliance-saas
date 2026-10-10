@@ -14,6 +14,8 @@ import {
   processingActivities,
   registrations,
   serviceOrders,
+  processorActivities,
+  processors,
   subjectRequests,
   users,
 } from "@/db/schema";
@@ -254,8 +256,39 @@ await db.insert(subjectRequests).values([
   },
 ]);
 
+// Two processors: the school system with a contract due for review next month, and an SMS service with none.
+const [schoolSystem, sms] = await db
+  .insert(processors)
+  .values([
+    {
+      orgId: org.id,
+      name: "Elimu Systems Ltd",
+      service: "Hosts the school management system: admissions, marks, fee balances and parent contacts.",
+      contact: "support@elimu-systems.example",
+      location: "Kenya",
+      guarantees: "ODPC processor certificate seen. Daily encrypted backups and staff access logs, per their security statement.",
+      contractSignedOn: addMonths(today, -11),
+      contractRef: "Signed data processing agreement, in the bursar's contracts file",
+      contractReviewOn: addMonths(today, 1),
+    },
+    {
+      orgId: org.id,
+      name: "Jumbe Bulk SMS",
+      service: "Sends fee reminders and school notices to parents' phone numbers.",
+      location: "Ireland (cloud hosting)",
+      outsideKenya: true,
+    },
+  ])
+  .returning({ id: processors.id });
+if (studentRecords) {
+  await db.insert(processorActivities).values([
+    { processorId: schoolSystem.id, activityId: studentRecords.id },
+    { processorId: sms.id, activityId: studentRecords.id },
+  ]);
+}
+
 console.log(
-  `Seeded "${org.name}" with ${templates.length} RoPA entries, one DPIA, one open breach and two data subject requests.`,
+  `Seeded "${org.name}" with ${templates.length} RoPA entries, one DPIA, one open breach, two data subject requests and two processors.`,
 );
 console.log(`Sign in as ${EMAIL} / ${PASSWORD}`);
 process.exit(0);

@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { activitiesFor, buildPrivacyNotice, noticeAudiences, privacyNoticeHtml, type NoticeOrg } from "@/lib/privacy-notice";
-import type { ActivityInput } from "@/lib/ropa";
+import { activitiesFor, buildPrivacyNotice, noticeAudiences, privacyNoticeHtml, type NoticeActivity, type NoticeOrg } from "@/lib/privacy-notice";
 
-const activity = (over: Partial<ActivityInput>): ActivityInput => ({
+const activity = (over: Partial<NoticeActivity>): NoticeActivity => ({
   name: "Admissions",
   purpose: "Admit and enrol pupils",
   lawfulBasis: "contract",
@@ -49,6 +48,19 @@ describe("noticeAudiences", () => {
       activity({ dataSubjects: ["parents ", "Staff"] }),
     ]);
     expect(audiences).toEqual(["Parents", "Pupils", "Staff"]);
+  });
+});
+
+describe("processors", () => {
+  it("asks for recipients when an activity has processors and names none", () => {
+    const n = build({ activities: [activity({ name: "Fees", processors: ["Elimu Systems", "Jumbe SMS"] }), activity({ name: "Admissions" })] });
+    expect(n.checks).toContain("Say who the data is shared with (Recipients). You've listed processors that handle it: Fees (Elimu Systems, Jumbe SMS).");
+    expect(text(n)).not.toContain("Elimu Systems");
+  });
+
+  it("leaves the notice alone once recipients are described", () => {
+    const n = build({ activities: [activity({ recipients: "Our school system provider", processors: ["Elimu Systems"] })] });
+    expect(n.checks.join(" ")).not.toContain("Recipients");
   });
 });
 

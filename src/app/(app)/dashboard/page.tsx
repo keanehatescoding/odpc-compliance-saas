@@ -6,7 +6,16 @@ import { breachStatus, notificationDeadline, NOTIFY_WHOM, outstandingTasks } fro
 import { formatDate, formatDateTime, todayInKenya } from "@/lib/dates";
 import { ODPC_FEES, REGISTRATION_ROLES, formatKsh, type OrgSize, type RegistrationRole } from "@/lib/dpa";
 import { dpiaStatus } from "@/lib/dpia";
-import { listActivities, listBreaches, listDpias, listRegistrations, listSubjectRequests, recentReminders } from "@/lib/queries";
+import { processorStatus } from "@/lib/processor";
+import {
+  listActivities,
+  listBreaches,
+  listDpias,
+  listProcessors,
+  listRegistrations,
+  listSubjectRequests,
+  recentReminders,
+} from "@/lib/queries";
 import { daysUntilExpiry, registrationStatus, STATUS_SEVERITY, worstStatus } from "@/lib/registration";
 import { dpiaRecommended } from "@/lib/ropa";
 import { requireOrgContext } from "@/lib/session";
@@ -18,13 +27,14 @@ export default async function DashboardPage() {
   const { org } = await requireOrgContext();
   const today = todayInKenya();
   const now = new Date();
-  const [regs, activities, reminders, breaches, dpias, requests] = await Promise.all([
+  const [regs, activities, reminders, breaches, dpias, requests, processors] = await Promise.all([
     listRegistrations(org.id),
     listActivities(org.id),
     recentReminders(org.id),
     listBreaches(org.id),
     listDpias(org.id),
     listSubjectRequests(org.id),
+    listProcessors(org.id),
   ]);
   const urgentBreaches = breaches
     .map((b) => ({ ...b, status: breachStatus(b, now), deadline: notificationDeadline(b) }))
@@ -70,6 +80,15 @@ export default async function DashboardPage() {
     const status = dpiaStatus(dpia, today);
     if (status === "draft") todos.push({ text: `Finish and approve the DPIA: ${dpia.title}`, href: `/dpia/${dpia.id}` });
     else if (status === "review_due") todos.push({ text: `Review the DPIA: ${dpia.title}`, href: `/dpia/${dpia.id}` });
+  }
+  const uncontracted = processors.filter((p) => processorStatus(p, today) === "no_contract");
+  if (uncontracted.length === 1) {
+    todos.push({ text: `Sign a written contract with your processor ${uncontracted[0].name}`, href: `/processors/${uncontracted[0].id}` });
+  } else if (uncontracted.length > 1) {
+    todos.push({ text: `Sign written contracts with ${uncontracted.length} processors that don't have one`, href: "/processors" });
+  }
+  for (const p of processors) {
+    if (processorStatus(p, today) === "review_due") todos.push({ text: `Review your contract with ${p.name}`, href: `/processors/${p.id}` });
   }
 
   return (

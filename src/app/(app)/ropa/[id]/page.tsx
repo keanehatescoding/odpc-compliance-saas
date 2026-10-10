@@ -6,10 +6,11 @@ import { deleteActivity } from "@/app/actions/ropa";
 import { RecordHistory } from "@/components/activity-list";
 import { DeleteButton } from "@/components/delete-button";
 import { SubmitButton } from "@/components/submit-button";
-import { BackLink, buttonClass, Card, DpiaStatusBadge, PageHeader } from "@/components/ui";
+import { BackLink, buttonClass, Card, DpiaStatusBadge, PageHeader, ProcessorStatusBadge } from "@/components/ui";
 import { todayInKenya } from "@/lib/dates";
 import { dpiaStatus } from "@/lib/dpia";
-import { getActivity, getDpiaForActivity } from "@/lib/queries";
+import { processorStatus } from "@/lib/processor";
+import { activityProcessors, getActivity, getDpiaForActivity } from "@/lib/queries";
 import { dpiaRecommended, dpiaTriggers } from "@/lib/ropa";
 import { requireOrgContext } from "@/lib/session";
 import { isUuid } from "@/lib/uuid";
@@ -24,7 +25,8 @@ export default async function EditActivityPage({ params }: PageProps<"/ropa/[id]
   if (!activity) notFound();
   const triggers = dpiaTriggers(activity);
   const recommended = dpiaRecommended(activity);
-  const dpia = await getDpiaForActivity(org.id, activity.id);
+  const [dpia, processors] = await Promise.all([getDpiaForActivity(org.id, activity.id), activityProcessors(org.id, activity.id)]);
+  const today = todayInKenya();
 
   return (
     <>
@@ -34,7 +36,7 @@ export default async function EditActivityPage({ params }: PageProps<"/ropa/[id]
         <Card className="mb-6 flex max-w-3xl flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <h2 className="font-semibold">Impact assessment</h2>
-            <DpiaStatusBadge status={dpiaStatus(dpia, todayInKenya())} />
+            <DpiaStatusBadge status={dpiaStatus(dpia, today)} />
           </div>
           <Link href={`/dpia/${dpia.id}`} className={buttonClass.secondary}>
             Open DPIA
@@ -65,6 +67,21 @@ export default async function EditActivityPage({ params }: PageProps<"/ropa/[id]
             )}
           </Card>
         )
+      )}
+      {processors.length > 0 && (
+        <Card className="mb-6 max-w-3xl">
+          <h2 className="font-semibold">Processors that handle this data</h2>
+          <ul className="mt-2 divide-y divide-stone-100">
+            {processors.map((p) => (
+              <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                <Link href={`/processors/${p.id}`} className="font-medium hover:underline">
+                  {p.name}
+                </Link>
+                <ProcessorStatusBadge status={processorStatus(p, today)} />
+              </li>
+            ))}
+          </ul>
+        </Card>
       )}
       <ActivityForm activity={activity} />
       <RecordHistory orgId={org.id} subjectId={activity.id} />
