@@ -14,7 +14,8 @@ export interface ActivityInput {
   name: string;
   purpose: string;
   lawfulBasis: LawfulBasis;
-  role: ActivityRole;
+  /** Null when nobody has said yet, for activities recorded before the question was asked. */
+  role: ActivityRole | null;
   /** Whether people must give the data, and what happens if they don't. */
   provision: string;
   dataSubjects: string[];
@@ -54,7 +55,7 @@ export const activityFormSchema = z
     lawfulBasis: z.enum(LAWFUL_BASIS_KEYS as [LawfulBasis, ...LawfulBasis[]], {
       error: "Choose a lawful basis.",
     }),
-    role: z.enum(["controller", "processor"], { error: "Choose your role." }).default("controller"),
+    role: z.enum(["controller", "processor"], { error: "Choose your role." }),
     provision: z.string().trim().max(1000).default(""),
     dataSubjects: list.pipe(z.array(z.string()).min(1, { error: "List at least one category of data subject." })),
     dataCategories: list.pipe(z.array(z.string()).min(1, { error: "List at least one category of personal data." })),
@@ -144,7 +145,7 @@ export const ROPA_COLUMNS: { header: string; value: (a: ActivityInput) => string
   { header: "Processing activity", value: (a) => a.name },
   { header: "Purpose", value: (a) => a.purpose },
   { header: "Lawful basis", value: (a) => LAWFUL_BASES[a.lawfulBasis] },
-  { header: "Role", value: (a) => (a.role === "processor" ? "Processor" : "Controller") },
+  { header: "Role", value: (a) => (a.role === "processor" ? "Processor" : a.role === "controller" ? "Controller" : "Not confirmed") },
   { header: "Mandatory or voluntary", value: (a) => a.provision },
   { header: "Categories of data subjects", value: (a) => a.dataSubjects.join("; ") },
   { header: "Categories of personal data", value: (a) => a.dataCategories.join("; ") },
@@ -209,6 +210,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     id: "hr-payroll",
     sectors: "all",
     name: "Staff records and payroll",
+    provision: "Yes for what we need to employ and pay you, such as your ID number, KRA PIN and bank details. Without them we can't employ or pay you. Health and family details are needed only where a benefit or statutory deduction depends on them.",
     purpose: "Recruit and employ staff, pay salaries, and meet statutory deductions (PAYE, NSSF, SHIF, Housing Levy).",
     lawfulBasis: "contract",
     dataSubjects: ["Employees", "Job applicants", "Next of kin"],
@@ -257,6 +259,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     id: "student-records",
     sectors: ["education"],
     name: "Student admission and academic records",
+    provision: "Yes. We need it to admit and teach a student and to report to the Ministry of Education. Without it we can't offer a place.",
     purpose: "Admit students, manage academic progress, and report to the Ministry of Education (NEMIS/KEMIS).",
     lawfulBasis: "legal_obligation",
     dataSubjects: ["Students", "Parents and guardians"],
@@ -274,6 +277,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     id: "school-fees",
     sectors: ["education"],
     name: "School fees and billing",
+    provision: "Yes. We need it to bill you and record what you've paid.",
     purpose: "Invoice and collect fees, issue receipts, and follow up arrears.",
     lawfulBasis: "contract",
     dataSubjects: ["Parents and guardians", "Students"],
@@ -306,6 +310,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     id: "insurance-claims",
     sectors: ["health"],
     name: "Insurance and SHA claims",
+    provision: "Only if you want your insurer or SHA to pay. Without it they won't, and you would pay the bill yourself.",
     purpose: "Submit claims for payment to SHA and private insurers.",
     lawfulBasis: "contract",
     dataSubjects: ["Patients"],
@@ -321,6 +326,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     id: "member-kyc",
     sectors: ["sacco", "fintech"],
     name: "Member / customer onboarding (KYC)",
+    provision: "Yes. The law requires us to verify who you are, and we can't open an account without it.",
     purpose: "Verify identity and meet anti-money-laundering obligations before opening accounts.",
     lawfulBasis: "legal_obligation",
     dataSubjects: ["Members / customers", "Guarantors", "Nominees"],
@@ -337,6 +343,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     id: "credit-scoring",
     sectors: ["sacco", "fintech"],
     name: "Loan appraisal and credit reporting",
+    provision: "Yes. Without it we can't assess a loan application.",
     purpose: "Assess loan applications and share repayment data with credit reference bureaus.",
     lawfulBasis: "contract",
     dataSubjects: ["Borrowers", "Guarantors"],
@@ -353,6 +360,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     id: "customer-orders",
     sectors: ["retail", "hospitality"],
     name: "Customer orders and delivery",
+    provision: "Yes for what we need to take payment and deliver your order. Without it we can't fulfil the order.",
     purpose: "Take orders, process payment, and deliver goods.",
     lawfulBasis: "contract",
     dataSubjects: ["Customers"],
@@ -381,6 +389,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     id: "guest-registration",
     sectors: ["hospitality"],
     name: "Guest registration",
+    provision: "Yes. The law requires us to register guests, and we can't accommodate you without it.",
     purpose: "Register hotel guests as required by law and manage bookings.",
     lawfulBasis: "legal_obligation",
     dataSubjects: ["Guests"],

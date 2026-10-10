@@ -10,8 +10,9 @@ import { REQUEST_KINDS } from "./subject-request";
  * controller's contacts, how it is protected, whether giving it is voluntary
  * or mandatory, and transfers outside Kenya.
  *
- * It covers the activities the organisation controls. What it processes on
- * another organisation's instructions is for that organisation to explain.
+ * It covers the activities the organisation has said it controls. What it
+ * processes on another organisation's instructions is for that organisation to
+ * explain, and an activity whose role nobody has confirmed waits until someone does.
  */
 
 export interface NoticeOrg {
@@ -50,32 +51,26 @@ export interface PrivacyNotice {
   checks: string[];
 }
 
-/**
- * How each lawful basis reads to the person, and whether giving the data is
- * optional where the basis settles that. Where it doesn't, the organisation says.
- */
-const BASIS_TEXT: Record<LawfulBasis, { why: string; required: string | null }> = {
-  consent: {
-    why: "Your consent.",
-    required: "No. It's your choice, and you can withdraw your consent at any time. Withdrawing doesn't affect what we did before.",
-  },
-  contract: {
-    why: "We need it to enter into or carry out a contract with you.",
-    required: "Yes, to enter into or carry out the contract. Without it we can't.",
-  },
-  legal_obligation: {
-    why: "The law requires us to.",
-    required: "Yes. The law requires it.",
-  },
-  vital_interests: { why: "To protect your life or health, or someone else's.", required: null },
-  public_interest: { why: "To carry out a task in the public interest.", required: null },
-  official_authority: { why: "To exercise official authority given to us by law.", required: null },
-  legitimate_interests: {
-    why: "Our legitimate interests, which we weigh against your rights and interests. You can object.",
-    required: null,
-  },
-  research: { why: "Historical, statistical, journalistic, literary, artistic or scientific research.", required: null },
+/** How each lawful basis reads to the person. */
+const BASIS_TEXT: Record<LawfulBasis, string> = {
+  consent: "Your consent.",
+  contract: "We need it to enter into or carry out a contract with you.",
+  legal_obligation: "The law requires us to.",
+  vital_interests: "To protect your life or health, or someone else's.",
+  public_interest: "To carry out a task in the public interest.",
+  official_authority: "To exercise official authority given to us by law.",
+  legitimate_interests: "Our legitimate interests, which we weigh against your rights and interests. You can object.",
+  research: "Historical, statistical, journalistic, literary, artistic or scientific research.",
 };
+
+/**
+ * Whether the person has to give the data. Consent settles it. No other basis
+ * does: a contract or a law may need some of what an activity collects and not
+ * the rest, so the organisation has to say.
+ */
+const CONSENT_PROVISION = "No. It's your choice, and you can withdraw your consent at any time. Withdrawing doesn't affect what we did before.";
+
+const provisionOf = (a: Pick<ActivityInput, "provision" | "lawfulBasis">) => a.provision || (a.lawfulBasis === "consent" ? CONSENT_PROVISION : null);
 
 export const ODPC_WEBSITE = "https://www.odpc.go.ke";
 
@@ -127,6 +122,10 @@ export function buildPrivacyNotice(input: {
   const checks: string[] = [];
   const sections: NoticeSection[] = [];
 
+  const unconfirmed = inScope.filter((a) => a.role === null);
+  if (unconfirmed.length > 0) {
+    checks.push(`Left out until you say whether you're the controller or a processor (Your role): ${names(unconfirmed)}.`);
+  }
   const asProcessor = inScope.filter((a) => a.role === "processor");
   if (asProcessor.length > 0) {
     checks.push(`Left out, because you process them for another organisation and its notice should cover them: ${names(asProcessor)}.`);
@@ -160,14 +159,13 @@ export function buildPrivacyNotice(input: {
   // What we collect and why
   const what: NoticeBlock[] = [];
   for (const a of activities) {
-    const basis = BASIS_TEXT[a.lawfulBasis];
     const facts: { label: string; value: string }[] = [
       { label: "Why", value: a.purpose },
       { label: "What", value: a.dataCategories.join(", ") },
     ];
     if (a.sensitiveCategories.length > 0) facts.push({ label: "Sensitive data", value: a.sensitiveCategories.join(", ") });
-    facts.push({ label: "Legal basis", value: basis.why });
-    const provision = a.provision || basis.required;
+    facts.push({ label: "Legal basis", value: BASIS_TEXT[a.lawfulBasis] });
+    const provision = provisionOf(a);
     if (provision) facts.push({ label: "Do you have to give it?", value: provision });
     if (a.recipients) facts.push({ label: "Shared with", value: a.recipients });
     if (a.crossBorder) {
@@ -181,7 +179,7 @@ export function buildPrivacyNotice(input: {
     what.push({ kind: "h3", text: a.name }, { kind: "facts", items: facts });
   }
   sections.push({ heading: "What we collect and why", blocks: what });
-  const undecided = activities.filter((a) => !a.provision && !BASIS_TEXT[a.lawfulBasis].required);
+  const undecided = activities.filter((a) => !provisionOf(a));
   if (undecided.length > 0) {
     checks.push(`Say whether people have to give the data, and what happens if they don't, for: ${names(undecided)}.`);
   }

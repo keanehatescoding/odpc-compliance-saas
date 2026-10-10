@@ -36,11 +36,19 @@ export function ActivityForm({ activity }: { activity?: ProcessingActivity }) {
         <TextArea
           name="provision"
           label="Do people have to give this data?"
-          hint="Say whether it's required or optional, and what happens if they don't give it. For consent, a contract or a legal obligation you can leave this blank, and the privacy notice uses standard wording."
+          hint="Say whether it's required or optional, and what happens if they don't give it. Where you rely on consent you can leave this blank, and the privacy notice says it's their choice."
           initial={activity?.provision}
           {...f}
         />
-        <SelectField name="role" label="Your role" options={ACTIVITY_ROLES} initial={activity?.role ?? "controller"} {...f} />
+        <SelectField
+          name="role"
+          label="Your role"
+          hint="Your privacy notice covers only the activities you control."
+          options={ACTIVITY_ROLES}
+          placeholder="Choose your role"
+          initial={activity ? (activity.role ?? "") : "controller"}
+          {...f}
+        />
         <TextField name="owner" label="Responsible person or team" initial={activity?.owner} {...f} />
       </Card>
 

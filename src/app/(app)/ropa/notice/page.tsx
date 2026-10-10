@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { PrintButton } from "@/components/print-button";
 import { BackLink, buttonClass, cx, EmptyState, PageHeader } from "@/components/ui";
 import { todayInKenya } from "@/lib/dates";
@@ -43,6 +44,7 @@ export default async function PrivacyNoticePage({ searchParams }: PageProps<"/ro
   const { org } = await requireOrgContext();
   const { for: raw } = await searchParams;
   const { notice, audiences, activityCount } = await getPrivacyNotice(org, typeof raw === "string" ? raw : null, todayInKenya());
+  if (!notice) notFound();
 
   return (
     <>
@@ -108,7 +110,7 @@ export default async function PrivacyNoticePage({ searchParams }: PageProps<"/ro
 
           {notice.covered === 0 ? (
             <EmptyState title="Nothing to put in a notice">
-              Every activity in your RoPA is one you process for another organisation, so explaining it is that organisation&apos;s job.
+              A notice covers the activities you control, and none of these is recorded as one. The list above says why each is left out.
             </EmptyState>
           ) : (
             <article className="legal rounded-lg bg-white p-6 ring-1 ring-stone-200 sm:p-10 print:p-0 print:ring-0">

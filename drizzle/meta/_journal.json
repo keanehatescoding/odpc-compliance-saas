@@ -141,6 +141,13 @@
       "when": 1791623293409,
       "tag": "0019_activity_role_provision",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1791628922690,
+      "tag": "0020_activity_role_unconfirmed",
+      "breakpoints": true
     }
   ]
 }

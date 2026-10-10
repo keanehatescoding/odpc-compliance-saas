@@ -160,13 +160,15 @@ export async function getSubjectRequest(orgId: string, id: string) {
 
 /**
  * The organisation's privacy notice. `requested` picks the people it's for, by
- * a category of data subject from the RoPA; anything unrecognised means everyone.
+ * a category of data subject from the RoPA, and none means everyone. `notice`
+ * is null when it names a category the RoPA doesn't have.
  */
 export async function getPrivacyNotice(org: NoticeOrg & { id: string }, requested: string | null | undefined, today: string) {
   const [rows, regs] = await Promise.all([listActivities(org.id), listRegistrations(org.id)]);
   const activities = rows as ActivityInput[];
   const audiences = noticeAudiences(controlled(activities));
-  const audience = audiences.find((a) => a.toLowerCase() === requested?.trim().toLowerCase()) ?? null;
-  const notice = buildPrivacyNotice({ org, activities, registrations: regs, audience, today });
+  const wanted = requested?.trim().toLowerCase() || null;
+  const audience = wanted === null ? null : audiences.find((a) => a.toLowerCase() === wanted);
+  const notice = audience === undefined ? null : buildPrivacyNotice({ org, activities, registrations: regs, audience, today });
   return { notice, audiences, activityCount: activities.length };
 }

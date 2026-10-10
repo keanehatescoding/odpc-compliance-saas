@@ -7,7 +7,7 @@ const activity = (over: Partial<ActivityInput>): ActivityInput => ({
   purpose: "Admit and enrol pupils",
   lawfulBasis: "contract",
   role: "controller",
-  provision: "",
+  provision: "Yes. Without it we can't offer a place.",
   dataSubjects: ["Pupils", "Parents"],
   dataCategories: ["Name", "Date of birth"],
   sensitiveCategories: [],
@@ -75,24 +75,29 @@ describe("buildPrivacyNotice", () => {
     expect(n.audience).toBe("Staff");
   });
 
-  it("says whether giving the data is required, from the lawful basis", () => {
-    expect(text(build({ activities: [activity({ lawfulBasis: "legal_obligation" })] }))).toContain("The law requires it.");
-    expect(text(build({ activities: [activity({ lawfulBasis: "consent" })] }))).toContain("It's your choice");
+  it("says giving the data is a choice where the basis is consent", () => {
+    const n = build({ activities: [activity({ lawfulBasis: "consent", provision: "" })] });
+    expect(text(n)).toContain("It's your choice");
+    expect(n.checks).toEqual([]);
   });
 
-  it("prefers the organisation's own answer on whether the data is required", () => {
-    const n = build({ activities: [activity({ lawfulBasis: "contract", provision: "Only the phone number is optional." })] });
+  it("uses the organisation's own answer on whether the data is required", () => {
+    const n = build({ activities: [activity({ lawfulBasis: "consent", provision: "Only the phone number is optional." })] });
     expect(text(n)).toContain("Only the phone number is optional.");
-    expect(text(n)).not.toContain("Without it we can't.");
+    expect(text(n)).not.toContain("It's your choice");
   });
 
-  it("names the activities whose basis leaves that unanswered", () => {
-    const cctv = activity({ name: "CCTV", lawfulBasis: "legitimate_interests" });
-    const n = build({ activities: [activity({}), cctv] });
-    expect(n.checks).toEqual(["Say whether people have to give the data, and what happens if they don't, for: CCTV."]);
-    const answered = build({ activities: [{ ...cctv, provision: "Cameras cover the entrances." }] });
-    expect(answered.checks).toEqual([]);
-    expect(text(answered)).toContain("Cameras cover the entrances.");
+  it("doesn't assume the data is required from a contract or a legal obligation", () => {
+    const n = build({
+      activities: [
+        activity({ name: "Payroll", lawfulBasis: "contract", provision: "" }),
+        activity({ name: "KYC", lawfulBasis: "legal_obligation", provision: "" }),
+        activity({ name: "CCTV", lawfulBasis: "legitimate_interests", provision: "Cameras cover the entrances." }),
+      ],
+    });
+    expect(text(n)).not.toContain("Do you have to give it?\",\"value\":\"Yes");
+    expect(text(n)).toContain("Cameras cover the entrances.");
+    expect(n.checks).toEqual(["Say whether people have to give the data, and what happens if they don't, for: Payroll, KYC."]);
   });
 
   it("leaves out what the organisation processes for someone else, and says so", () => {
@@ -101,6 +106,13 @@ describe("buildPrivacyNotice", () => {
     expect(n.covered).toBe(1);
     expect(n.checks).toHaveLength(1);
     expect(n.checks[0]).toContain("Client payroll");
+  });
+
+  it("leaves out an activity whose role nobody has confirmed, and asks for it", () => {
+    const n = build({ activities: [activity({}), activity({ name: "Old mailing list", role: null })] });
+    expect(text(n)).not.toContain("Old mailing list");
+    expect(n.covered).toBe(1);
+    expect(n.checks).toEqual(["Left out until you say whether you're the controller or a processor (Your role): Old mailing list."]);
   });
 
   it("adds the right to withdraw consent only when something relies on it", () => {

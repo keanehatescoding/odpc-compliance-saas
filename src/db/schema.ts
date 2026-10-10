@@ -415,7 +415,8 @@ export const processingActivities = pgTable(
     purpose: text("purpose").notNull(),
     lawfulBasis: lawfulBasisEnum("lawful_basis").notNull(),
     // Whether the organisation decides why and how this data is used, or handles it for someone who does.
-    role: registrationRoleEnum("role").notNull().default("controller"),
+    // Null until someone has said which: activities recorded before the question was asked.
+    role: registrationRoleEnum("role"),
     // Whether people must give the data, and what happens if they don't (s.29(g) and (h)).
     provision: text("provision").notNull().default(""),
     dataSubjects: text("data_subjects").array().notNull().default(sql`'{}'::text[]`),
