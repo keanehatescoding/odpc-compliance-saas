@@ -205,10 +205,19 @@ export async function getPrivacyNotice(org: NoticeOrg & { id: string }, requeste
     listProcessors(org.id),
     listProcessorLinks(org.id),
   ]);
-  const activities: NoticeActivity[] = rows.map((a) => ({
-    ...(a as ActivityInput),
-    processors: processorRows.filter((p) => links.some((l) => l.processorId === p.id && l.activityId === a.id)).map((p) => p.name),
-  }));
+  const linked = new Map<string, Set<string>>();
+  for (const l of links) {
+    const ids = linked.get(l.activityId);
+    if (ids) ids.add(l.processorId);
+    else linked.set(l.activityId, new Set([l.processorId]));
+  }
+  const activities: NoticeActivity[] = rows.map((a) => {
+    const ids = linked.get(a.id);
+    return {
+      ...(a as ActivityInput),
+      processors: ids ? processorRows.filter((p) => ids.has(p.id)).map((p) => p.name) : [],
+    };
+  });
   const audiences = noticeAudiences(controlled(activities));
   const wanted = requested?.trim().toLowerCase() || null;
   const audience = wanted === null ? null : audiences.find((a) => a.toLowerCase() === wanted);
