@@ -702,6 +702,52 @@ export const etimsInvoices = pgTable(
   ],
 );
 
+/**
+ * The outside organisations that handle personal data on this one's behalf: a
+ * payroll bureau, a school management system, a cloud host. Section 42(2) of
+ * the Act asks a controller to pick processors that give sufficient guarantees
+ * about security, and to bind each one by a written contract.
+ */
+export const processors = pgTable(
+  "processors",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    // What they do for the organisation.
+    service: text("service").notNull(),
+    contact: text("contact").notNull().default(""),
+    // Where they hold or reach the data.
+    location: text("location").notNull().default(""),
+    outsideKenya: boolean("outside_kenya").notNull().default(false),
+    // How the organisation satisfied itself that they keep the data secure.
+    guarantees: text("guarantees").notNull().default(""),
+    // Null until a written contract is signed.
+    contractSignedOn: date("contract_signed_on", { mode: "string" }),
+    contractRef: text("contract_ref").notNull().default(""),
+    contractReviewOn: date("contract_review_on", { mode: "string" }),
+    notes: text("notes").notNull().default(""),
+    ...timestamps,
+  },
+  (t) => [index("processors_org_idx").on(t.orgId)],
+);
+
+/** The RoPA activities whose data a processor handles. */
+export const processorActivities = pgTable(
+  "processor_activities",
+  {
+    processorId: uuid("processor_id")
+      .notNull()
+      .references(() => processors.id, { onDelete: "cascade" }),
+    activityId: uuid("activity_id")
+      .notNull()
+      .references(() => processingActivities.id, { onDelete: "cascade" }),
+  },
+  (t) => [primaryKey({ columns: [t.processorId, t.activityId] }), index("processor_activities_activity_idx").on(t.activityId)],
+);
+
 /** What part of the organisation's records an activity log entry is about. */
 export const activityAreaEnum = pgEnum("activity_area", [
   "registration",
@@ -709,6 +755,7 @@ export const activityAreaEnum = pgEnum("activity_area", [
   "dpia",
   "breach",
   "request",
+  "processor",
   "team",
   "organization",
   "billing",
@@ -750,6 +797,7 @@ export const organizationsRelations = relations(organizations, ({ many }) => ({
   breaches: many(breaches),
   dpias: many(dpias),
   subjectRequests: many(subjectRequests),
+  processors: many(processors),
 }));
 
 export const membershipsRelations = relations(memberships, ({ one }) => ({
@@ -779,6 +827,7 @@ export type Breach = typeof breaches.$inferSelect;
 export type Dpia = typeof dpias.$inferSelect;
 export type DpiaRisk = typeof dpiaRisks.$inferSelect;
 export type SubjectRequest = typeof subjectRequests.$inferSelect;
+export type Processor = typeof processors.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
 export type ServiceOrder = typeof serviceOrders.$inferSelect;
 export type EtimsInvoice = typeof etimsInvoices.$inferSelect;

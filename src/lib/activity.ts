@@ -5,6 +5,7 @@ import {
   breaches,
   dpias,
   processingActivities,
+  processors,
   registrations,
   subjectRequests,
   users,
@@ -13,6 +14,7 @@ import {
   type Dpia,
   type Organization,
   type ProcessingActivity,
+  type Processor,
   type Registration,
   type SubjectRequest,
 } from "@/db/schema";
@@ -141,6 +143,19 @@ export const FIELD_LABELS = {
     respondedOn: "responded on",
     response: "response",
   } satisfies Partial<Record<keyof SubjectRequest, string>>,
+  processor: {
+    name: "name",
+    service: "what they do",
+    contact: "contact details",
+    activityIds: "processing activities",
+    location: "where they hold the data",
+    outsideKenya: "outside Kenya",
+    guarantees: "security checks",
+    contractSignedOn: "contract signed on",
+    contractRef: "contract reference",
+    contractReviewOn: "contract review date",
+    notes: "notes",
+  } satisfies Partial<Record<keyof Processor | "activityIds", string>>,
   organization: {
     name: "name",
     sector: "sector",
@@ -202,6 +217,7 @@ export const describe = {
   dpia: (d: Pick<Dpia, "title">) => `the DPIA ${quoted(d.title)}`,
   request: (r: Pick<SubjectRequest, "kind" | "receivedOn">) =>
     `the ${REQUEST_NOUN[r.kind as RequestKind]} request received ${formatDate(r.receivedOn)}`,
+  processor: (p: Pick<Processor, "name">) => `the processor ${quoted(p.name)}`,
 };
 
 // ---------------------------------------------------------------------------
@@ -214,6 +230,7 @@ export const ACTIVITY_AREAS: Record<ActivityArea, string> = {
   dpia: "Impact assessments",
   breach: "Data breaches",
   request: "Data subject requests",
+  processor: "Processors",
   team: "Team",
   organization: "Settings",
   billing: "Billing",
@@ -266,6 +283,7 @@ const SUBJECT_TABLES = {
   dpia: dpias,
   breach: breaches,
   request: subjectRequests,
+  processor: processors,
 } as const;
 
 const SUBJECT_PATHS: Record<keyof typeof SUBJECT_TABLES, string> = {
@@ -274,6 +292,7 @@ const SUBJECT_PATHS: Record<keyof typeof SUBJECT_TABLES, string> = {
   dpia: "/dpia",
   breach: "/breaches",
   request: "/requests",
+  processor: "/processors",
 };
 
 /**

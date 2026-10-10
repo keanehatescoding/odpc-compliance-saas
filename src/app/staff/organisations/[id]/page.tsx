@@ -22,6 +22,7 @@ const RECORD_LABELS = {
   dpias: "Impact assessments",
   breaches: "Breaches",
   requests: "Data subject requests",
+  processors: "Processors",
 } as const;
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {

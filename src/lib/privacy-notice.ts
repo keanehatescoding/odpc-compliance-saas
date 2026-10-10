@@ -29,6 +29,9 @@ export interface NoticeRegistration {
   expiresOn: string | null;
 }
 
+/** A RoPA activity, with the names of the processors that handle its data when the caller knows them. */
+export type NoticeActivity = ActivityInput & { processors?: string[] };
+
 export type NoticeBlock =
   | { kind: "p"; text: string }
   | { kind: "list"; items: string[] }
@@ -111,7 +114,7 @@ function asSentence(items: string[]): string[] {
 
 export function buildPrivacyNotice(input: {
   org: NoticeOrg;
-  activities: ActivityInput[];
+  activities: NoticeActivity[];
   registrations: NoticeRegistration[];
   audience: string | null;
   today: string;
@@ -179,6 +182,15 @@ export function buildPrivacyNotice(input: {
     what.push({ kind: "h3", text: a.name }, { kind: "facts", items: facts });
   }
   sections.push({ heading: "What we collect and why", blocks: what });
+  // A processor receives the data, so people should be told (s.29(d)). Describing it is enough; it needn't be named.
+  const unshared = activities.filter((a) => !a.recipients && (a.processors?.length ?? 0) > 0);
+  if (unshared.length > 0) {
+    checks.push(
+      `Say who the data is shared with (Recipients). You've listed processors that handle it: ${unshared
+        .map((a) => `${a.name} (${a.processors!.join(", ")})`)
+        .join("; ")}.`,
+    );
+  }
   const undecided = activities.filter((a) => !provisionOf(a));
   if (undecided.length > 0) {
     checks.push(`Say whether people have to give the data, and what happens if they don't, for: ${names(undecided)}.`);

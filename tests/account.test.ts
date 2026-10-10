@@ -25,6 +25,8 @@ const {
   registrations,
   savedCards,
   serviceOrders,
+  processorActivities,
+  processors,
   subjectRequests,
   users,
 } = schema;
@@ -97,6 +99,8 @@ beforeEach(async () => {
   const [dpia] = await db.insert(dpias).values({ orgId, activityId: activity.id, title: "CCTV", createdBy: owner }).returning({ id: dpias.id });
   await db.insert(dpiaRisks).values({ dpiaId: dpia.id, position: 0, description: "Over-collection", likelihood: "possible", severity: "significant", residualLikelihood: "remote", residualSeverity: "minimal" });
   await db.insert(subjectRequests).values({ orgId, kind: "access", receivedOn: "2026-10-01", requesterName: "Wanjiku", details: "All my data" });
+  const [processor] = await db.insert(processors).values({ orgId, name: "Elimu Systems", service: "Hosts the school system" }).returning({ id: processors.id });
+  await db.insert(processorActivities).values({ processorId: processor.id, activityId: activity.id });
   await issueInvitation(db, { orgId, actorId: owner, email: "new@sunrise.ke", role: "member" }, t0);
 
   paidId = await addPayment({ reference: "paid-1" });
@@ -122,6 +126,7 @@ describe("exportOrganization", () => {
     expect(data!.breaches[0].affectedActivityIds).toEqual([data!.processingActivities[0].id]);
     expect(data!.impactAssessments[0].risks).toEqual([expect.objectContaining({ description: "Over-collection" })]);
     expect(data!.subjectRequests).toEqual([expect.objectContaining({ requesterName: "Wanjiku", alertsSent: [] })]);
+    expect(data!.processors).toEqual([expect.objectContaining({ name: "Elimu Systems", activityIds: [data!.processingActivities[0].id] })]);
     expect(data!.payments).toEqual([
       expect.objectContaining({
         amount: 2000,
@@ -164,7 +169,7 @@ describe("deleteOrganization", () => {
     expect(r.team.map((m) => m.email).sort()).toEqual(["admin@sunrise.ke", "member@sunrise.ke", "owner@sunrise.ke"]);
     expect(r.card?.authorizationCode).toBe("AUTH_secret");
 
-    for (const table of [registrations, processingActivities, breaches, dpias, subjectRequests, invitations, memberships, savedCards]) {
+    for (const table of [registrations, processingActivities, breaches, dpias, subjectRequests, processors, processorActivities, invitations, memberships, savedCards]) {
       expect(await db.select().from(table)).toEqual([]);
     }
     const [org] = await db.select().from(organizations).where(eq(organizations.id, orgId));
