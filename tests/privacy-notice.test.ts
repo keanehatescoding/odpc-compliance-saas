@@ -88,7 +88,8 @@ describe("buildPrivacyNotice", () => {
 
   it("ends the rights list as one sentence", () => {
     const list = section(build(), "Your rights")!.blocks.find((b) => b.kind === "list");
-    const items = list!.kind === "list" ? list.items : [];
+    const items = list?.kind === "list" ? list.items : [];
+    expect(items.length).toBeGreaterThan(2);
     expect(items.at(0)).toMatch(/;$/);
     expect(items.at(-2)).toMatch(/; and$/);
     expect(items.at(-1)).toMatch(/\.$/);
