@@ -20,6 +20,7 @@ import {
   savedCards,
   serviceOrders,
   subjectRequests,
+  trainingSessions,
   users,
   type Organization,
 } from "@/db/schema";
@@ -59,6 +60,7 @@ export interface RecordCounts {
   breaches: number;
   requests: number;
   processors: number;
+  training: number;
 }
 
 // Drizzle leaves the table off column names when a query selects from one
@@ -66,7 +68,7 @@ export interface RecordCounts {
 const qualified = (table: AnyPgTable, column: AnyPgColumn) => sql`${table}.${sql.identifier(column.name)}`;
 const orgIdColumn = qualified(organizations, organizations.id);
 
-const countFor = (table: typeof registrations | typeof processingActivities | typeof dpias | typeof breaches | typeof subjectRequests | typeof processors) =>
+const countFor = (table: typeof registrations | typeof processingActivities | typeof dpias | typeof breaches | typeof subjectRequests | typeof processors | typeof trainingSessions) =>
   sql<number>`(select count(*)::int from ${table} where ${qualified(table, table.orgId)} = ${orgIdColumn})`.mapWith(Number);
 
 const recordCounts = {
@@ -76,6 +78,7 @@ const recordCounts = {
   breaches: countFor(breaches),
   requests: countFor(subjectRequests),
   processors: countFor(processors),
+  training: countFor(trainingSessions),
 };
 
 // The latest change anyone on the team made, from the activity log.

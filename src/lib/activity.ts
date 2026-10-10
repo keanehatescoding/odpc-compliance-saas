@@ -8,6 +8,7 @@ import {
   processors,
   registrations,
   subjectRequests,
+  trainingSessions,
   users,
   type ActivityArea,
   type Breach,
@@ -17,6 +18,7 @@ import {
   type Processor,
   type Registration,
   type SubjectRequest,
+  type TrainingSession,
 } from "@/db/schema";
 import { formatDate } from "./dates";
 import type { RequestKind } from "./subject-request";
@@ -156,6 +158,18 @@ export const FIELD_LABELS = {
     contractReviewOn: "contract review date",
     notes: "notes",
   } satisfies Partial<Record<keyof Processor | "activityIds", string>>,
+  training: {
+    title: "title",
+    heldOn: "date held",
+    provider: "who ran it",
+    audience: "who it was for",
+    attendeeCount: "number attending",
+    topics: "what it covered",
+    evidence: "where the attendance record is kept",
+    refresherOn: "refresher date",
+    refreshesId: "session it refreshes",
+    notes: "notes",
+  } satisfies Partial<Record<keyof TrainingSession, string>>,
   organization: {
     name: "name",
     sector: "sector",
@@ -218,6 +232,7 @@ export const describe = {
   request: (r: Pick<SubjectRequest, "kind" | "receivedOn">) =>
     `the ${REQUEST_NOUN[r.kind as RequestKind]} request received ${formatDate(r.receivedOn)}`,
   processor: (p: Pick<Processor, "name">) => `the processor ${quoted(p.name)}`,
+  training: (t: Pick<TrainingSession, "title">) => `the training session ${quoted(t.title)}`,
 };
 
 // ---------------------------------------------------------------------------
@@ -231,6 +246,7 @@ export const ACTIVITY_AREAS: Record<ActivityArea, string> = {
   breach: "Data breaches",
   request: "Data subject requests",
   processor: "Processors",
+  training: "Staff training",
   team: "Team",
   organization: "Settings",
   billing: "Billing",
@@ -284,6 +300,7 @@ const SUBJECT_TABLES = {
   breach: breaches,
   request: subjectRequests,
   processor: processors,
+  training: trainingSessions,
 } as const;
 
 const SUBJECT_PATHS: Record<keyof typeof SUBJECT_TABLES, string> = {
@@ -293,6 +310,7 @@ const SUBJECT_PATHS: Record<keyof typeof SUBJECT_TABLES, string> = {
   breach: "/breaches",
   request: "/requests",
   processor: "/processors",
+  training: "/training",
 };
 
 /**

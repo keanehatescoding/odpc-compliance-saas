@@ -28,6 +28,7 @@ const {
   processorActivities,
   processors,
   subjectRequests,
+  trainingSessions,
   users,
 } = schema;
 
@@ -101,6 +102,11 @@ beforeEach(async () => {
   await db.insert(subjectRequests).values({ orgId, kind: "access", receivedOn: "2026-10-01", requesterName: "Wanjiku", details: "All my data" });
   const [processor] = await db.insert(processors).values({ orgId, name: "Elimu Systems", service: "Hosts the school system" }).returning({ id: processors.id });
   await db.insert(processorActivities).values({ processorId: processor.id, activityId: activity.id });
+  const [induction] = await db
+    .insert(trainingSessions)
+    .values({ orgId, title: "Induction", heldOn: "2025-09-01", audience: "All staff", topics: "The basics" })
+    .returning({ id: trainingSessions.id });
+  await db.insert(trainingSessions).values({ orgId, title: "Refresher", heldOn: "2026-09-01", audience: "All staff", topics: "The basics again", refreshesId: induction.id });
   await issueInvitation(db, { orgId, actorId: owner, email: "new@sunrise.ke", role: "member" }, t0);
 
   paidId = await addPayment({ reference: "paid-1" });
@@ -127,6 +133,11 @@ describe("exportOrganization", () => {
     expect(data!.impactAssessments[0].risks).toEqual([expect.objectContaining({ description: "Over-collection" })]);
     expect(data!.subjectRequests).toEqual([expect.objectContaining({ requesterName: "Wanjiku", alertsSent: [] })]);
     expect(data!.processors).toEqual([expect.objectContaining({ name: "Elimu Systems", activityIds: [data!.processingActivities[0].id] })]);
+    expect(data!.trainingSessions).toEqual([
+      expect.objectContaining({ title: "Induction", refreshesId: null }),
+      expect.objectContaining({ title: "Refresher", refreshesId: data!.trainingSessions[0].id }),
+    ]);
+    expect(data!.trainingSessions[0]).not.toHaveProperty("orgId");
     expect(data!.payments).toEqual([
       expect.objectContaining({
         amount: 2000,
@@ -169,7 +180,7 @@ describe("deleteOrganization", () => {
     expect(r.team.map((m) => m.email).sort()).toEqual(["admin@sunrise.ke", "member@sunrise.ke", "owner@sunrise.ke"]);
     expect(r.card?.authorizationCode).toBe("AUTH_secret");
 
-    for (const table of [registrations, processingActivities, breaches, dpias, subjectRequests, processors, processorActivities, invitations, memberships, savedCards]) {
+    for (const table of [registrations, processingActivities, breaches, dpias, subjectRequests, processors, processorActivities, trainingSessions, invitations, memberships, savedCards]) {
       expect(await db.select().from(table)).toEqual([]);
     }
     const [org] = await db.select().from(organizations).where(eq(organizations.id, orgId));

@@ -14,12 +14,14 @@ import {
   listProcessors,
   listRegistrations,
   listSubjectRequests,
+  listTrainingSessions,
   recentReminders,
 } from "@/lib/queries";
 import { daysUntilExpiry, registrationStatus, STATUS_SEVERITY, worstStatus } from "@/lib/registration";
 import { dpiaRecommended } from "@/lib/ropa";
 import { requireOrgContext } from "@/lib/session";
 import { daysToRespond, formatDaysLeft, isOpen, kindInfo, requestStatus } from "@/lib/subject-request";
+import { refreshedIds, trainingStatus } from "@/lib/training";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
@@ -27,7 +29,7 @@ export default async function DashboardPage() {
   const { org } = await requireOrgContext();
   const today = todayInKenya();
   const now = new Date();
-  const [regs, activities, reminders, breaches, dpias, requests, processors] = await Promise.all([
+  const [regs, activities, reminders, breaches, dpias, requests, processors, training] = await Promise.all([
     listRegistrations(org.id),
     listActivities(org.id),
     recentReminders(org.id),
@@ -35,6 +37,7 @@ export default async function DashboardPage() {
     listDpias(org.id),
     listSubjectRequests(org.id),
     listProcessors(org.id),
+    listTrainingSessions(org.id),
   ]);
   const urgentBreaches = breaches
     .map((b) => ({ ...b, status: breachStatus(b, now), deadline: notificationDeadline(b) }))
@@ -89,6 +92,13 @@ export default async function DashboardPage() {
   }
   for (const p of processors) {
     if (processorStatus(p, today) === "review_due") todos.push({ text: `Review your contract with ${p.name}`, href: `/processors/${p.id}` });
+  }
+  if (training.length === 0) todos.push({ text: "Record the data protection training your staff have had", href: "/training" });
+  const refreshed = refreshedIds(training);
+  for (const s of training) {
+    if (trainingStatus(s, refreshed, today) === "refresher_due") {
+      todos.push({ text: `Hold the refresher for ${s.title} (due ${formatDate(s.refresherOn)})`, href: `/training/${s.id}` });
+    }
   }
 
   return (

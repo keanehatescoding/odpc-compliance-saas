@@ -13,6 +13,7 @@ import {
   timestamp,
   uniqueIndex,
   uuid,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { BREACH_KIND_KEYS, BREACH_RISK_KEYS } from "../lib/breach";
 import { LIKELIHOOD_KEYS, SEVERITY_KEYS } from "../lib/dpia";
@@ -748,6 +749,45 @@ export const processorActivities = pgTable(
   (t) => [primaryKey({ columns: [t.processorId, t.activityId] }), index("processor_activities_activity_idx").on(t.activityId)],
 );
 
+/**
+ * Data protection training the organisation's staff have had: one row per
+ * session held. Section 41 of the Act asks for organisational measures as well
+ * as technical ones, and a dated record of who was trained in what is the
+ * evidence an auditor asks for. Attendees are counted, not named; the register
+ * itself stays wherever `evidence` says it is.
+ */
+export const trainingSessions = pgTable(
+  "training_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    heldOn: date("held_on", { mode: "string" }).notNull(),
+    // Who ran it: a member of staff, a law firm, the ODPC.
+    provider: text("provider").notNull().default(""),
+    // Who it was for, such as "All teaching staff".
+    audience: text("audience").notNull(),
+    // Null when nobody counted.
+    attendeeCount: integer("attendee_count"),
+    topics: text("topics").notNull(),
+    // Where the attendance register or certificates are kept.
+    evidence: text("evidence").notNull().default(""),
+    // Null when no refresher is planned.
+    refresherOn: date("refresher_on", { mode: "string" }),
+    // The earlier session this one was the refresher for. That one stops being due.
+    refreshesId: uuid("refreshes_id").references((): AnyPgColumn => trainingSessions.id, { onDelete: "set null" }),
+    notes: text("notes").notNull().default(""),
+    ...timestamps,
+  },
+  (t) => [
+    index("training_sessions_org_idx").on(t.orgId),
+    index("training_sessions_refreshes_idx").on(t.refreshesId),
+    check("training_sessions_attendee_count_positive", sql`${t.attendeeCount} > 0`),
+  ],
+);
+
 /** What part of the organisation's records an activity log entry is about. */
 export const activityAreaEnum = pgEnum("activity_area", [
   "registration",
@@ -756,6 +796,7 @@ export const activityAreaEnum = pgEnum("activity_area", [
   "breach",
   "request",
   "processor",
+  "training",
   "team",
   "organization",
   "billing",
@@ -798,6 +839,7 @@ export const organizationsRelations = relations(organizations, ({ many }) => ({
   dpias: many(dpias),
   subjectRequests: many(subjectRequests),
   processors: many(processors),
+  trainingSessions: many(trainingSessions),
 }));
 
 export const membershipsRelations = relations(memberships, ({ one }) => ({
@@ -828,6 +870,7 @@ export type Dpia = typeof dpias.$inferSelect;
 export type DpiaRisk = typeof dpiaRisks.$inferSelect;
 export type SubjectRequest = typeof subjectRequests.$inferSelect;
 export type Processor = typeof processors.$inferSelect;
+export type TrainingSession = typeof trainingSessions.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
 export type ServiceOrder = typeof serviceOrders.$inferSelect;
 export type EtimsInvoice = typeof etimsInvoices.$inferSelect;

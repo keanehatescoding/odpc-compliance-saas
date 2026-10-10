@@ -6,6 +6,7 @@ import type { FormValues } from "@/lib/forms";
 import { PROCESSOR_STATUS_LABEL, type ProcessorStatus } from "@/lib/processor";
 import { STATUS_LABEL, type RegistrationStatus } from "@/lib/registration";
 import { REQUEST_STATUS_LABEL, type RequestStatus } from "@/lib/subject-request";
+import { TRAINING_STATUS_LABEL, type TrainingStatus } from "@/lib/training";
 
 export function cx(...classes: (string | false | null | undefined)[]) {
   return classes.filter(Boolean).join(" ");
@@ -96,6 +97,20 @@ export function ProcessorStatusBadge({ status }: { status: ProcessorStatus }) {
   return (
     <span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset", PROCESSOR_STATUS_STYLE[status])}>
       {PROCESSOR_STATUS_LABEL[status]}
+    </span>
+  );
+}
+
+const TRAINING_STATUS_STYLE: Record<TrainingStatus, string> = {
+  current: "bg-emerald-50 text-emerald-800 ring-emerald-200",
+  refresher_due: "bg-amber-50 text-amber-800 ring-amber-200",
+  refreshed: "bg-stone-100 text-stone-700 ring-stone-300",
+};
+
+export function TrainingStatusBadge({ status }: { status: TrainingStatus }) {
+  return (
+    <span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset", TRAINING_STATUS_STYLE[status])}>
+      {TRAINING_STATUS_LABEL[status]}
     </span>
   );
 }
