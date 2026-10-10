@@ -1,0 +1,2 @@
+ALTER TABLE "processing_activities" ADD COLUMN "role" "registration_role" DEFAULT 'controller' NOT NULL;--> statement-breakpoint
+ALTER TABLE "processing_activities" ADD COLUMN "provision" text DEFAULT '' NOT NULL;

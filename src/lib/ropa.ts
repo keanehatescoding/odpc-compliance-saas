@@ -1,11 +1,23 @@
 import { z } from "zod";
 import { LAWFUL_BASES, LAWFUL_BASIS_KEYS, SENSITIVE_CATEGORIES, type LawfulBasis, type Sector } from "./dpa";
 
+/** The organisation's part in an activity: deciding why and how the data is used, or handling it for someone who does. */
+export const ACTIVITY_ROLES = {
+  controller: "Controller: you decide why and how the data is used",
+  processor: "Processor: you handle it on another organisation's instructions",
+} as const;
+
+export type ActivityRole = keyof typeof ACTIVITY_ROLES;
+
 /** One entry in a Record of Processing Activities. */
 export interface ActivityInput {
   name: string;
   purpose: string;
   lawfulBasis: LawfulBasis;
+  /** Null when nobody has said yet, for activities recorded before the question was asked. */
+  role: ActivityRole | null;
+  /** Whether people must give the data, and what happens if they don't. */
+  provision: string;
   dataSubjects: string[];
   dataCategories: string[];
   sensitiveCategories: string[];
@@ -43,6 +55,8 @@ export const activityFormSchema = z
     lawfulBasis: z.enum(LAWFUL_BASIS_KEYS as [LawfulBasis, ...LawfulBasis[]], {
       error: "Choose a lawful basis.",
     }),
+    role: z.enum(["controller", "processor"], { error: "Choose your role." }),
+    provision: z.string().trim().max(1000).default(""),
     dataSubjects: list.pipe(z.array(z.string()).min(1, { error: "List at least one category of data subject." })),
     dataCategories: list.pipe(z.array(z.string()).min(1, { error: "List at least one category of personal data." })),
     sensitiveCategories: z
@@ -74,6 +88,8 @@ export function parseActivityForm(formData: FormData) {
     name: get("name"),
     purpose: get("purpose"),
     lawfulBasis: get("lawfulBasis"),
+    role: get("role"),
+    provision: get("provision"),
     dataSubjects: get("dataSubjects") ?? "",
     dataCategories: get("dataCategories") ?? "",
     sensitiveCategories: formData.getAll("sensitiveCategories").map(String),
@@ -129,6 +145,8 @@ export const ROPA_COLUMNS: { header: string; value: (a: ActivityInput) => string
   { header: "Processing activity", value: (a) => a.name },
   { header: "Purpose", value: (a) => a.purpose },
   { header: "Lawful basis", value: (a) => LAWFUL_BASES[a.lawfulBasis] },
+  { header: "Role", value: (a) => (a.role === "processor" ? "Processor" : a.role === "controller" ? "Controller" : "Not confirmed") },
+  { header: "Mandatory or voluntary", value: (a) => a.provision },
   { header: "Categories of data subjects", value: (a) => a.dataSubjects.join("; ") },
   { header: "Categories of personal data", value: (a) => a.dataCategories.join("; ") },
   { header: "Sensitive personal data", value: (a) => a.sensitiveCategories.join("; ") || "None" },
@@ -170,6 +188,8 @@ export interface ActivityTemplate extends ActivityInput {
 }
 
 const base = {
+  role: "controller",
+  provision: "",
   sensitiveCategories: [],
   crossBorder: false,
   transferCountries: "",
@@ -190,6 +210,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     id: "hr-payroll",
     sectors: "all",
     name: "Staff records and payroll",
+    provision: "Yes for what we need to employ and pay you, such as your ID number, KRA PIN and bank details. Without them we can't employ or pay you. Health and family details are needed only where a benefit or statutory deduction depends on them.",
     purpose: "Recruit and employ staff, pay salaries, and meet statutory deductions (PAYE, NSSF, SHIF, Housing Levy).",
     lawfulBasis: "contract",
     dataSubjects: ["Employees", "Job applicants", "Next of kin"],
@@ -205,6 +226,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     id: "cctv",
     sectors: "all",
     name: "CCTV surveillance",
+    provision: "The cameras record everyone in the areas they cover, which are marked with signs.",
     purpose: "Protect premises, staff and visitors, and investigate incidents.",
     lawfulBasis: "legitimate_interests",
     dataSubjects: ["Staff", "Visitors", "Customers"],
@@ -237,6 +259,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     id: "student-records",
     sectors: ["education"],
     name: "Student admission and academic records",
+    provision: "Yes. We need it to admit and teach a student and to report to the Ministry of Education. Without it we can't offer a place.",
     purpose: "Admit students, manage academic progress, and report to the Ministry of Education (NEMIS/KEMIS).",
     lawfulBasis: "legal_obligation",
     dataSubjects: ["Students", "Parents and guardians"],
@@ -254,6 +277,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     id: "school-fees",
     sectors: ["education"],
     name: "School fees and billing",
+    provision: "Yes. We need it to bill you and record what you've paid.",
     purpose: "Invoice and collect fees, issue receipts, and follow up arrears.",
     lawfulBasis: "contract",
     dataSubjects: ["Parents and guardians", "Students"],
@@ -269,6 +293,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     id: "patient-records",
     sectors: ["health"],
     name: "Patient medical records",
+    provision: "Yes. We need it to treat you safely, and without it we may not be able to.",
     purpose: "Diagnose and treat patients and keep clinical records.",
     lawfulBasis: "vital_interests",
     dataSubjects: ["Patients", "Next of kin"],
@@ -285,6 +310,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     id: "insurance-claims",
     sectors: ["health"],
     name: "Insurance and SHA claims",
+    provision: "Only if you want your insurer or SHA to pay. Without it they won't, and you would pay the bill yourself.",
     purpose: "Submit claims for payment to SHA and private insurers.",
     lawfulBasis: "contract",
     dataSubjects: ["Patients"],
@@ -300,6 +326,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     id: "member-kyc",
     sectors: ["sacco", "fintech"],
     name: "Member / customer onboarding (KYC)",
+    provision: "Yes. The law requires us to verify who you are, and we can't open an account without it.",
     purpose: "Verify identity and meet anti-money-laundering obligations before opening accounts.",
     lawfulBasis: "legal_obligation",
     dataSubjects: ["Members / customers", "Guarantors", "Nominees"],
@@ -316,6 +343,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     id: "credit-scoring",
     sectors: ["sacco", "fintech"],
     name: "Loan appraisal and credit reporting",
+    provision: "Yes. Without it we can't assess a loan application.",
     purpose: "Assess loan applications and share repayment data with credit reference bureaus.",
     lawfulBasis: "contract",
     dataSubjects: ["Borrowers", "Guarantors"],
@@ -332,6 +360,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     id: "customer-orders",
     sectors: ["retail", "hospitality"],
     name: "Customer orders and delivery",
+    provision: "Yes for what we need to take payment and deliver your order. Without it we can't fulfil the order.",
     purpose: "Take orders, process payment, and deliver goods.",
     lawfulBasis: "contract",
     dataSubjects: ["Customers"],
@@ -360,6 +389,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     id: "guest-registration",
     sectors: ["hospitality"],
     name: "Guest registration",
+    provision: "Yes. The law requires us to register guests, and we can't accommodate you without it.",
     purpose: "Register hotel guests as required by law and manage bookings.",
     lawfulBasis: "legal_obligation",
     dataSubjects: ["Guests"],
@@ -374,6 +404,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     id: "visitor-log",
     sectors: "all",
     name: "Visitor log",
+    provision: "Yes. Visitors who don't sign in may not be admitted.",
     purpose: "Record visitors to the premises for security.",
     lawfulBasis: "legitimate_interests",
     dataSubjects: ["Visitors"],

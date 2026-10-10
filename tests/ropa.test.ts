@@ -20,6 +20,7 @@ const valid = {
   name: "Payroll",
   purpose: "Pay staff salaries",
   lawfulBasis: "contract",
+  role: "controller",
   dataSubjects: "Employees, Next of kin",
   dataCategories: "Name\nKRA PIN\n\nBank details",
   retentionPeriod: "7 years",
@@ -123,6 +124,11 @@ describe("templates", () => {
       });
       expect(r.success, `${t.id}: ${r.error?.message}`).toBe(true);
     }
+  });
+
+  it("say whether the data is required, unless they rely on consent", () => {
+    const unanswered = ACTIVITY_TEMPLATES.filter((t) => t.lawfulBasis !== "consent" && !t.provision);
+    expect(unanswered.map((t) => t.id)).toEqual([]);
   });
 
   it("have unique ids and cover every sector", () => {

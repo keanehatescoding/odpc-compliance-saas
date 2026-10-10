@@ -10,6 +10,13 @@ import { ORG_SIZE_KEYS, SECTOR_KEYS, type OrgSize, type Sector } from "@/lib/dpa
 import { fieldErrors, formValues, type FormState } from "@/lib/forms";
 import { requireOrgContext } from "@/lib/session";
 
+const optionalText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .transform((v) => v || null);
+
 const schema = z.object({
   name: z.string().trim().min(2, { error: "Enter your organisation's name." }).max(200),
   sector: z.enum(SECTOR_KEYS as [Sector, ...Sector[]]),
@@ -33,6 +40,14 @@ const schema = z.object({
       { error: "Enter one or more email addresses separated by commas." },
     )
     .transform((v) => v || null),
+  privacyContact: optionalText(200),
+  privacyEmail: z
+    .string()
+    .trim()
+    .refine((v) => v === "" || z.email().safeParse(v).success, { error: "Enter an email address." })
+    .transform((v) => v || null),
+  privacyPhone: optionalText(50),
+  address: optionalText(500),
 });
 
 export async function updateOrganization(_prev: FormState, formData: FormData): Promise<FormState> {
