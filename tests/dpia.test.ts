@@ -181,6 +181,8 @@ describe("draftDpia", () => {
     name: "Visitor app",
     purpose: "Sign visitors in",
     lawfulBasis: "legitimate_interests",
+    role: "controller",
+    provision: "",
     dataSubjects: ["Visitors"],
     dataCategories: ["Name", "Photo"],
     sensitiveCategories: ["Biometric data"],

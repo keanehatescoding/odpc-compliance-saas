@@ -9,6 +9,9 @@ import { REQUEST_KINDS } from "./subject-request";
  * is collected: their rights, why the data is collected, who receives it, the
  * controller's contacts, how it is protected, whether giving it is voluntary
  * or mandatory, and transfers outside Kenya.
+ *
+ * It covers the activities the organisation controls. What it processes on
+ * another organisation's instructions is for that organisation to explain.
  */
 
 export interface NoticeOrg {
@@ -41,11 +44,16 @@ export interface PrivacyNotice {
   audience: string | null;
   updatedOn: string;
   sections: NoticeSection[];
-  /** What the organisation should fill in before publishing. Not part of the notice. */
-  missing: string[];
+  /** How many activities the notice describes. */
+  covered: number;
+  /** What the organisation should add or confirm before publishing. Not part of the notice. */
+  checks: string[];
 }
 
-/** How each lawful basis reads to the person, and whether giving the data is optional. */
+/**
+ * How each lawful basis reads to the person, and whether giving the data is
+ * optional where the basis settles that. Where it doesn't, the organisation says.
+ */
 const BASIS_TEXT: Record<LawfulBasis, { why: string; required: string | null }> = {
   consent: {
     why: "Your consent.",
@@ -88,11 +96,18 @@ export function noticeAudiences(activities: Pick<ActivityInput, "dataSubjects">[
   return unique(activities.flatMap((a) => a.dataSubjects)).sort((a, b) => a.localeCompare(b));
 }
 
+/** The activities the organisation controls, which are the ones its notice describes. */
+export function controlled<T extends Pick<ActivityInput, "role">>(activities: T[]): T[] {
+  return activities.filter((a) => a.role === "controller");
+}
+
 /** The activities a notice for `audience` covers: all of them when it's null. */
 export function activitiesFor<T extends Pick<ActivityInput, "dataSubjects">>(activities: T[], audience: string | null): T[] {
   if (audience === null) return activities;
   return activities.filter((a) => a.dataSubjects.some((s) => sameAudience(s, audience)));
 }
+
+const names = (activities: Pick<ActivityInput, "name">[]) => activities.map((a) => a.name).join(", ");
 
 /** Joins list items as one sentence: "a;", "b; and", "c." */
 function asSentence(items: string[]): string[] {
@@ -107,9 +122,15 @@ export function buildPrivacyNotice(input: {
   today: string;
 }): PrivacyNotice {
   const { org, registrations, audience, today } = input;
-  const activities = activitiesFor(input.activities, audience);
-  const missing: string[] = [];
+  const inScope = activitiesFor(input.activities, audience);
+  const activities = controlled(inScope);
+  const checks: string[] = [];
   const sections: NoticeSection[] = [];
+
+  const asProcessor = inScope.filter((a) => a.role === "processor");
+  if (asProcessor.length > 0) {
+    checks.push(`Left out, because you process them for another organisation and its notice should cover them: ${names(asProcessor)}.`);
+  }
 
   // Who we are
   const controller = registrations.find(
@@ -118,7 +139,7 @@ export function buildPrivacyNotice(input: {
   const who: NoticeBlock[] = [
     {
       kind: "p",
-      text: `${org.name} decides why and how your personal data is used, which makes us its data controller under the Data Protection Act, 2019.${
+      text: `${org.name} decides why and how the personal data described in this notice is used, which makes us its data controller under the Data Protection Act, 2019.${
         controller ? ` We are registered with the Office of the Data Protection Commissioner (certificate ${controller.certificateNumber}).` : ""
       }`,
     },
@@ -132,8 +153,8 @@ export function buildPrivacyNotice(input: {
   if (contacts.length > 0) {
     who.push({ kind: "p", text: "For anything about your personal data, contact us:" }, { kind: "facts", items: contacts });
   }
-  if (!org.privacyEmail && !org.privacyPhone) missing.push("An email address or phone number people can contact about their data.");
-  if (!org.address) missing.push("Your physical or postal address.");
+  if (!org.privacyEmail && !org.privacyPhone) checks.push("Add an email address or phone number people can contact about their data (Settings).");
+  if (!org.address) checks.push("Add your physical or postal address (Settings).");
   sections.push({ heading: "Who we are", blocks: who });
 
   // What we collect and why
@@ -146,7 +167,8 @@ export function buildPrivacyNotice(input: {
     ];
     if (a.sensitiveCategories.length > 0) facts.push({ label: "Sensitive data", value: a.sensitiveCategories.join(", ") });
     facts.push({ label: "Legal basis", value: basis.why });
-    if (basis.required) facts.push({ label: "Do you have to give it?", value: basis.required });
+    const provision = a.provision || basis.required;
+    if (provision) facts.push({ label: "Do you have to give it?", value: provision });
     if (a.recipients) facts.push({ label: "Shared with", value: a.recipients });
     if (a.crossBorder) {
       facts.push({
@@ -155,11 +177,21 @@ export function buildPrivacyNotice(input: {
       });
     }
     facts.push({ label: "Kept for", value: a.retentionPeriod });
+    if (a.securityMeasures) facts.push({ label: "Protected by", value: a.securityMeasures });
     what.push({ kind: "h3", text: a.name }, { kind: "facts", items: facts });
   }
   sections.push({ heading: "What we collect and why", blocks: what });
-  if (activities.some((a) => a.crossBorder && !a.transferSafeguards)) {
-    missing.push("How data sent outside Kenya is protected, for each activity that sends it (Transfer safeguards in the RoPA).");
+  const undecided = activities.filter((a) => !a.provision && !BASIS_TEXT[a.lawfulBasis].required);
+  if (undecided.length > 0) {
+    checks.push(`Say whether people have to give the data, and what happens if they don't, for: ${names(undecided)}.`);
+  }
+  const unsafeguarded = activities.filter((a) => a.crossBorder && !a.transferSafeguards);
+  if (unsafeguarded.length > 0) {
+    checks.push(`Say how data sent outside Kenya is protected (Safeguards), for: ${names(unsafeguarded)}.`);
+  }
+  const unprotected = activities.filter((a) => !a.securityMeasures);
+  if (unprotected.length > 0) {
+    checks.push(`Describe the security measures for: ${names(unprotected)}.`);
   }
 
   if (activities.some((a) => a.involvesChildren)) {
@@ -168,24 +200,24 @@ export function buildPrivacyNotice(input: {
       blocks: [
         {
           kind: "p",
-          text: "We process a child's personal data only with the consent of their parent or guardian, and in a way that protects and advances the child's rights and best interests.",
+          text: "Where we process a child's personal data, we do so in a way that protects and advances the child's rights and best interests. We ask for the consent of their parent or guardian first, unless the law doesn't require it, as when a child comes to us directly for counselling or child-protection services.",
         },
       ],
     });
+    checks.push("Confirm the Children section matches what you do: it says you get a parent's or guardian's consent unless the law doesn't require it.");
   }
 
-  // How we protect it
-  const measures = unique(activities.map((a) => a.securityMeasures).filter(Boolean));
   sections.push({
     heading: "How we protect it",
-    blocks:
-      measures.length > 0
-        ? [{ kind: "p", text: "To keep your personal data safe we use these measures:" }, { kind: "list", items: measures }]
-        : [{ kind: "p", text: "We use technical and organisational measures to keep your personal data safe from loss, misuse and unauthorised access." }],
+    blocks: [
+      {
+        kind: "p",
+        text: `We use technical and organisational measures to keep your personal data safe from loss, misuse and unauthorised access.${
+          activities.some((a) => a.securityMeasures) ? " The measures for each use of your data are listed above." : ""
+        }`,
+      },
+    ],
   });
-  if (activities.length > 0 && measures.length === 0) {
-    missing.push("How you protect the data (Security measures in the RoPA). Without it the notice says only that you use suitable measures.");
-  }
   sections.push({
     heading: "If something goes wrong",
     blocks: [
@@ -243,7 +275,8 @@ export function buildPrivacyNotice(input: {
     audience,
     updatedOn: today,
     sections,
-    missing,
+    covered: activities.length,
+    checks,
   };
 }
 

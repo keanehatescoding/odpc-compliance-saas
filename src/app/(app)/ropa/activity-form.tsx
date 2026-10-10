@@ -6,6 +6,7 @@ import { SubmitButton } from "@/components/submit-button";
 import { Card, CheckboxField, FormMessage, SelectField, TextArea, TextField } from "@/components/ui";
 import type { ProcessingActivity } from "@/db/schema";
 import { LAWFUL_BASES, SENSITIVE_CATEGORIES } from "@/lib/dpa";
+import { ACTIVITY_ROLES } from "@/lib/ropa";
 
 export function ActivityForm({ activity }: { activity?: ProcessingActivity }) {
   const [state, action] = useActionState(saveActivity, undefined);
@@ -32,6 +33,14 @@ export function ActivityForm({ activity }: { activity?: ProcessingActivity }) {
           initial={activity?.lawfulBasis}
           {...f}
         />
+        <TextArea
+          name="provision"
+          label="Do people have to give this data?"
+          hint="Say whether it's required or optional, and what happens if they don't give it. For consent, a contract or a legal obligation you can leave this blank, and the privacy notice uses standard wording."
+          initial={activity?.provision}
+          {...f}
+        />
+        <SelectField name="role" label="Your role" options={ACTIVITY_ROLES} initial={activity?.role ?? "controller"} {...f} />
         <TextField name="owner" label="Responsible person or team" initial={activity?.owner} {...f} />
       </Card>
 

@@ -1,11 +1,22 @@
 import { z } from "zod";
 import { LAWFUL_BASES, LAWFUL_BASIS_KEYS, SENSITIVE_CATEGORIES, type LawfulBasis, type Sector } from "./dpa";
 
+/** The organisation's part in an activity: deciding why and how the data is used, or handling it for someone who does. */
+export const ACTIVITY_ROLES = {
+  controller: "Controller: you decide why and how the data is used",
+  processor: "Processor: you handle it on another organisation's instructions",
+} as const;
+
+export type ActivityRole = keyof typeof ACTIVITY_ROLES;
+
 /** One entry in a Record of Processing Activities. */
 export interface ActivityInput {
   name: string;
   purpose: string;
   lawfulBasis: LawfulBasis;
+  role: ActivityRole;
+  /** Whether people must give the data, and what happens if they don't. */
+  provision: string;
   dataSubjects: string[];
   dataCategories: string[];
   sensitiveCategories: string[];
@@ -43,6 +54,8 @@ export const activityFormSchema = z
     lawfulBasis: z.enum(LAWFUL_BASIS_KEYS as [LawfulBasis, ...LawfulBasis[]], {
       error: "Choose a lawful basis.",
     }),
+    role: z.enum(["controller", "processor"], { error: "Choose your role." }).default("controller"),
+    provision: z.string().trim().max(1000).default(""),
     dataSubjects: list.pipe(z.array(z.string()).min(1, { error: "List at least one category of data subject." })),
     dataCategories: list.pipe(z.array(z.string()).min(1, { error: "List at least one category of personal data." })),
     sensitiveCategories: z
@@ -74,6 +87,8 @@ export function parseActivityForm(formData: FormData) {
     name: get("name"),
     purpose: get("purpose"),
     lawfulBasis: get("lawfulBasis"),
+    role: get("role"),
+    provision: get("provision"),
     dataSubjects: get("dataSubjects") ?? "",
     dataCategories: get("dataCategories") ?? "",
     sensitiveCategories: formData.getAll("sensitiveCategories").map(String),
@@ -129,6 +144,8 @@ export const ROPA_COLUMNS: { header: string; value: (a: ActivityInput) => string
   { header: "Processing activity", value: (a) => a.name },
   { header: "Purpose", value: (a) => a.purpose },
   { header: "Lawful basis", value: (a) => LAWFUL_BASES[a.lawfulBasis] },
+  { header: "Role", value: (a) => (a.role === "processor" ? "Processor" : "Controller") },
+  { header: "Mandatory or voluntary", value: (a) => a.provision },
   { header: "Categories of data subjects", value: (a) => a.dataSubjects.join("; ") },
   { header: "Categories of personal data", value: (a) => a.dataCategories.join("; ") },
   { header: "Sensitive personal data", value: (a) => a.sensitiveCategories.join("; ") || "None" },
@@ -170,6 +187,8 @@ export interface ActivityTemplate extends ActivityInput {
 }
 
 const base = {
+  role: "controller",
+  provision: "",
   sensitiveCategories: [],
   crossBorder: false,
   transferCountries: "",
@@ -205,6 +224,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     id: "cctv",
     sectors: "all",
     name: "CCTV surveillance",
+    provision: "The cameras record everyone in the areas they cover, which are marked with signs.",
     purpose: "Protect premises, staff and visitors, and investigate incidents.",
     lawfulBasis: "legitimate_interests",
     dataSubjects: ["Staff", "Visitors", "Customers"],
@@ -269,6 +289,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     id: "patient-records",
     sectors: ["health"],
     name: "Patient medical records",
+    provision: "Yes. We need it to treat you safely, and without it we may not be able to.",
     purpose: "Diagnose and treat patients and keep clinical records.",
     lawfulBasis: "vital_interests",
     dataSubjects: ["Patients", "Next of kin"],
@@ -374,6 +395,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     id: "visitor-log",
     sectors: "all",
     name: "Visitor log",
+    provision: "Yes. Visitors who don't sign in may not be admitted.",
     purpose: "Record visitors to the premises for security.",
     lawfulBasis: "legitimate_interests",
     dataSubjects: ["Visitors"],

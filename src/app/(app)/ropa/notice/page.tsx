@@ -51,7 +51,7 @@ export default async function PrivacyNoticePage({ searchParams }: PageProps<"/ro
         title="Privacy notice"
         description="Section 29 of the Act says you must tell people how you use their data before you collect it. This notice is written from your RoPA. Review it, then put it on your website, on forms and where you collect data."
         actions={
-          activityCount > 0 && (
+          notice.covered > 0 && (
             <>
               <a href={noticeHref("/ropa/notice.html", notice.audience)} className={buttonClass.secondary}>
                 Download HTML
@@ -91,12 +91,12 @@ export default async function PrivacyNoticePage({ searchParams }: PageProps<"/ro
             </nav>
           )}
 
-          {notice.missing.length > 0 && (
+          {notice.checks.length > 0 && (
             <div className="no-print mb-6 rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-900">
-              <p className="font-medium">Before you publish it, add:</p>
-              <ul className="mt-1 list-disc pl-5">
-                {notice.missing.map((m) => (
-                  <li key={m}>{m}</li>
+              <p className="font-medium">Before you publish it:</p>
+              <ul className="mt-1 list-disc space-y-1 pl-5">
+                {notice.checks.map((c) => (
+                  <li key={c}>{c}</li>
                 ))}
               </ul>
               <p className="mt-2">
@@ -106,18 +106,24 @@ export default async function PrivacyNoticePage({ searchParams }: PageProps<"/ro
             </div>
           )}
 
-          <article className="legal rounded-lg bg-white p-6 ring-1 ring-stone-200 sm:p-10 print:p-0 print:ring-0">
-            <h1>{notice.title}</h1>
-            {notice.audience && <p className="mt-2 text-stone-500">For {notice.audience}</p>}
-            {notice.sections.map((s) => (
-              <section key={s.heading}>
-                <h2>{s.heading}</h2>
-                {s.blocks.map((b, i) => (
-                  <Block key={i} block={b} />
-                ))}
-              </section>
-            ))}
-          </article>
+          {notice.covered === 0 ? (
+            <EmptyState title="Nothing to put in a notice">
+              Every activity in your RoPA is one you process for another organisation, so explaining it is that organisation&apos;s job.
+            </EmptyState>
+          ) : (
+            <article className="legal rounded-lg bg-white p-6 ring-1 ring-stone-200 sm:p-10 print:p-0 print:ring-0">
+              <h1>{notice.title}</h1>
+              {notice.audience && <p className="mt-2 text-stone-500">For {notice.audience}</p>}
+              {notice.sections.map((s) => (
+                <section key={s.heading}>
+                  <h2>{s.heading}</h2>
+                  {s.blocks.map((b, i) => (
+                    <Block key={i} block={b} />
+                  ))}
+                </section>
+              ))}
+            </article>
+          )}
           <p className="no-print mt-4 text-xs text-stone-500">
             Kinga writes this from what you&apos;ve recorded. It isn&apos;t legal advice, so check it says what you actually do.
           </p>

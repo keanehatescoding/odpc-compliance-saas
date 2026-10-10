@@ -69,6 +69,8 @@ export const FIELD_LABELS = {
     name: "name",
     purpose: "purpose",
     lawfulBasis: "lawful basis",
+    role: "controller or processor",
+    provision: "whether giving the data is required",
     owner: "responsible person",
     dataSubjects: "data subjects",
     dataCategories: "personal data",

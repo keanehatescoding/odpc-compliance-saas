@@ -6,6 +6,8 @@ const activity = (over: Partial<ActivityInput>): ActivityInput => ({
   name: "Admissions",
   purpose: "Admit and enrol pupils",
   lawfulBasis: "contract",
+  role: "controller",
+  provision: "",
   dataSubjects: ["Pupils", "Parents"],
   dataCategories: ["Name", "Date of birth"],
   sensitiveCategories: [],
@@ -14,7 +16,7 @@ const activity = (over: Partial<ActivityInput>): ActivityInput => ({
   transferCountries: "",
   transferSafeguards: "",
   retentionPeriod: "Until the pupil leaves, plus 7 years",
-  securityMeasures: "",
+  securityMeasures: "Locked cabinets",
   systems: "",
   owner: "",
   largeScale: false,
@@ -76,7 +78,29 @@ describe("buildPrivacyNotice", () => {
   it("says whether giving the data is required, from the lawful basis", () => {
     expect(text(build({ activities: [activity({ lawfulBasis: "legal_obligation" })] }))).toContain("The law requires it.");
     expect(text(build({ activities: [activity({ lawfulBasis: "consent" })] }))).toContain("It's your choice");
-    expect(text(build({ activities: [activity({ lawfulBasis: "legitimate_interests" })] }))).not.toContain("Do you have to give it?");
+  });
+
+  it("prefers the organisation's own answer on whether the data is required", () => {
+    const n = build({ activities: [activity({ lawfulBasis: "contract", provision: "Only the phone number is optional." })] });
+    expect(text(n)).toContain("Only the phone number is optional.");
+    expect(text(n)).not.toContain("Without it we can't.");
+  });
+
+  it("names the activities whose basis leaves that unanswered", () => {
+    const cctv = activity({ name: "CCTV", lawfulBasis: "legitimate_interests" });
+    const n = build({ activities: [activity({}), cctv] });
+    expect(n.checks).toEqual(["Say whether people have to give the data, and what happens if they don't, for: CCTV."]);
+    const answered = build({ activities: [{ ...cctv, provision: "Cameras cover the entrances." }] });
+    expect(answered.checks).toEqual([]);
+    expect(text(answered)).toContain("Cameras cover the entrances.");
+  });
+
+  it("leaves out what the organisation processes for someone else, and says so", () => {
+    const n = build({ activities: [activity({}), activity({ name: "Client payroll", role: "processor" })] });
+    expect(text(n)).not.toContain("Client payroll");
+    expect(n.covered).toBe(1);
+    expect(n.checks).toHaveLength(1);
+    expect(n.checks[0]).toContain("Client payroll");
   });
 
   it("adds the right to withdraw consent only when something relies on it", () => {
@@ -100,27 +124,30 @@ describe("buildPrivacyNotice", () => {
       activities: [activity({ crossBorder: true, transferCountries: "Ireland", transferSafeguards: "Standard contractual clauses." })],
     });
     expect(text(n)).toContain("To Ireland. Standard contractual clauses.");
-    expect(n.missing.join()).not.toContain("outside Kenya");
+    expect(n.checks).toEqual([]);
   });
 
   it("asks for what's missing before publishing", () => {
     const n = build({
       org: { ...org, privacyEmail: null, address: null },
-      activities: [activity({ crossBorder: true, transferCountries: "Ireland" })],
+      activities: [activity({ name: "Mailing list", crossBorder: true, transferCountries: "Ireland" })],
     });
-    expect(n.missing).toHaveLength(4);
+    expect(n.checks).toHaveLength(3);
+    expect(n.checks[2]).toBe("Say how data sent outside Kenya is protected (Safeguards), for: Mailing list.");
   });
 
-  it("lists each security measure once", () => {
-    const n = build({
-      activities: [activity({ securityMeasures: "Locked cabinets" }), activity({ name: "Fees", securityMeasures: "locked cabinets" })],
-    });
-    expect(section(n, "How we protect it")!.blocks).toContainEqual({ kind: "list", items: ["Locked cabinets"] });
+  it("shows each activity's security measures, and names those with none", () => {
+    const n = build({ activities: [activity({}), activity({ name: "Fees", securityMeasures: "" })] });
+    expect(text(n)).toContain('{"label":"Protected by","value":"Locked cabinets"}');
+    expect(n.checks).toEqual(["Describe the security measures for: Fees."]);
   });
 
-  it("adds a children section when an activity involves them", () => {
+  it("adds a children section when an activity involves them, to be confirmed", () => {
     expect(section(build(), "Children")).toBeUndefined();
-    expect(section(build({ activities: [activity({ involvesChildren: true })] }), "Children")).toBeDefined();
+    const n = build({ activities: [activity({ involvesChildren: true })] });
+    expect(JSON.stringify(section(n, "Children"))).toContain("unless the law doesn't require it");
+    expect(n.checks).toHaveLength(1);
+    expect(n.checks[0]).toContain("Children section");
   });
 
   it("cites a current controller certificate, not an expired one", () => {

@@ -134,6 +134,13 @@
       "when": 1791612997161,
       "tag": "0018_privacy_notice",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791623293409,
+      "tag": "0019_activity_role_provision",
+      "breakpoints": true
     }
   ]
 }
