@@ -1,11 +1,12 @@
 import "server-only";
 import { and, eq, gt, lt } from "drizzle-orm";
 import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cache } from "react";
 import { db } from "@/db";
 import { memberships, organizations, sessions, users } from "@/db/schema";
 import { accessFor } from "./plans";
+import { isStaff } from "./staff";
 import { hashToken, newToken } from "./tokens";
 
 const COOKIE = "session";
@@ -94,3 +95,15 @@ export async function requireAdmin() {
   if (ctx.role === "member") throw new Error("Only owners and admins can do this.");
   return ctx;
 }
+
+/**
+ * The signed-in Kinga staff member (see lib/staff), for /staff. Sends anyone
+ * signed out to sign in, and shows anyone else a 404. Call it in every staff
+ * page and action, not just the layout.
+ */
+export const requireStaff = cache(async () => {
+  const user = await getCurrentUser();
+  if (!user) redirect("/login?next=/staff");
+  if (!isStaff(user)) notFound();
+  return user;
+});

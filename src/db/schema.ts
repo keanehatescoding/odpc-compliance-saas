@@ -201,7 +201,7 @@ export const payments = pgTable(
 /**
  * A one-off service an organisation has asked for. Created with its payment
  * when checkout starts, and goes away with it if that checkout is never paid.
- * Kinga staff move it on with `npm run service-order`.
+ * Kinga staff move it on at /staff/orders or with `npm run service-order`.
  */
 export const serviceOrders = pgTable(
   "service_orders",
