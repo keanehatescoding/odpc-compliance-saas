@@ -93,7 +93,15 @@ export default async function DashboardPage() {
 
   return (
     <>
-      <PageHeader title="Compliance overview" description={`${org.name} · as of ${formatDate(today)}`} />
+      <PageHeader
+        title="Compliance overview"
+        description={`${org.name} · as of ${formatDate(today)}`}
+        actions={
+          <Link href="/report" className={buttonClass.secondary}>
+            Compliance report
+          </Link>
+        }
+      />
 
       {urgentBreaches.length > 0 && (
         <Card className="mb-4 border-red-300 bg-red-50">

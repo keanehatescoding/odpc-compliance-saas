@@ -15,6 +15,7 @@ import {
   subjectRequests,
   users,
 } from "@/db/schema";
+import { buildComplianceReport, type ReportActivity, type ReportOrg } from "./compliance-report";
 import { buildPrivacyNotice, controlled, noticeAudiences, type NoticeActivity, type NoticeOrg } from "./privacy-notice";
 import type { ActivityInput } from "./ropa";
 
@@ -223,4 +224,30 @@ export async function getPrivacyNotice(org: NoticeOrg & { id: string }, requeste
   const audience = wanted === null ? null : audiences.find((a) => a.toLowerCase() === wanted);
   const notice = audience === undefined ? null : buildPrivacyNotice({ org, activities, registrations: regs, audience, today });
   return { notice, audiences, activityCount: activities.length };
+}
+
+/** The organisation's compliance report as of `now`, from every record it keeps. */
+export async function getComplianceReport(org: ReportOrg & { id: string }, now: Date) {
+  const [regs, activities, dpiaRows, dpiaRisks, breachRows, requests, processorRows, processorLinks] = await Promise.all([
+    listRegistrations(org.id),
+    listActivities(org.id),
+    listDpias(org.id),
+    listOrgDpiaRisks(org.id),
+    listBreaches(org.id),
+    listSubjectRequests(org.id),
+    listProcessors(org.id),
+    listProcessorLinks(org.id),
+  ]);
+  return buildComplianceReport({
+    org,
+    registrations: regs,
+    activities: activities as ReportActivity[],
+    dpias: dpiaRows.map((d) => d.dpia),
+    dpiaRisks,
+    breaches: breachRows,
+    requests,
+    processors: processorRows,
+    processorLinks,
+    now,
+  });
 }
