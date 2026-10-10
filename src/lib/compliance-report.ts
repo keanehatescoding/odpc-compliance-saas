@@ -292,18 +292,27 @@ function breachNotification(b: ReportBreach, now: Date): string {
   return now > deadline ? `Overdue since ${formatDateTime(deadline)}` : `Due by ${formatDateTime(deadline)}`;
 }
 
+/**
+ * What s.43 still asks for on a breach. Closing one in the app doesn't
+ * discharge the duty to assess it, notify or tell the people affected, so
+ * unlike the dashboard's tasks these don't stop at closure.
+ */
+function unmetDuties(b: ReportBreach): string[] {
+  return outstandingTasks({ ...b, closedAt: null });
+}
+
 function breachSection(input: ReportInput, periodFrom: string): ReportSection {
   const { now } = input;
   const inPeriod = input.breaches.filter((b) => todayInKenya(b.discoveredAt) >= periodFrom);
   const open: string[] = [];
   // A breach from before the period still belongs here while something on it is outstanding.
-  const listed = input.breaches.filter((b) => inPeriod.includes(b) || outstandingTasks(b).length > 0);
+  const listed = input.breaches.filter((b) => inPeriod.includes(b) || unmetDuties(b).length > 0);
   for (const b of listed) {
-    const tasks = outstandingTasks(b);
+    const tasks = unmetDuties(b);
     if (tasks.length === 0) continue;
     const late = notificationRequired(b) && !b.notifiedAt && now > notificationDeadline(b);
     const todo = tasks.map((t) => t.replace(/^./, (c) => c.toLowerCase())).join("; ");
-    open.push(`${b.title}: still to do: ${todo}${late ? ". The notification deadline has passed" : ""}.`);
+    open.push(`${b.title}: ${b.closedAt ? "closed, but " : ""}still to do: ${todo}${late ? ". The notification deadline has passed" : ""}.`);
   }
 
   const notifiable = inPeriod.filter(notificationRequired);

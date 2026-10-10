@@ -298,6 +298,18 @@ describe("breaches", () => {
     const s = section({ breaches: [breach({ notifiedAt: null })] }, "breach");
     expect(s.table!.rows[0][2]).toBe("Closed without a notification on record");
     expect(fact(s, "Not yet notified")).toBe("1");
+    expect(s.open).toEqual(["Lost laptop: closed, but still to do: notify the ODPC. The notification deadline has passed."]);
+  });
+
+  it("keeps an old breach on the report when it was closed with a duty unmet", () => {
+    const old = { discoveredAt: at("2025-06-01T09:00"), notifiedAt: at("2025-06-02T09:00"), closedAt: at("2025-06-10T09:00") };
+    const untold = section({ breaches: [breach({ ...old, subjectsNotifiedAt: null })] }, "breach");
+    expect(untold.table!.rows).toHaveLength(1);
+    expect(untold.open).toEqual(["Lost laptop: closed, but still to do: tell the people affected."]);
+
+    const done = section({ breaches: [breach({ ...old, subjectsNotifiedAt: at("2025-06-03T09:00") })] }, "breach");
+    expect(done.table).toBeUndefined();
+    expect(done.open).toEqual([]);
   });
 });
 
