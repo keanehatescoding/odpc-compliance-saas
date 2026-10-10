@@ -53,7 +53,16 @@ const [user] = await db
   .returning();
 const [org] = await db
   .insert(organizations)
-  .values({ name: "Sunrise Academy", sector: "education", size: "micro_small", kraPin: "P051234567X" })
+  .values({
+    name: "Sunrise Academy",
+    sector: "education",
+    size: "micro_small",
+    kraPin: "P051234567X",
+    privacyContact: "The Principal",
+    privacyEmail: "privacy@sunrise.example",
+    privacyPhone: "+254 700 000 000",
+    address: "PO Box 1234-00100\nNairobi",
+  })
   .returning();
 await db.insert(memberships).values({ userId: user.id, orgId: org.id, role: "owner" });
 

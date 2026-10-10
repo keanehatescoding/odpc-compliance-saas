@@ -131,6 +131,12 @@ export const organizations = pgTable("organizations", {
   kraPin: text("kra_pin"),
   // Where renewal reminders go. Falls back to owners' emails when empty.
   reminderEmail: text("reminder_email"),
+  // How people reach the organisation about their personal data. Printed in
+  // its privacy notice (s.29(e) of the Act asks for the controller's contacts).
+  privacyContact: text("privacy_contact"),
+  privacyEmail: text("privacy_email"),
+  privacyPhone: text("privacy_phone"),
+  address: text("address"),
   // New organisations start with a free trial. Existing ones got theirs when billing launched.
   trialEndsAt: timestamp("trial_ends_at", { withTimezone: true })
     .notNull()

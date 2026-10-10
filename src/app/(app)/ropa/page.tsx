@@ -69,6 +69,9 @@ export default async function RopaPage({ searchParams }: PageProps<"/ropa">) {
               ))}
             </nav>
             <div className="flex gap-3">
+              <Link href="/ropa/notice" className={buttonClass.link}>
+                Privacy notice
+              </Link>
               <a href="/ropa/export.csv" className={buttonClass.link}>
                 Export CSV
               </a>

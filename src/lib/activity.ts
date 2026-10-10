@@ -145,6 +145,10 @@ export const FIELD_LABELS = {
     size: "size",
     kraPin: "KRA PIN",
     reminderEmail: "where reminders go",
+    privacyContact: "privacy contact",
+    privacyEmail: "privacy email",
+    privacyPhone: "privacy phone",
+    address: "address",
   } satisfies Partial<Record<keyof Organization, string>>,
 };
 

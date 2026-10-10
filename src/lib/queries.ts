@@ -13,6 +13,8 @@ import {
   subjectRequests,
   users,
 } from "@/db/schema";
+import { buildPrivacyNotice, noticeAudiences, type NoticeOrg } from "./privacy-notice";
+import type { ActivityInput } from "./ropa";
 
 // Every query takes the organisation id explicitly so tenant scoping is visible at each call site.
 
@@ -154,4 +156,16 @@ export async function getSubjectRequest(orgId: string, id: string) {
     .where(and(eq(subjectRequests.orgId, orgId), eq(subjectRequests.id, id)))
     .limit(1);
   return row ?? null;
+}
+
+/**
+ * The organisation's privacy notice. `requested` picks the people it's for, by
+ * a category of data subject from the RoPA; anything unrecognised means everyone.
+ */
+export async function getPrivacyNotice(org: NoticeOrg & { id: string }, requested: string | null | undefined, today: string) {
+  const [activities, regs] = await Promise.all([listActivities(org.id), listRegistrations(org.id)]);
+  const audiences = noticeAudiences(activities);
+  const audience = audiences.find((a) => a.toLowerCase() === requested?.trim().toLowerCase()) ?? null;
+  const notice = buildPrivacyNotice({ org, activities: activities as ActivityInput[], registrations: regs, audience, today });
+  return { notice, audiences, activityCount: activities.length };
 }
