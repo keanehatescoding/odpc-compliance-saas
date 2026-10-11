@@ -7,6 +7,7 @@ import {
   complaints,
   breachUpdates,
   consentRecords,
+  disposals,
   dpiaRisks,
   dpias,
   invitations,
@@ -392,8 +393,34 @@ await db.insert(consentRecords).values([
   },
 ]);
 
+// Two disposals: last year's clear-out of old pupil files, whose next round is now due, and a routine wipe of CCTV footage.
+await db.insert(disposals).values([
+  {
+    orgId: org.id,
+    activityId: activities.find((a) => a.templateId === "student-records")?.id ?? null,
+    description: "Admission files of pupils who left more than 7 years ago",
+    disposedOn: addMonths(today, -13),
+    method: "shredded",
+    reason: "retention",
+    recordCount: 180,
+    authorisedBy: "The head teacher",
+    carriedOutBy: "The bursar, with a shredding company",
+    evidence: "Destruction certificate in the compliance file",
+    nextOn: addMonths(today, -1),
+  },
+  {
+    orgId: org.id,
+    activityId: activities.find((a) => a.templateId === "cctv")?.id ?? null,
+    description: "CCTV footage older than 30 days",
+    disposedOn: addDays(today, -10),
+    method: "deleted",
+    reason: "retention",
+    carriedOutBy: "The security supervisor",
+  },
+]);
+
 console.log(
-  `Seeded "${org.name}" with ${templates.length + 1} RoPA entries, one DPIA, one open breach, two data subject requests, two ODPC letters, two processors, two training sessions and two consent records.`,
+  `Seeded "${org.name}" with ${templates.length + 1} RoPA entries, one DPIA, one open breach, two data subject requests, two ODPC letters, two processors, two training sessions, two consent records and two disposals.`,
 );
 console.log(`Sign in as ${EMAIL} / ${PASSWORD}`);
 process.exit(0);

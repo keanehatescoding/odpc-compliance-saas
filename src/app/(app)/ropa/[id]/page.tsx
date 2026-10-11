@@ -7,11 +7,11 @@ import { RecordHistory } from "@/components/activity-list";
 import { DeleteButton } from "@/components/delete-button";
 import { SubmitButton } from "@/components/submit-button";
 import { BackLink, buttonClass, Card, ConsentStatusBadge, DpiaStatusBadge, PageHeader, ProcessorStatusBadge } from "@/components/ui";
-import { todayInKenya } from "@/lib/dates";
+import { formatDate, todayInKenya } from "@/lib/dates";
 import { dpiaStatus } from "@/lib/dpia";
 import { consentStatus, reliesOnConsent } from "@/lib/consent";
 import { processorStatus } from "@/lib/processor";
-import { activityConsents, activityProcessors, getActivity, getDpiaForActivity } from "@/lib/queries";
+import { activityConsents, activityProcessors, getActivity, getDpiaForActivity, listDisposals } from "@/lib/queries";
 import { dpiaRecommended, dpiaTriggers } from "@/lib/ropa";
 import { requireOrgContext } from "@/lib/session";
 import { isUuid } from "@/lib/uuid";
@@ -26,11 +26,13 @@ export default async function EditActivityPage({ params }: PageProps<"/ropa/[id]
   if (!activity) notFound();
   const triggers = dpiaTriggers(activity);
   const recommended = dpiaRecommended(activity);
-  const [dpia, processors, consents] = await Promise.all([
+  const [dpia, processors, consents, allDisposals] = await Promise.all([
     getDpiaForActivity(org.id, activity.id),
     activityProcessors(org.id, activity.id),
     activityConsents(org.id, activity.id),
+    listDisposals(org.id),
   ]);
+  const disposals = allDisposals.filter((d) => d.activityId === activity.id);
   const today = todayInKenya();
 
   return (
@@ -117,6 +119,31 @@ export default async function EditActivityPage({ params }: PageProps<"/ropa/[id]
           </Card>
         )
       )}
+      <Card className="mb-6 max-w-3xl">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-semibold">Disposal</h2>
+            <p className="mt-1 text-sm text-stone-700">Kept for: {activity.retentionPeriod}</p>
+          </div>
+          <Link href={`/disposals/new?activity=${activity.id}`} className={buttonClass.secondary}>
+            Record a disposal
+          </Link>
+        </div>
+        {disposals.length > 0 ? (
+          <ul className="mt-2 divide-y divide-stone-100">
+            {disposals.map((d) => (
+              <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                <Link href={`/disposals/${d.id}`} className="font-medium hover:underline">
+                  {formatDate(d.disposedOn)}
+                </Link>
+                <span className="text-stone-600">{d.description}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-2 text-sm text-stone-600">No disposals recorded for this activity.</p>
+        )}
+      </Card>
       <ActivityForm activity={activity} />
       <RecordHistory orgId={org.id} subjectId={activity.id} />
     </>

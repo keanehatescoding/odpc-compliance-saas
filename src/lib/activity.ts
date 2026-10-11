@@ -4,6 +4,7 @@ import {
   activityLog,
   breaches,
   complaints,
+  disposals,
   dpias,
   processingActivities,
   consentRecords,
@@ -15,6 +16,7 @@ import {
   type ActivityArea,
   type Breach,
   type Complaint,
+  type Disposal,
   type Dpia,
   type Organization,
   type ProcessingActivity,
@@ -203,6 +205,19 @@ export const FIELD_LABELS = {
     reviewOn: "review date",
     notes: "notes",
   } satisfies Partial<Record<keyof ConsentRecord, string>>,
+  disposal: {
+    description: "what was disposed of",
+    activityId: "processing activity",
+    disposedOn: "date disposed of",
+    method: "how",
+    reason: "why",
+    recordCount: "number of records",
+    authorisedBy: "who authorised it",
+    carriedOutBy: "who carried it out",
+    evidence: "where the proof is kept",
+    nextOn: "next disposal date",
+    notes: "notes",
+  } satisfies Partial<Record<keyof Disposal, string>>,
   organization: {
     name: "name",
     sector: "sector",
@@ -256,7 +271,8 @@ const REQUEST_NOUN: Record<RequestKind, string> = {
  * How entries name each kind of record. A request is named by its type and
  * date, not the requester, so the log doesn't keep a data subject's name
  * after the request itself is deleted. An ODPC complaint is named the same
- * way, leaving out the complainant.
+ * way, leaving out the complainant, and a disposal by its date, since its
+ * description may say whose records went.
  */
 export const describe = {
   registration: (r: Pick<Registration, "role">) => `the ${r.role} registration`,
@@ -269,6 +285,7 @@ export const describe = {
   processor: (p: Pick<Processor, "name">) => `the processor ${quoted(p.name)}`,
   training: (t: Pick<TrainingSession, "title">) => `the training session ${quoted(t.title)}`,
   consent: (c: Pick<ConsentRecord, "name">) => `the consent record ${quoted(c.name)}`,
+  disposal: (d: Pick<Disposal, "disposedOn">) => `the disposal on ${formatDate(d.disposedOn)}`,
 };
 
 // ---------------------------------------------------------------------------
@@ -285,6 +302,7 @@ export const ACTIVITY_AREAS: Record<ActivityArea, string> = {
   processor: "Processors",
   training: "Staff training",
   consent: "Consent records",
+  disposal: "Data disposal",
   team: "Team",
   organization: "Settings",
   billing: "Billing",
@@ -341,6 +359,7 @@ const SUBJECT_TABLES = {
   processor: processors,
   training: trainingSessions,
   consent: consentRecords,
+  disposal: disposals,
 } as const;
 
 const SUBJECT_PATHS: Record<keyof typeof SUBJECT_TABLES, string> = {
@@ -353,6 +372,7 @@ const SUBJECT_PATHS: Record<keyof typeof SUBJECT_TABLES, string> = {
   processor: "/processors",
   training: "/training",
   consent: "/consents",
+  disposal: "/disposals",
 };
 
 /**
