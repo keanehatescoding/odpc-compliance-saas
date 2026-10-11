@@ -17,6 +17,7 @@ import {
   processorActivities,
   processors,
   subjectRequests,
+  trainingSessions,
   users,
 } from "@/db/schema";
 import { addDays, addMonths, todayInKenya } from "@/lib/dates";
@@ -287,8 +288,34 @@ if (studentRecords) {
   ]);
 }
 
+// Last year's staff training, whose refresher fell due a month ago, and a recent induction for the office.
+await db.insert(trainingSessions).values([
+  {
+    orgId: org.id,
+    title: "Data protection for teaching staff",
+    heldOn: addMonths(today, -13),
+    provider: "Wakili Advocates LLP",
+    audience: "All teaching staff",
+    attendeeCount: 24,
+    topics:
+      "What counts as personal and sensitive data in a school. Marks, health and discipline records. Sharing with parents and guardians. WhatsApp class groups. Reporting a lost phone or register straight away.",
+    evidence: "Signed attendance register in the deputy head's training file",
+    refresherOn: addMonths(today, -1),
+  },
+  {
+    orgId: org.id,
+    title: "Induction for the accounts office",
+    heldOn: addMonths(today, -2),
+    provider: "The bursar",
+    audience: "Accounts clerks and the school secretary",
+    attendeeCount: 3,
+    topics: "Fee records and parents' phone numbers. Who may ask for a statement. Passwords on the shared office computer. What to do when a parent asks what the school holds on them.",
+    refresherOn: addMonths(today, 10),
+  },
+]);
+
 console.log(
-  `Seeded "${org.name}" with ${templates.length} RoPA entries, one DPIA, one open breach, two data subject requests and two processors.`,
+  `Seeded "${org.name}" with ${templates.length} RoPA entries, one DPIA, one open breach, two data subject requests, two processors and two training sessions.`,
 );
 console.log(`Sign in as ${EMAIL} / ${PASSWORD}`);
 process.exit(0);

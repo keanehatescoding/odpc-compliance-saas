@@ -16,6 +16,7 @@ import {
   respondedLate,
   type RequestLike,
 } from "./subject-request";
+import { refreshedIds, TRAINING_STATUS_LABEL, trainingStatus, type TrainingLike } from "./training";
 
 /**
  * Where an organisation stands, area by area, written from the records it
@@ -27,7 +28,7 @@ import {
  * requester, because the report is meant to leave the building.
  */
 
-/** Breaches and requests are reported over this many months up to the day of the report. */
+/** Breaches, requests and training are reported over this many months up to the day of the report. */
 export const REPORT_PERIOD_MONTHS = 12;
 
 export interface ReportOrg {
@@ -72,6 +73,14 @@ export interface ReportProcessor {
   contractReviewOn: string | null;
 }
 
+export interface ReportTraining extends TrainingLike {
+  title: string;
+  heldOn: string;
+  audience: string;
+  attendeeCount: number | null;
+  evidence: string;
+}
+
 export interface ReportInput {
   org: ReportOrg;
   registrations: ReportRegistration[];
@@ -82,10 +91,11 @@ export interface ReportInput {
   requests: RequestLike[];
   processors: ReportProcessor[];
   processorLinks: { processorId: string; activityId: string }[];
+  training: ReportTraining[];
   now: Date;
 }
 
-export type ReportSectionKey = "registration" | "ropa" | "notice" | "dpia" | "breach" | "request" | "processor";
+export type ReportSectionKey = "registration" | "ropa" | "notice" | "dpia" | "breach" | "request" | "processor" | "training";
 
 export interface ReportSection {
   key: ReportSectionKey;
@@ -102,7 +112,7 @@ export interface ReportSection {
 
 export interface ComplianceReport {
   preparedOn: string;
-  /** First day of the period breaches and requests are counted over. */
+  /** First day of the period breaches, requests and training are counted over. */
   periodFrom: string;
   sections: ReportSection[];
   openCount: number;
@@ -430,6 +440,54 @@ function processorSection(input: ReportInput, today: string): ReportSection {
   };
 }
 
+function trainingSection(input: ReportInput, today: string, periodFrom: string): ReportSection {
+  const sessions = [...input.training].sort((a, b) => b.heldOn.localeCompare(a.heldOn));
+  const refreshed = refreshedIds(sessions);
+  const statusOf = new Map(sessions.map((s) => [s.id, trainingStatus(s, refreshed, today)]));
+  const inPeriod = sessions.filter((s) => s.heldOn >= periodFrom);
+  const due = sessions.filter((s) => statusOf.get(s.id) === "refresher_due");
+  // A session from before the period still belongs here while its refresher is outstanding.
+  const listed = sessions.filter((s) => inPeriod.includes(s) || due.includes(s));
+
+  const open: string[] = [];
+  if (sessions.length === 0) open.push("No data protection training is recorded.");
+  for (const s of due) open.push(`The refresher for ${s.title}, held ${formatDate(s.heldOn)}, was due on ${formatDate(s.refresherOn)}.`);
+  if (sessions.length > 0 && inPeriod.length === 0 && due.length === 0) {
+    open.push(`No training is recorded in the last ${REPORT_PERIOD_MONTHS} months. The most recent session was on ${formatDate(sessions[0].heldOn)}.`);
+  }
+  const unevidenced = listed.filter((s) => !s.evidence);
+  if (unevidenced.length > 0) open.push(`Where the attendance record is kept isn't recorded for: ${titles(unevidenced)}.`);
+
+  const uncounted = inPeriod.filter((s) => s.attendeeCount === null).length;
+  const attendances = inPeriod.reduce((n, s) => n + (s.attendeeCount ?? 0), 0);
+  const rows = listed.map((s) => [
+    formatDate(s.heldOn),
+    s.title,
+    s.audience,
+    s.attendeeCount === null ? "Not counted" : count(s.attendeeCount),
+    formatDate(s.refresherOn),
+    TRAINING_STATUS_LABEL[statusOf.get(s.id)!],
+  ]);
+
+  return {
+    key: "training",
+    heading: "Staff training",
+    basis: "Data Protection Act, 2019, s.41 (organisational measures)",
+    href: "/training",
+    facts: [
+      { label: "Sessions held in the period", value: count(inPeriod.length) },
+      // Someone at two sessions counts twice, so this is attendances and says so.
+      {
+        label: "Attendances at those sessions",
+        value: `${attendances}${uncounted > 0 ? `, with ${plural(uncounted, "session")} not counted` : ""}`,
+      },
+      { label: "Most recent session", value: sessions.length > 0 ? formatDate(sessions[0].heldOn) : "None recorded" },
+    ],
+    table: rows.length > 0 ? { columns: ["Held", "Session", "For", "Attended", "Refresher due", "Status"], rows } : undefined,
+    open,
+  };
+}
+
 export function buildComplianceReport(input: ReportInput): ComplianceReport {
   const today = todayInKenya(input.now);
   const periodFrom = addMonths(today, -REPORT_PERIOD_MONTHS);
@@ -441,6 +499,7 @@ export function buildComplianceReport(input: ReportInput): ComplianceReport {
     breachSection(input, periodFrom),
     requestSection(input, today, periodFrom),
     processorSection(input, today),
+    trainingSection(input, today, periodFrom),
   ];
   return { preparedOn: today, periodFrom, sections, openCount: sections.reduce((n, s) => n + s.open.length, 0) };
 }

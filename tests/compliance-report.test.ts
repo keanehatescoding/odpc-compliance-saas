@@ -6,6 +6,7 @@ import {
   type ReportInput,
   type ReportProcessor,
   type ReportSectionKey,
+  type ReportTraining,
 } from "@/lib/compliance-report";
 
 // 10 Oct 2026, 09:00 in Nairobi.
@@ -67,6 +68,20 @@ function processor(over: Partial<ReportProcessor> = {}): ReportProcessor {
   };
 }
 
+function training(over: Partial<ReportTraining> = {}): ReportTraining {
+  return {
+    id: "t1",
+    title: "Staff induction",
+    heldOn: "2026-03-02",
+    audience: "All staff",
+    attendeeCount: 12,
+    evidence: "Signed register in the HR file",
+    refresherOn: "2027-03-02",
+    refreshesId: null,
+    ...over,
+  };
+}
+
 /** An organisation with everything in order. */
 function input(over: Partial<ReportInput> = {}): ReportInput {
   return {
@@ -79,6 +94,7 @@ function input(over: Partial<ReportInput> = {}): ReportInput {
     requests: [],
     processors: [processor()],
     processorLinks: [{ processorId: "p1", activityId: "a1" }],
+    training: [training()],
     now,
     ...over,
   };
@@ -93,7 +109,7 @@ describe("buildComplianceReport", () => {
   it("finds nothing open when every record is in order", () => {
     const report = buildComplianceReport(input());
     expect(report.openCount).toBe(0);
-    expect(report.sections.map((s) => s.key)).toEqual(["registration", "ropa", "notice", "dpia", "breach", "request", "processor"]);
+    expect(report.sections.map((s) => s.key)).toEqual(["registration", "ropa", "notice", "dpia", "breach", "request", "processor", "training"]);
     expect(report.preparedOn).toBe("2026-10-10");
     expect(report.periodFrom).toBe("2025-10-10");
   });
@@ -378,5 +394,59 @@ describe("processors", () => {
 
     const recorded = section({ processors: [abroad], activities: [activity({ crossBorder: true, transferSafeguards: "Standard clauses" })] }, "processor");
     expect(recorded.open).toEqual([]);
+  });
+});
+
+describe("training", () => {
+  it("says when nothing is recorded", () => {
+    const s = section({ training: [] }, "training");
+    expect(s.open).toEqual(["No data protection training is recorded."]);
+    expect(fact(s, "Most recent session")).toBe("None recorded");
+    expect(s.table).toBeUndefined();
+  });
+
+  it("counts the sessions and attendances in the period", () => {
+    const s = section(
+      {
+        training: [
+          training(),
+          training({ id: "t2", title: "Accounts office briefing", heldOn: "2026-08-14", attendeeCount: null }),
+          training({ id: "t3", title: "Old induction", heldOn: "2024-02-01", refresherOn: null }),
+        ],
+      },
+      "training",
+    );
+    expect(fact(s, "Sessions held in the period")).toBe("2");
+    expect(fact(s, "Attendances at those sessions")).toBe("12, with 1 session not counted");
+    expect(fact(s, "Most recent session")).toBe("14 Aug 2026");
+    expect(s.table!.rows).toEqual([
+      ["14 Aug 2026", "Accounts office briefing", "All staff", "Not counted", "2 Mar 2027", "Up to date"],
+      ["2 Mar 2026", "Staff induction", "All staff", "12", "2 Mar 2027", "Up to date"],
+    ]);
+    expect(s.open).toEqual([]);
+  });
+
+  it("keeps an older session on while its refresher is outstanding", () => {
+    const old = training({ heldOn: "2025-09-01", refresherOn: "2026-09-01", evidence: "" });
+    const s = section({ training: [old] }, "training");
+    expect(fact(s, "Sessions held in the period")).toBe("0");
+    expect(s.open).toEqual([
+      "The refresher for Staff induction, held 1 Sept 2025, was due on 1 Sept 2026.",
+      "Where the attendance record is kept isn't recorded for: Staff induction.",
+    ]);
+    expect(s.table!.rows[0][5]).toBe("Refresher due");
+  });
+
+  it("stops asking once a later session is recorded as the refresher", () => {
+    const old = training({ heldOn: "2025-09-01", refresherOn: "2026-09-01" });
+    const s = section({ training: [old, training({ id: "t2", title: "Staff refresher", heldOn: "2026-09-20", refresherOn: "2027-09-20", refreshesId: "t1" })] }, "training");
+    expect(s.open).toEqual([]);
+    expect(s.table!.rows.map((r) => r[1])).toEqual(["Staff refresher"]);
+  });
+
+  it("says when the last session is more than a year old and nothing else is due", () => {
+    const s = section({ training: [training({ heldOn: "2025-06-01", refresherOn: null })] }, "training");
+    expect(s.open).toEqual(["No training is recorded in the last 12 months. The most recent session was on 1 Jun 2025."]);
+    expect(s.table).toBeUndefined();
   });
 });

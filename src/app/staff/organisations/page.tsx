@@ -132,7 +132,7 @@ export default async function OrganisationsPage({ searchParams }: PageProps<"/st
   );
 }
 
-const SHORT_LABELS = { registrations: "reg", ropa: "RoPA", dpias: "DPIA", breaches: "breach", requests: "req", processors: "proc" } as const;
+const SHORT_LABELS = { registrations: "reg", ropa: "RoPA", dpias: "DPIA", breaches: "breach", requests: "req", processors: "proc", training: "training" } as const;
 
 /** E.g. "2 reg · 5 RoPA · 1 DPIA", leaving out kinds with none. */
 function RecordCountsLine({ counts }: { counts: Record<keyof typeof SHORT_LABELS, number> }) {

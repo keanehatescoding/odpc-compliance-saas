@@ -23,6 +23,7 @@ const RECORD_LABELS = {
   breaches: "Breaches",
   requests: "Data subject requests",
   processors: "Processors",
+  training: "Training sessions",
 } as const;
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {

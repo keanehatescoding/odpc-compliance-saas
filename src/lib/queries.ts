@@ -13,6 +13,7 @@ import {
   registrations,
   reminderLog,
   subjectRequests,
+  trainingSessions,
   users,
 } from "@/db/schema";
 import { buildComplianceReport, type ReportActivity, type ReportOrg } from "./compliance-report";
@@ -194,6 +195,20 @@ export function activityProcessors(orgId: string, activityId: string) {
     .then((rows) => rows.map((r) => r.processor));
 }
 
+/** Training sessions, most recent first. */
+export function listTrainingSessions(orgId: string) {
+  return db.select().from(trainingSessions).where(eq(trainingSessions.orgId, orgId)).orderBy(desc(trainingSessions.heldOn), asc(trainingSessions.title));
+}
+
+export async function getTrainingSession(orgId: string, id: string) {
+  const [row] = await db
+    .select()
+    .from(trainingSessions)
+    .where(and(eq(trainingSessions.orgId, orgId), eq(trainingSessions.id, id)))
+    .limit(1);
+  return row ?? null;
+}
+
 /**
  * The organisation's privacy notice. `requested` picks the people it's for, by
  * a category of data subject from the RoPA, and none means everyone. `notice`
@@ -228,7 +243,7 @@ export async function getPrivacyNotice(org: NoticeOrg & { id: string }, requeste
 
 /** The organisation's compliance report as of `now`, from every record it keeps. */
 export async function getComplianceReport(org: ReportOrg & { id: string }, now: Date) {
-  const [regs, activities, dpiaRows, dpiaRisks, breachRows, requests, processorRows, processorLinks] = await Promise.all([
+  const [regs, activities, dpiaRows, dpiaRisks, breachRows, requests, processorRows, processorLinks, training] = await Promise.all([
     listRegistrations(org.id),
     listActivities(org.id),
     listDpias(org.id),
@@ -237,6 +252,7 @@ export async function getComplianceReport(org: ReportOrg & { id: string }, now: 
     listSubjectRequests(org.id),
     listProcessors(org.id),
     listProcessorLinks(org.id),
+    listTrainingSessions(org.id),
   ]);
   return buildComplianceReport({
     org,
@@ -248,6 +264,7 @@ export async function getComplianceReport(org: ReportOrg & { id: string }, now: 
     requests,
     processors: processorRows,
     processorLinks,
+    training,
     now,
   });
 }
