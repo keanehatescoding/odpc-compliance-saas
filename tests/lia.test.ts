@@ -86,6 +86,7 @@ describe("liaGaps", () => {
     expect(liaGaps(against, { ...cctv, lawfulBasis: "consent" })).toEqual([]);
     expect(stillReliedOn(against, cctv)).toBe(true);
     expect(stillReliedOn(against, { lawfulBasis: "consent" })).toBe(false);
+    expect(stillReliedOn(against, { lawfulBasis: "legitimate_interests", role: "processor" })).toBe(false);
     expect(stillReliedOn(against, null)).toBe(false);
     expect(stillReliedOn(complete, cctv)).toBe(false);
   });

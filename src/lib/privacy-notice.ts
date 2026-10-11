@@ -37,7 +37,7 @@ export interface NoticeRegistration {
 export type NoticeActivity = ActivityInput & {
   processors?: string[];
   consents?: { withdrawal: string }[];
-  assessments?: { objection: string }[];
+  assessments?: { outcome: string; objection: string }[];
 };
 
 export type NoticeBlock =
@@ -222,6 +222,13 @@ export function buildPrivacyNotice(input: {
   const noObjection = byInterest.filter((a) => a.assessments!.length > 0 && a.assessments!.some((l) => !l.objection));
   if (noObjection.length > 0) {
     checks.push(`Say how people object (Legitimate interests), for: ${names(noObjection)}.`);
+  }
+  // The notice would go on giving legitimate interests as the basis for processing an assessment found against.
+  const adverse = byInterest.filter((a) => a.assessments!.some((l) => l.outcome === "overridden"));
+  if (adverse.length > 0) {
+    checks.push(
+      `Stop or change the processing your assessment found against, or record another lawful basis (Legitimate interests), for: ${names(adverse)}.`,
+    );
   }
   const unsafeguarded = activities.filter((a) => a.crossBorder && !a.transferSafeguards);
   if (unsafeguarded.length > 0) {

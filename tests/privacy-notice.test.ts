@@ -98,12 +98,19 @@ describe("legitimate interest assessments", () => {
   });
 
   it("asks how people object when an assessment doesn't say", () => {
-    const n = build({ activities: [cctv({ assessments: [{ objection: "Tell the office" }, { objection: "" }] })] });
+    const n = build({ activities: [cctv({ assessments: [{ outcome: "justified", objection: "Tell the office" }, { outcome: "justified", objection: "" }] })] });
     expect(n.checks).toContain("Say how people object (Legitimate interests), for: CCTV.");
   });
 
+  it("flags an assessment that found against processing the notice still puts down to legitimate interests", () => {
+    const n = build({ activities: [cctv({ assessments: [{ outcome: "overridden", objection: "Tell the office" }] })] });
+    expect(n.checks).toContain(
+      "Stop or change the processing your assessment found against, or record another lawful basis (Legitimate interests), for: CCTV.",
+    );
+  });
+
   it("says nothing once every assessment says how to object, or when the caller doesn't know the assessments", () => {
-    for (const a of [cctv({ assessments: [{ objection: "Tell the office" }] }), cctv()]) {
+    for (const a of [cctv({ assessments: [{ outcome: "justified", objection: "Tell the office" }] }), cctv()]) {
       expect(build({ activities: [a] }).checks.join(" ")).not.toContain("Legitimate interests");
     }
   });

@@ -129,8 +129,11 @@ export function liaGaps(l: LiaGapInput, activity: LiaActivity | null): string[] 
  * Whether an assessment that went against the processing is still being
  * ignored: its activity carries on under legitimate interests all the same.
  */
-export function stillReliedOn(l: { outcome: string }, activity: { lawfulBasis: string } | null | undefined): boolean {
-  return l.outcome === "overridden" && activity?.lawfulBasis === "legitimate_interests";
+export function stillReliedOn(
+  l: { outcome: string },
+  activity: { lawfulBasis: string; role?: string | null } | null | undefined,
+): boolean {
+  return l.outcome === "overridden" && !!activity && reliesOnLegitimateInterests(activity);
 }
 
 /** Whether the assessment falls to the organisation: not when it only processes for someone else. */
