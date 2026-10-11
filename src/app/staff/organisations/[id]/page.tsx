@@ -22,6 +22,7 @@ const RECORD_LABELS = {
   dpias: "Impact assessments",
   breaches: "Breaches",
   requests: "Data subject requests",
+  complaints: "ODPC complaints",
   processors: "Processors",
   training: "Training sessions",
   consents: "Consent records",

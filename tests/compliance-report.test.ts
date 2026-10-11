@@ -111,6 +111,7 @@ function input(over: Partial<ReportInput> = {}): ReportInput {
     dpiaRisks: [],
     breaches: [],
     requests: [],
+    complaints: [],
     processors: [processor()],
     processorLinks: [{ processorId: "p1", activityId: "a1" }],
     training: [training()],
@@ -129,7 +130,7 @@ describe("buildComplianceReport", () => {
   it("finds nothing open when every record is in order", () => {
     const report = buildComplianceReport(input());
     expect(report.openCount).toBe(0);
-    expect(report.sections.map((s) => s.key)).toEqual(["registration", "ropa", "notice", "consent", "dpia", "breach", "request", "processor", "training"]);
+    expect(report.sections.map((s) => s.key)).toEqual(["registration", "ropa", "notice", "consent", "dpia", "breach", "request", "complaint", "processor", "training"]);
     expect(report.preparedOn).toBe("2026-10-10");
     expect(report.periodFrom).toBe("2025-10-10");
   });
@@ -380,6 +381,60 @@ describe("data subject requests", () => {
   it("reports a request past its deadline", () => {
     const s = section({ requests: [{ kind: "access", receivedOn: "2026-10-01", outcome: null, respondedOn: null }] }, "request");
     expect(s.open).toEqual(["Access request received 1 Oct 2026: not answered, 2 days overdue (7 days allowed)."]);
+  });
+});
+
+describe("ODPC complaints", () => {
+  const complaint = { kind: "complaint", reference: "ODPC/1 (77)", receivedOn: "2026-08-01", dueOn: "2026-08-22", respondedOn: "2026-08-20", closedOn: null };
+
+  it("counts what was received and how it was answered", () => {
+    const s = section(
+      {
+        complaints: [
+          complaint,
+          { ...complaint, reference: "", respondedOn: "2026-08-25", closedOn: "2026-09-30" },
+          { kind: "enforcement_notice", reference: "", receivedOn: "2026-10-01", dueOn: "2026-10-30", respondedOn: null, closedOn: null },
+          // Older than the period: listed only while the ODPC hasn't closed it.
+          { ...complaint, receivedOn: "2025-08-01", dueOn: "2025-08-22", respondedOn: "2025-08-10" },
+          { ...complaint, receivedOn: "2025-07-01", dueOn: "2025-07-22", respondedOn: "2025-07-10", closedOn: "2025-09-01" },
+        ],
+      },
+      "complaint",
+    );
+    expect(fact(s, "Received from the ODPC in the period")).toBe("3");
+    expect(fact(s, "Responded to by the deadline")).toBe("1");
+    expect(fact(s, "Responded to late")).toBe("1");
+    expect(fact(s, "Awaiting your response")).toBe("1");
+    expect(fact(s, "Awaiting the ODPC's decision")).toBe("2");
+    expect(s.table!.rows).toEqual([
+      ["1 Aug 2026", "Notification of a complaint", "ODPC/1 (77)", "22 Aug 2026", "20 Aug 2026", "Awaiting the ODPC"],
+      ["1 Aug 2026", "Notification of a complaint", "—", "22 Aug 2026", "25 Aug 2026 (late)", "Closed"],
+      ["1 Oct 2026", "Enforcement notice", "—", "30 Oct 2026", "—", "Response due"],
+      ["1 Aug 2025", "Notification of a complaint", "ODPC/1 (77)", "22 Aug 2025", "10 Aug 2025", "Awaiting the ODPC"],
+    ]);
+    expect(s.open).toEqual([]);
+  });
+
+  it("reports one past its deadline, by reference and never by complainant", () => {
+    const s = section(
+      {
+        complaints: [
+          { ...complaint, receivedOn: "2026-09-16", dueOn: "2026-10-07", respondedOn: null },
+          { kind: "enforcement_notice", reference: "", receivedOn: "2026-09-01", dueOn: "2026-10-09", respondedOn: null, closedOn: null },
+        ],
+      },
+      "complaint",
+    );
+    expect(s.open).toEqual([
+      "Complaint received 16 Sept 2026 (ref. ODPC/1 (77)): not responded to, 3 days overdue.",
+      "Enforcement notice received 1 Sept 2026: not complied with, 1 day overdue.",
+    ]);
+  });
+
+  it("has no table when the ODPC has sent nothing", () => {
+    const s = section({}, "complaint");
+    expect(fact(s, "Received from the ODPC in the period")).toBe("0");
+    expect(s.table).toBeUndefined();
   });
 });
 

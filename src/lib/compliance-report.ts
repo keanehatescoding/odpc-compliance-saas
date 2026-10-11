@@ -1,4 +1,13 @@
 import { notificationDeadline, notificationRequired, notifiedLate, outstandingTasks, type BreachLike } from "./breach";
+import {
+  awaitsResponse,
+  COMPLAINT_STATUS_LABEL,
+  complaintStatus,
+  daysToAct,
+  kindInfo as complaintKindInfo,
+  respondedLate as complaintRespondedLate,
+  type ComplaintLike,
+} from "./complaint";
 import { addMonths, formatDate, formatDateTime, todayInKenya } from "./dates";
 import { LAWFUL_BASES, REGISTRATION_ROLES, type LawfulBasis, type RegistrationRole } from "./dpa";
 import { DPIA_STATUS_LABEL, dpiaStatus, highestLevel, residualLevel, RISK_LEVEL_LABEL, type DpiaLike, type RiskLevel } from "./dpia";
@@ -82,6 +91,10 @@ export interface ReportProcessor {
   contractReviewOn: string | null;
 }
 
+export interface ReportComplaint extends ComplaintLike {
+  reference: string;
+}
+
 export interface ReportTraining extends TrainingLike {
   title: string;
   heldOn: string;
@@ -108,6 +121,7 @@ export interface ReportInput {
   dpiaRisks: ReportDpiaRisk[];
   breaches: ReportBreach[];
   requests: RequestLike[];
+  complaints: ReportComplaint[];
   processors: ReportProcessor[];
   processorLinks: { processorId: string; activityId: string }[];
   training: ReportTraining[];
@@ -115,7 +129,7 @@ export interface ReportInput {
   now: Date;
 }
 
-export type ReportSectionKey = "registration" | "ropa" | "notice" | "consent" | "dpia" | "breach" | "request" | "processor" | "training";
+export type ReportSectionKey = "registration" | "ropa" | "notice" | "consent" | "dpia" | "breach" | "request" | "complaint" | "processor" | "training";
 
 export interface ReportSection {
   key: ReportSectionKey;
@@ -415,6 +429,49 @@ function requestSection(input: ReportInput, today: string, periodFrom: string): 
   };
 }
 
+function complaintSection(input: ReportInput, today: string, periodFrom: string): ReportSection {
+  const withStatus = input.complaints.map((c) => ({ ...c, status: complaintStatus(c, today) }));
+  const inPeriod = withStatus.filter((c) => c.receivedOn >= periodFrom);
+  const acted = inPeriod.filter((c) => c.respondedOn);
+  // Like requests, the complainant is never named here: the report is handed to people outside the team.
+  const describe = (c: ReportComplaint) => {
+    const what = complaintKindInfo(c.kind).short.replace(/^./, (l) => l.toUpperCase());
+    return `${what} received ${formatDate(c.receivedOn)}${c.reference ? ` (ref. ${c.reference})` : ""}`;
+  };
+  const open = withStatus
+    .filter((c) => c.status === "overdue")
+    .map((c) => `${describe(c)}: ${complaintKindInfo(c.kind).undone}, ${formatDaysLeft(daysToAct(c, today))}.`);
+
+  // Older ones stay on the list until the ODPC has closed them.
+  const rows = withStatus
+    .filter((c) => c.receivedOn >= periodFrom || c.status !== "closed")
+    .map((c) => [
+      formatDate(c.receivedOn),
+      complaintKindInfo(c.kind).label,
+      c.reference || "—",
+      formatDate(c.dueOn),
+      c.respondedOn ? `${formatDate(c.respondedOn)}${complaintRespondedLate(c) ? " (late)" : ""}` : "—",
+      COMPLAINT_STATUS_LABEL[c.status],
+    ]);
+
+  return {
+    key: "complaint",
+    heading: "ODPC complaints and notices",
+    basis:
+      "Data Protection Act, 2019, ss.56–58 and 62–63; Data Protection (Complaints Handling Procedure and Enforcement) Regulations, 2021, reg. 11",
+    href: "/complaints",
+    facts: [
+      { label: "Received from the ODPC in the period", value: count(inPeriod.length) },
+      { label: "Responded to by the deadline", value: count(acted.filter((c) => !complaintRespondedLate(c)).length) },
+      { label: "Responded to late", value: count(acted.filter(complaintRespondedLate).length) },
+      { label: "Awaiting your response", value: count(withStatus.filter((c) => awaitsResponse(c.status)).length) },
+      { label: "Awaiting the ODPC's decision", value: count(withStatus.filter((c) => c.status === "responded").length) },
+    ],
+    table: rows.length > 0 ? { columns: ["Received", "From the ODPC", "Reference", "Deadline", "Responded", "Status"], rows } : undefined,
+    open,
+  };
+}
+
 function consentSection(input: ReportInput, today: string): ReportSection {
   const { consents } = input;
   const activity = new Map(input.activities.map((a) => [a.id, a]));
@@ -579,6 +636,7 @@ export function buildComplianceReport(input: ReportInput): ComplianceReport {
     dpiaSection(input, today),
     breachSection(input, periodFrom),
     requestSection(input, today, periodFrom),
+    complaintSection(input, today, periodFrom),
     processorSection(input, today),
     trainingSection(input, today, periodFrom),
   ];

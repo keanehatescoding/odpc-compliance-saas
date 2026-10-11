@@ -16,6 +16,7 @@ import {
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { BREACH_KIND_KEYS, BREACH_RISK_KEYS } from "../lib/breach";
+import { COMPLAINT_KIND_KEYS } from "../lib/complaint";
 import { CONSENT_METHOD_KEYS } from "../lib/consent";
 import { LIKELIHOOD_KEYS, SEVERITY_KEYS } from "../lib/dpia";
 import { BILLING_INTERVAL_KEYS, TRIAL_DAYS } from "../lib/plans";
@@ -35,6 +36,7 @@ export const likelihoodEnum = pgEnum("risk_likelihood", LIKELIHOOD_KEYS as [stri
 export const severityEnum = pgEnum("risk_severity", SEVERITY_KEYS as [string, ...string[]]);
 export const requestKindEnum = pgEnum("subject_request_kind", REQUEST_KIND_KEYS as [string, ...string[]]);
 export const requestOutcomeEnum = pgEnum("subject_request_outcome", REQUEST_OUTCOME_KEYS as [string, ...string[]]);
+export const complaintKindEnum = pgEnum("complaint_kind", COMPLAINT_KIND_KEYS as [string, ...string[]]);
 export const billingIntervalEnum = pgEnum("billing_interval", BILLING_INTERVAL_KEYS as [string, ...string[]]);
 export const paymentStatusEnum = pgEnum("payment_status", ["pending", "succeeded", "failed"]);
 export const paymentKindEnum = pgEnum("payment_kind", ["subscription", "service"]);
@@ -635,6 +637,56 @@ export const subjectRequestAlertLog = pgTable(
   (t) => [uniqueIndex("subject_request_alert_log_unique_idx").on(t.requestId, t.kind)],
 );
 
+/**
+ * Something the ODPC sent the organisation that it has to act on by a date: a
+ * complaint someone made about it, an enforcement or penalty notice, or a
+ * demand for information. `dueOn` is the date the notice gives, or, for a
+ * complaint, 21 days from `receivedOn` (see lib/complaint).
+ */
+export const complaints = pgTable(
+  "complaints",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    kind: complaintKindEnum("kind").notNull(),
+    // The ODPC's own reference, from the letter.
+    reference: text("reference").notNull().default(""),
+    receivedOn: date("received_on", { mode: "string" }).notNull(),
+    dueOn: date("due_on", { mode: "string" }).notNull(),
+    // Who complained, where the ODPC says. Empty for notices that name no one.
+    complainant: text("complainant").notNull().default(""),
+    summary: text("summary").notNull(),
+    // Who is dealing with it, such as the DPO or an advocate.
+    handledBy: text("handled_by").notNull().default(""),
+    // Null until the organisation has responded, complied or paid.
+    respondedOn: date("responded_on", { mode: "string" }),
+    response: text("response").notNull().default(""),
+    // Null until the ODPC decides or the matter is settled; set together with outcome.
+    closedOn: date("closed_on", { mode: "string" }),
+    outcome: text("outcome").notNull().default(""),
+    loggedBy: uuid("logged_by").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [index("complaints_org_idx").on(t.orgId, t.receivedOn)],
+);
+
+/** One row per deadline alert email, so each kind goes out once per complaint. */
+export const complaintAlertLog = pgTable(
+  "complaint_alert_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    complaintId: uuid("complaint_id")
+      .notNull()
+      .references(() => complaints.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    recipients: text("recipients").array().notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("complaint_alert_log_unique_idx").on(t.complaintId, t.kind)],
+);
+
 /** eTIMS invoice numbers. KRA expects each branch's to run 1, 2, 3, ... */
 export const etimsInvoiceSeq = pgSequence("etims_invoice_seq");
 
@@ -839,6 +891,7 @@ export const activityAreaEnum = pgEnum("activity_area", [
   "dpia",
   "breach",
   "request",
+  "complaint",
   "processor",
   "training",
   "consent",
@@ -883,6 +936,7 @@ export const organizationsRelations = relations(organizations, ({ many }) => ({
   breaches: many(breaches),
   dpias: many(dpias),
   subjectRequests: many(subjectRequests),
+  complaints: many(complaints),
   processors: many(processors),
   trainingSessions: many(trainingSessions),
   consentRecords: many(consentRecords),
@@ -915,6 +969,7 @@ export type Breach = typeof breaches.$inferSelect;
 export type Dpia = typeof dpias.$inferSelect;
 export type DpiaRisk = typeof dpiaRisks.$inferSelect;
 export type SubjectRequest = typeof subjectRequests.$inferSelect;
+export type Complaint = typeof complaints.$inferSelect;
 export type Processor = typeof processors.$inferSelect;
 export type TrainingSession = typeof trainingSessions.$inferSelect;
 export type ConsentRecord = typeof consentRecords.$inferSelect;

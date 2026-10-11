@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { runAutoRenewals } from "@/lib/auto-renew";
 import { prunePayments, runBillingAlerts } from "@/lib/billing";
 import { runBreachAlerts } from "@/lib/breach-alerts";
+import { runComplaintAlerts } from "@/lib/complaint-alerts";
 import { createEmailSender } from "@/lib/email";
 import { pruneVerificationTokens } from "@/lib/email-verification";
 import { etimsFromEnv } from "@/lib/etims";
@@ -33,6 +34,12 @@ console.log(
   `Checked ${requests.checked} open data subject requests; sent ${requests.sent.length} alerts; ${requests.failed.length} failed.`,
 );
 for (const f of requests.failed) console.error(`  ${f.requestId}: ${f.error}`);
+
+const complaints = await runComplaintAlerts(db, send);
+console.log(
+  `Checked ${complaints.checked} ODPC complaints awaiting a response; sent ${complaints.sent.length} alerts; ${complaints.failed.length} failed.`,
+);
+for (const f of complaints.failed) console.error(`  ${f.complaintId}: ${f.error}`);
 
 // Charge saved cards before the billing emails, so a renewal that goes through isn't followed by an "ended" email.
 const paystack = paystackFromEnv();
@@ -74,7 +81,7 @@ await pruneInvitations(db);
 await prunePayments(db);
 
 process.exit(
-  result.failed.length + breaches.failed.length + requests.failed.length + (renewals?.failed.length ?? 0) + billing.failed.length + (etims?.failed.length ?? 0) + notices.failed.length > 0
+  result.failed.length + breaches.failed.length + requests.failed.length + complaints.failed.length + (renewals?.failed.length ?? 0) + billing.failed.length + (etims?.failed.length ?? 0) + notices.failed.length > 0
     ? 1
     : 0,
 );

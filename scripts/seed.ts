@@ -4,6 +4,7 @@ import { db } from "@/db";
 import {
   breachActivities,
   breaches,
+  complaints,
   breachUpdates,
   consentRecords,
   dpiaRisks,
@@ -258,6 +259,36 @@ await db.insert(subjectRequests).values([
   },
 ]);
 
+// A complaint the ODPC passed on 16 days ago, so 5 days are left to respond, and an information request answered in the spring.
+await db.insert(complaints).values([
+  {
+    orgId: org.id,
+    kind: "complaint",
+    reference: "ODPC/CONF/1/5 VOL 1 (482)",
+    receivedOn: addDays(today, -16),
+    dueOn: addDays(today, 5),
+    complainant: "A former parent",
+    summary:
+      "A former parent says the school kept sending fee reminders by SMS after her daughter left, and passed her number to a uniform supplier without asking.",
+    handledBy: "The bursar, with the school's advocate",
+    loggedBy: user.id,
+  },
+  {
+    orgId: org.id,
+    kind: "information",
+    reference: "ODPC/INV/3 (117)",
+    receivedOn: addMonths(today, -6),
+    dueOn: addDays(addMonths(today, -6), 14),
+    summary: "The ODPC asked for the school's CCTV policy and the retention period for recordings, after an inspection of schools in the county.",
+    handledBy: "The deputy principal",
+    respondedOn: addDays(addMonths(today, -6), 9),
+    response: "Sent the CCTV policy, the signage photographs and the 30-day retention setting by email. Copy in the compliance folder.",
+    closedOn: addMonths(today, -5),
+    outcome: "The ODPC wrote back that it had no further questions.",
+    loggedBy: user.id,
+  },
+]);
+
 // Two processors: the school system with a contract due for review next month, and an SMS service with none.
 const [schoolSystem, sms] = await db
   .insert(processors)
@@ -362,7 +393,7 @@ await db.insert(consentRecords).values([
 ]);
 
 console.log(
-  `Seeded "${org.name}" with ${templates.length + 1} RoPA entries, one DPIA, one open breach, two data subject requests, two processors, two training sessions and two consent records.`,
+  `Seeded "${org.name}" with ${templates.length + 1} RoPA entries, one DPIA, one open breach, two data subject requests, two ODPC letters, two processors, two training sessions and two consent records.`,
 );
 console.log(`Sign in as ${EMAIL} / ${PASSWORD}`);
 process.exit(0);

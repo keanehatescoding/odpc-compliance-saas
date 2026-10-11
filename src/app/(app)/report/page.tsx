@@ -31,7 +31,7 @@ export default async function ComplianceReportPage() {
             {org.kraPin && <> · KRA PIN {org.kraPin}</>} · Prepared {formatDate(report.preparedOn)}
           </p>
           <p className="mt-1 text-sm text-stone-600">
-            Breaches, data subject requests and training are counted over the {REPORT_PERIOD_MONTHS} months from {formatDate(report.periodFrom)}.
+            Breaches, data subject requests, ODPC complaints and training are counted over the {REPORT_PERIOD_MONTHS} months from {formatDate(report.periodFrom)}.
           </p>
         </header>
 

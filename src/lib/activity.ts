@@ -3,6 +3,7 @@ import type { Db } from "@/db";
 import {
   activityLog,
   breaches,
+  complaints,
   dpias,
   processingActivities,
   consentRecords,
@@ -13,6 +14,7 @@ import {
   users,
   type ActivityArea,
   type Breach,
+  type Complaint,
   type Dpia,
   type Organization,
   type ProcessingActivity,
@@ -23,6 +25,7 @@ import {
   type TrainingSession,
 } from "@/db/schema";
 import { formatDate } from "./dates";
+import { kindInfo as complaintKindInfo } from "./complaint";
 import type { RequestKind } from "./subject-request";
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -147,6 +150,19 @@ export const FIELD_LABELS = {
     respondedOn: "responded on",
     response: "response",
   } satisfies Partial<Record<keyof SubjectRequest, string>>,
+  complaint: {
+    kind: "what the ODPC sent",
+    reference: "ODPC reference",
+    receivedOn: "received on",
+    dueOn: "deadline",
+    complainant: "complainant",
+    summary: "what it is about",
+    handledBy: "who is handling it",
+    respondedOn: "responded on",
+    response: "response",
+    closedOn: "closed on",
+    outcome: "how it ended",
+  } satisfies Partial<Record<keyof Complaint, string>>,
   processor: {
     name: "name",
     service: "what they do",
@@ -239,7 +255,8 @@ const REQUEST_NOUN: Record<RequestKind, string> = {
 /**
  * How entries name each kind of record. A request is named by its type and
  * date, not the requester, so the log doesn't keep a data subject's name
- * after the request itself is deleted.
+ * after the request itself is deleted. An ODPC complaint is named the same
+ * way, leaving out the complainant.
  */
 export const describe = {
   registration: (r: Pick<Registration, "role">) => `the ${r.role} registration`,
@@ -248,6 +265,7 @@ export const describe = {
   dpia: (d: Pick<Dpia, "title">) => `the DPIA ${quoted(d.title)}`,
   request: (r: Pick<SubjectRequest, "kind" | "receivedOn">) =>
     `the ${REQUEST_NOUN[r.kind as RequestKind]} request received ${formatDate(r.receivedOn)}`,
+  complaint: (c: Pick<Complaint, "kind" | "receivedOn">) => `the ODPC ${complaintKindInfo(c.kind).short} received ${formatDate(c.receivedOn)}`,
   processor: (p: Pick<Processor, "name">) => `the processor ${quoted(p.name)}`,
   training: (t: Pick<TrainingSession, "title">) => `the training session ${quoted(t.title)}`,
   consent: (c: Pick<ConsentRecord, "name">) => `the consent record ${quoted(c.name)}`,
@@ -263,6 +281,7 @@ export const ACTIVITY_AREAS: Record<ActivityArea, string> = {
   dpia: "Impact assessments",
   breach: "Data breaches",
   request: "Data subject requests",
+  complaint: "ODPC complaints",
   processor: "Processors",
   training: "Staff training",
   consent: "Consent records",
@@ -318,6 +337,7 @@ const SUBJECT_TABLES = {
   dpia: dpias,
   breach: breaches,
   request: subjectRequests,
+  complaint: complaints,
   processor: processors,
   training: trainingSessions,
   consent: consentRecords,
@@ -329,6 +349,7 @@ const SUBJECT_PATHS: Record<keyof typeof SUBJECT_TABLES, string> = {
   dpia: "/dpia",
   breach: "/breaches",
   request: "/requests",
+  complaint: "/complaints",
   processor: "/processors",
   training: "/training",
   consent: "/consents",

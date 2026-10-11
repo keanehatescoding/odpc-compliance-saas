@@ -169,6 +169,13 @@
       "when": 1791678193296,
       "tag": "0023_consent",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791722314969,
+      "tag": "0024_complaints",
+      "breakpoints": true
     }
   ]
 }
