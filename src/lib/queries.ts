@@ -10,6 +10,7 @@ import {
   dpias,
   interestAssessments,
   processingActivities,
+  transfers,
   consentRecords,
   disposals,
   policies,
@@ -278,6 +279,29 @@ export function activityAssessments(orgId: string, activityId: string) {
     .orderBy(asc(interestAssessments.name), asc(interestAssessments.createdAt));
 }
 
+/** Transfers outside Kenya, by recipient. */
+export function listTransfers(orgId: string) {
+  return db.select().from(transfers).where(eq(transfers.orgId, orgId)).orderBy(asc(transfers.recipient), asc(transfers.createdAt));
+}
+
+export async function getTransfer(orgId: string, id: string) {
+  const [row] = await db
+    .select()
+    .from(transfers)
+    .where(and(eq(transfers.orgId, orgId), eq(transfers.id, id)))
+    .limit(1);
+  return row ?? null;
+}
+
+/** The transfers outside Kenya recorded for an activity, by recipient. */
+export function activityTransfers(orgId: string, activityId: string) {
+  return db
+    .select()
+    .from(transfers)
+    .where(and(eq(transfers.orgId, orgId), eq(transfers.activityId, activityId)))
+    .orderBy(asc(transfers.recipient), asc(transfers.createdAt));
+}
+
 /** Disposals, newest first. */
 export function listDisposals(orgId: string) {
   return db.select().from(disposals).where(eq(disposals.orgId, orgId)).orderBy(desc(disposals.disposedOn), desc(disposals.createdAt));
@@ -294,13 +318,14 @@ export function listPolicies(orgId: string) {
  * is null when it names a category the RoPA doesn't have.
  */
 export async function getPrivacyNotice(org: NoticeOrg & { id: string }, requested: string | null | undefined, today: string) {
-  const [rows, regs, processorRows, links, consents, assessments] = await Promise.all([
+  const [rows, regs, processorRows, links, consents, assessments, transferRows] = await Promise.all([
     listActivities(org.id),
     listRegistrations(org.id),
     listProcessors(org.id),
     listProcessorLinks(org.id),
     listConsentRecords(org.id),
     listInterestAssessments(org.id),
+    listTransfers(org.id),
   ]);
   const linked = new Map<string, Set<string>>();
   for (const l of links) {
@@ -315,6 +340,7 @@ export async function getPrivacyNotice(org: NoticeOrg & { id: string }, requeste
       processors: ids ? processorRows.filter((p) => ids.has(p.id)).map((p) => p.name) : [],
       consents: consents.filter((c) => c.activityId === a.id),
       assessments: assessments.filter((l) => l.activityId === a.id),
+      transfers: transferRows.filter((t) => t.activityId === a.id),
     };
   });
   const audiences = noticeAudiences(controlled(activities));
@@ -326,7 +352,7 @@ export async function getPrivacyNotice(org: NoticeOrg & { id: string }, requeste
 
 /** The organisation's compliance report as of `now`, from every record it keeps. */
 export async function getComplianceReport(org: ReportOrg & { id: string }, now: Date) {
-  const [regs, activities, dpiaRows, dpiaRisks, breachRows, requests, complaintRows, processorRows, processorLinks, training, consents, assessments, disposalRows, policyRows] = await Promise.all([
+  const [regs, activities, dpiaRows, dpiaRisks, breachRows, requests, complaintRows, processorRows, processorLinks, training, consents, assessments, transferRows, disposalRows, policyRows] = await Promise.all([
     listRegistrations(org.id),
     listActivities(org.id),
     listDpias(org.id),
@@ -339,6 +365,7 @@ export async function getComplianceReport(org: ReportOrg & { id: string }, now: 
     listTrainingSessions(org.id),
     listConsentRecords(org.id),
     listInterestAssessments(org.id),
+    listTransfers(org.id),
     listDisposals(org.id),
     listPolicies(org.id),
   ]);
@@ -356,6 +383,7 @@ export async function getComplianceReport(org: ReportOrg & { id: string }, now: 
     training,
     consents,
     assessments,
+    transfers: transferRows,
     disposals: disposalRows,
     policies: policyRows,
     now,

@@ -9,6 +9,7 @@ import {
   consentRecords,
   disposals,
   interestAssessments,
+  transfers,
   policies,
   dpiaRisks,
   dpias,
@@ -323,6 +324,17 @@ if (studentRecords) {
   ]);
 }
 
+// The SMS service hosts abroad. Someone has started the transfer record but not found what it relies on.
+await db.insert(transfers).values({
+  orgId: org.id,
+  activityId: studentRecords?.id ?? null,
+  recipient: "Jumbe Bulk SMS",
+  countries: "Ireland",
+  dataSent: "Parents' names and phone numbers, and the text of each fee reminder and school notice.",
+  startedOn: addMonths(today, -18),
+  notes: "Asked Jumbe for their data processing agreement and where their servers are.",
+});
+
 // Last year's staff training, whose refresher fell due a month ago, and a recent induction for the office.
 await db.insert(trainingSessions).values([
   {
@@ -476,7 +488,7 @@ await db.insert(policies).values([
 ]);
 
 console.log(
-  `Seeded "${org.name}" with ${templates.length + 1} RoPA entries, one DPIA, one open breach, two data subject requests, two ODPC letters, two processors, two training sessions, two consent records, one legitimate interest assessment, two disposals and three policies.`,
+  `Seeded "${org.name}" with ${templates.length + 1} RoPA entries, one DPIA, one open breach, two data subject requests, two ODPC letters, two processors, two training sessions, two consent records, one legitimate interest assessment, one transfer outside Kenya, two disposals and three policies.`,
 );
 console.log(`Sign in as ${EMAIL} / ${PASSWORD}`);
 process.exit(0);

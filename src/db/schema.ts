@@ -21,6 +21,7 @@ import { CONSENT_METHOD_KEYS } from "../lib/consent";
 import { DISPOSAL_METHOD_KEYS, DISPOSAL_REASON_KEYS } from "../lib/disposal";
 import { LIKELIHOOD_KEYS, SEVERITY_KEYS } from "../lib/dpia";
 import { LIA_OUTCOME_KEYS } from "../lib/lia";
+import { TRANSFER_BASIS_KEYS } from "../lib/transfer";
 import { POLICY_KIND_KEYS } from "../lib/policy";
 import { BILLING_INTERVAL_KEYS, TRIAL_DAYS } from "../lib/plans";
 import { LAWFUL_BASIS_KEYS, ORG_SIZE_KEYS, SECTOR_KEYS } from "../lib/dpa";
@@ -38,6 +39,7 @@ export const disposalMethodEnum = pgEnum("disposal_method", DISPOSAL_METHOD_KEYS
 export const disposalReasonEnum = pgEnum("disposal_reason", DISPOSAL_REASON_KEYS as [string, ...string[]]);
 export const policyKindEnum = pgEnum("policy_kind", POLICY_KIND_KEYS as [string, ...string[]]);
 export const liaOutcomeEnum = pgEnum("lia_outcome", LIA_OUTCOME_KEYS as [string, ...string[]]);
+export const transferBasisEnum = pgEnum("transfer_basis", TRANSFER_BASIS_KEYS as [string, ...string[]]);
 export const breachRiskEnum = pgEnum("breach_risk", BREACH_RISK_KEYS as [string, ...string[]]);
 export const likelihoodEnum = pgEnum("risk_likelihood", LIKELIHOOD_KEYS as [string, ...string[]]);
 export const severityEnum = pgEnum("risk_severity", SEVERITY_KEYS as [string, ...string[]]);
@@ -1002,6 +1004,41 @@ export const interestAssessments = pgTable(
   (t) => [index("interest_assessments_org_idx").on(t.orgId), index("interest_assessments_activity_idx").on(t.activityId)],
 );
 
+/**
+ * Transfers of personal data out of Kenya, one row per recipient abroad for a
+ * RoPA activity. A row records where the data goes and what makes sending it
+ * lawful under ss.48 and 49 of the Act: the safeguards, the necessity or the
+ * consent the transfer relies on, and where the proof is kept.
+ */
+export const transfers = pgTable(
+  "transfers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    // The RoPA activity it is part of. Null once that activity is deleted.
+    activityId: uuid("activity_id").references(() => processingActivities.id, { onDelete: "set null" }),
+    // Who receives the data, such as "Mailchimp (Intuit)" or "Head office, Johannesburg".
+    recipient: text("recipient").notNull(),
+    countries: text("countries").notNull().default(""),
+    // What personal data is sent.
+    dataSent: text("data_sent").notNull().default(""),
+    basis: transferBasisEnum("basis").notNull().default("pending"),
+    // What the basis rests on: the law, the clauses, the reason it is necessary or how consent is asked.
+    basisDetail: text("basis_detail").notNull().default(""),
+    // How people consent to sensitive personal data leaving Kenya (s.49).
+    subjectConsent: text("subject_consent").notNull().default(""),
+    // Where the proof is kept, such as the signed agreement.
+    evidence: text("evidence").notNull().default(""),
+    startedOn: date("started_on", { mode: "string" }),
+    reviewOn: date("review_on", { mode: "string" }),
+    notes: text("notes").notNull().default(""),
+    ...timestamps,
+  },
+  (t) => [index("transfers_org_idx").on(t.orgId), index("transfers_activity_idx").on(t.activityId)],
+);
+
 export const activityAreaEnum = pgEnum("activity_area", [
   "registration",
   "ropa",
@@ -1015,6 +1052,7 @@ export const activityAreaEnum = pgEnum("activity_area", [
   "disposal",
   "policy",
   "lia",
+  "transfer",
   "team",
   "organization",
   "billing",
@@ -1063,6 +1101,7 @@ export const organizationsRelations = relations(organizations, ({ many }) => ({
   disposals: many(disposals),
   policies: many(policies),
   interestAssessments: many(interestAssessments),
+  transfers: many(transfers),
 }));
 
 export const membershipsRelations = relations(memberships, ({ one }) => ({
@@ -1099,6 +1138,7 @@ export type ConsentRecord = typeof consentRecords.$inferSelect;
 export type Disposal = typeof disposals.$inferSelect;
 export type Policy = typeof policies.$inferSelect;
 export type InterestAssessment = typeof interestAssessments.$inferSelect;
+export type Transfer = typeof transfers.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
 export type ServiceOrder = typeof serviceOrders.$inferSelect;
 export type EtimsInvoice = typeof etimsInvoices.$inferSelect;

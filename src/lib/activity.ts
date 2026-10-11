@@ -9,6 +9,7 @@ import {
   interestAssessments,
   policies,
   processingActivities,
+  transfers,
   consentRecords,
   processors,
   registrations,
@@ -21,6 +22,7 @@ import {
   type Disposal,
   type Dpia,
   type InterestAssessment,
+  type Transfer,
   type Organization,
   type Policy,
   type ProcessingActivity,
@@ -248,6 +250,19 @@ export const FIELD_LABELS = {
     reviewOn: "review date",
     notes: "notes",
   } satisfies Partial<Record<keyof InterestAssessment, string>>,
+  transfer: {
+    recipient: "recipient",
+    activityId: "processing activity",
+    countries: "countries",
+    dataSent: "data sent",
+    basis: "what it relies on",
+    basisDetail: "what the basis rests on",
+    subjectConsent: "consent for sensitive data",
+    evidence: "where the proof is kept",
+    startedOn: "start date",
+    reviewOn: "review date",
+    notes: "notes",
+  } satisfies Partial<Record<keyof Transfer, string>>,
   organization: {
     name: "name",
     sector: "sector",
@@ -318,6 +333,7 @@ export const describe = {
   disposal: (d: Pick<Disposal, "disposedOn">) => `the disposal on ${formatDate(d.disposedOn)}`,
   policy: (p: Pick<Policy, "title">) => `the policy ${quoted(p.title)}`,
   lia: (l: Pick<InterestAssessment, "name">) => `the legitimate interest assessment ${quoted(l.name)}`,
+  transfer: (t: Pick<Transfer, "recipient">) => `the transfer to ${t.recipient}`,
 };
 
 // ---------------------------------------------------------------------------
@@ -337,6 +353,7 @@ export const ACTIVITY_AREAS: Record<ActivityArea, string> = {
   disposal: "Data disposal",
   policy: "Policies",
   lia: "Legitimate interests",
+  transfer: "Transfers outside Kenya",
   team: "Team",
   organization: "Settings",
   billing: "Billing",
@@ -396,6 +413,7 @@ const SUBJECT_TABLES = {
   disposal: disposals,
   policy: policies,
   lia: interestAssessments,
+  transfer: transfers,
 } as const;
 
 const SUBJECT_PATHS: Record<keyof typeof SUBJECT_TABLES, string> = {
@@ -411,6 +429,7 @@ const SUBJECT_PATHS: Record<keyof typeof SUBJECT_TABLES, string> = {
   disposal: "/disposals",
   policy: "/policies",
   lia: "/lia",
+  transfer: "/transfers",
 };
 
 /**

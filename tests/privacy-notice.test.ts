@@ -121,6 +121,23 @@ describe("legitimate interest assessments", () => {
   });
 });
 
+describe("transfers outside Kenya", () => {
+  const mailing = (over: Partial<NoticeActivity> = {}) =>
+    activity({ name: "Mailing list", crossBorder: true, transferCountries: "Ireland", transferSafeguards: "Contract clauses", ...over });
+  const check = "Record what sending data outside Kenya relies on (Transfers outside Kenya), for: Mailing list.";
+
+  it("asks what a transfer relies on when no record says", () => {
+    expect(build({ activities: [mailing({ transfers: [] }), activity({ transfers: [] })] }).checks).toContain(check);
+    expect(build({ activities: [mailing({ transfers: [{ basis: "pending" }] })] }).checks).toContain(check);
+  });
+
+  it("says nothing once a record gives a basis, or when the caller doesn't know the transfers", () => {
+    for (const a of [mailing({ transfers: [{ basis: "pending" }, { basis: "safeguards" }] }), mailing()]) {
+      expect(build({ activities: [a] }).checks.join(" ")).not.toContain("Transfers outside Kenya");
+    }
+  });
+});
+
 describe("activitiesFor", () => {
   const all = [activity({ name: "A", dataSubjects: ["Parents"] }), activity({ name: "B", dataSubjects: ["Staff"] })];
 

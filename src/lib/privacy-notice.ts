@@ -31,13 +31,14 @@ export interface NoticeRegistration {
 
 /**
  * A RoPA activity, with the names of the processors that handle its data, the
- * consent records behind it and its legitimate interest assessments, when the
- * caller knows them.
+ * consent records behind it, its legitimate interest assessments and its
+ * transfers outside Kenya, when the caller knows them.
  */
 export type NoticeActivity = ActivityInput & {
   processors?: string[];
   consents?: { withdrawal: string }[];
   assessments?: { outcome: string; objection: string }[];
+  transfers?: { basis: string }[];
 };
 
 export type NoticeBlock =
@@ -233,6 +234,11 @@ export function buildPrivacyNotice(input: {
   const unsafeguarded = activities.filter((a) => a.crossBorder && !a.transferSafeguards);
   if (unsafeguarded.length > 0) {
     checks.push(`Say how data sent outside Kenya is protected (Safeguards), for: ${names(unsafeguarded)}.`);
+  }
+  // The notice says the data goes abroad, so the organisation should be able to say what lets it.
+  const unbased = activities.filter((a) => a.crossBorder && a.transfers && !a.transfers.some((t) => t.basis !== "pending"));
+  if (unbased.length > 0) {
+    checks.push(`Record what sending data outside Kenya relies on (Transfers outside Kenya), for: ${names(unbased)}.`);
   }
   const unprotected = activities.filter((a) => !a.securityMeasures);
   if (unprotected.length > 0) {

@@ -32,6 +32,15 @@ import {
 } from "./lia";
 import { controlled, noticeAudiences } from "./privacy-notice";
 import { PROCESSOR_STATUS_LABEL, processorStatus } from "./processor";
+import {
+  activitiesWithoutTransfer,
+  needsSubjectConsent,
+  TRANSFER_BASES,
+  TRANSFER_STATUS_LABEL,
+  transferStatus,
+  type TransferBasis,
+  type TransferLike,
+} from "./transfer";
 import { daysUntilExpiry, registrationStatus, STATUS_LABEL, type RegistrationLike } from "./registration";
 import { dpiaRecommended, type ActivityInput } from "./ropa";
 import {
@@ -144,6 +153,14 @@ export interface ReportAssessment extends LiaLike {
   decidedOn: string | null;
 }
 
+export interface ReportTransfer extends TransferLike {
+  id: string;
+  recipient: string;
+  activityId: string | null;
+  subjectConsent: string;
+  evidence: string;
+}
+
 export interface ReportDisposal extends DisposalLike {
   method: string;
   reason: string;
@@ -173,12 +190,13 @@ export interface ReportInput {
   training: ReportTraining[];
   consents: ReportConsent[];
   assessments: ReportAssessment[];
+  transfers: ReportTransfer[];
   disposals: ReportDisposal[];
   policies: ReportPolicy[];
   now: Date;
 }
 
-export type ReportSectionKey = "registration" | "ropa" | "notice" | "consent" | "lia" | "dpia" | "breach" | "request" | "complaint" | "processor" | "disposal" | "training" | "policy";
+export type ReportSectionKey = "registration" | "ropa" | "notice" | "consent" | "lia" | "dpia" | "breach" | "request" | "complaint" | "processor" | "transfer" | "disposal" | "training" | "policy";
 
 export interface ReportSection {
   key: ReportSectionKey;
@@ -690,6 +708,60 @@ function processorSection(input: ReportInput, today: string): ReportSection {
   };
 }
 
+function transferSection(input: ReportInput, today: string): ReportSection {
+  const { transfers } = input;
+  const activity = new Map(input.activities.map((a) => [a.id, a]));
+  const sending = input.activities.filter((a) => a.crossBorder);
+  const uncovered = activitiesWithoutTransfer(input.activities, transfers);
+  const statusOf = new Map(transfers.map((t) => [t.id, transferStatus(t, today)]));
+  const to = (items: ReportTransfer[]) => items.map((t) => t.recipient).join(", ");
+
+  const open: string[] = [];
+  if (uncovered.length > 0) open.push(`No transfer record says what sending data outside Kenya relies on for: ${names(uncovered)}.`);
+  const unfinished = transfers.filter((t) => statusOf.get(t.id) === "incomplete");
+  if (unfinished.length > 0) open.push(`Not finished, so they don't yet show what the transfer relies on: ${to(unfinished)}.`);
+  for (const t of transfers) {
+    if (statusOf.get(t.id) === "review_due") open.push(`The transfer to ${t.recipient} was due for review on ${formatDate(t.reviewOn)}.`);
+  }
+  for (const t of transfers) {
+    const a = t.activityId ? activity.get(t.activityId) : undefined;
+    if (a && needsSubjectConsent(t, a)) {
+      open.push(`${a.name} involves sensitive personal data, but the transfer to ${t.recipient} doesn't record people's consent (s.49).`);
+    }
+  }
+  const unproven = transfers.filter((t) => t.basis !== "pending" && !t.evidence);
+  if (unproven.length > 0) open.push(`Where the proof is kept isn't recorded for: ${to(unproven)}.`);
+  const unlinked = transfers.filter((t) => !t.activityId || !activity.has(t.activityId));
+  if (unlinked.length > 0) open.push(`Not linked to a processing activity: ${to(unlinked)}.`);
+  for (const t of transfers) {
+    const a = t.activityId ? activity.get(t.activityId) : undefined;
+    if (a && !a.crossBorder) open.push(`The transfer to ${t.recipient} is recorded for ${a.name}, which the RoPA doesn't say sends data outside Kenya.`);
+  }
+
+  const rows = transfers.map((t) => [
+    t.recipient,
+    (t.activityId && activity.get(t.activityId)?.name) || "—",
+    t.countries || "—",
+    TRANSFER_BASES[t.basis as TransferBasis] ?? t.basis,
+    formatDate(t.reviewOn),
+    TRANSFER_STATUS_LABEL[statusOf.get(t.id)!],
+  ]);
+
+  return {
+    key: "transfer",
+    heading: "Transfers outside Kenya",
+    basis: "Data Protection Act, 2019, ss.48 and 49",
+    href: "/transfers",
+    facts: [
+      { label: "Activities sending data outside Kenya", value: count(sending.length) },
+      { label: "Of those, with a transfer record", value: count(sending.length - uncovered.length) },
+      { label: "Transfers on record", value: count(transfers.length) },
+    ],
+    table: rows.length > 0 ? { columns: ["Recipient", "Activity", "Countries", "Relies on", "Next review", "Status"], rows } : undefined,
+    open,
+  };
+}
+
 function disposalSection(input: ReportInput, today: string, periodFrom: string): ReportSection {
   const disposals = [...input.disposals].sort((a, b) => b.disposedOn.localeCompare(a.disposedOn));
   const latest = latestByActivity(disposals);
@@ -847,6 +919,7 @@ export function buildComplianceReport(input: ReportInput): ComplianceReport {
     requestSection(input, today, periodFrom),
     complaintSection(input, today, periodFrom),
     processorSection(input, today),
+    transferSection(input, today),
     disposalSection(input, today, periodFrom),
     trainingSection(input, today, periodFrom),
     policySection(input, today),

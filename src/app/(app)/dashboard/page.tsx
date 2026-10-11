@@ -12,6 +12,7 @@ import { dpiaStatus } from "@/lib/dpia";
 import { activitiesWithoutAssessment, liaStatus, stillReliedOn } from "@/lib/lia";
 import { policyStatus } from "@/lib/policy";
 import { processorStatus } from "@/lib/processor";
+import { activitiesWithoutTransfer, transferStatus } from "@/lib/transfer";
 import {
   listActivities,
   listBreaches,
@@ -19,6 +20,7 @@ import {
   listDpias,
   listConsentRecords,
   listInterestAssessments,
+  listTransfers,
   listDisposals,
   listPolicies,
   listProcessors,
@@ -39,7 +41,7 @@ export default async function DashboardPage() {
   const { org } = await requireOrgContext();
   const today = todayInKenya();
   const now = new Date();
-  const [regs, activities, reminders, breaches, dpias, requests, processors, training, consents, complaints, disposals, policies, assessments] = await Promise.all([
+  const [regs, activities, reminders, breaches, dpias, requests, processors, training, consents, complaints, disposals, policies, assessments, transfers] = await Promise.all([
     listRegistrations(org.id),
     listActivities(org.id),
     recentReminders(org.id),
@@ -53,6 +55,7 @@ export default async function DashboardPage() {
     listDisposals(org.id),
     listPolicies(org.id),
     listInterestAssessments(org.id),
+    listTransfers(org.id),
   ]);
   const urgentBreaches = breaches
     .map((b) => ({ ...b, status: breachStatus(b, now), deadline: notificationDeadline(b) }))
@@ -134,6 +137,14 @@ export default async function DashboardPage() {
   }
   for (const p of processors) {
     if (processorStatus(p, today) === "review_due") todos.push({ text: `Review your contract with ${p.name}`, href: `/processors/${p.id}` });
+  }
+  for (const a of activitiesWithoutTransfer(activities, transfers)) {
+    todos.push({ text: `Record what the transfer outside Kenya relies on for ${a.name}`, href: `/transfers/new?activity=${a.id}` });
+  }
+  for (const t of transfers) {
+    const status = transferStatus(t, today);
+    if (status === "incomplete") todos.push({ text: `Finish the record of the transfer to ${t.recipient}`, href: `/transfers/${t.id}` });
+    else if (status === "review_due") todos.push({ text: `Review the transfer to ${t.recipient}`, href: `/transfers/${t.id}` });
   }
   if (activities.length > 0 && disposals.length === 0) {
     todos.push({ text: "Check for personal data past its retention period, and record what you dispose of", href: "/disposals" });

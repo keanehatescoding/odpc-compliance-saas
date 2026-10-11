@@ -7,6 +7,7 @@ import {
   type ReportConsent,
   type ReportDisposal,
   type ReportInput,
+  type ReportTransfer,
   type ReportPolicy,
   type ReportProcessor,
   type ReportSectionKey,
@@ -146,6 +147,22 @@ function assessment(over: Partial<ReportAssessment> = {}): ReportAssessment {
     ...over,
   };
 }
+function transfer(over: Partial<ReportTransfer> = {}): ReportTransfer {
+  return {
+    id: "t1",
+    recipient: "Mailchimp",
+    activityId: "a6",
+    countries: "United States",
+    basis: "safeguards",
+    basisDetail: "Data processing addendum with standard contractual clauses",
+    subjectConsent: "",
+    evidence: "Contracts folder",
+    reviewOn: "2027-03-01",
+    ...over,
+  };
+}
+const mailing = (over: Partial<ReportActivity> = {}) =>
+  activity({ id: "a6", name: "Mailing list", crossBorder: true, transferCountries: "United States", transferSafeguards: "Contract clauses", ...over });
 const cctv = (over: Partial<ReportActivity> = {}) => activity({ id: "a4", name: "CCTV", lawfulBasis: "legitimate_interests", ...over });
 const newsletter = (over: Partial<ReportActivity> = {}) => activity({ id: "a2", name: "Newsletter", lawfulBasis: "consent", provision: "", ...over });
 
@@ -165,6 +182,7 @@ function input(over: Partial<ReportInput> = {}): ReportInput {
     training: [training()],
     consents: [],
     assessments: [],
+    transfers: [],
     disposals: [disposal()],
     policies: [policy()],
     now,
@@ -181,7 +199,7 @@ describe("buildComplianceReport", () => {
   it("finds nothing open when every record is in order", () => {
     const report = buildComplianceReport(input());
     expect(report.openCount).toBe(0);
-    expect(report.sections.map((s) => s.key)).toEqual(["registration", "ropa", "notice", "consent", "lia", "dpia", "breach", "request", "complaint", "processor", "disposal", "training", "policy"]);
+    expect(report.sections.map((s) => s.key)).toEqual(["registration", "ropa", "notice", "consent", "lia", "dpia", "breach", "request", "complaint", "processor", "transfer", "disposal", "training", "policy"]);
     expect(report.preparedOn).toBe("2026-10-10");
     expect(report.periodFrom).toBe("2025-10-10");
   });
@@ -621,6 +639,70 @@ describe("legitimate interests", () => {
     const moved = section({ activities: [activity(), cctv({ lawfulBasis: "consent" })], assessments: [against], consents: [consent({ activityId: "a4" })] }, "lia");
     expect(moved.open).toEqual([]);
     expect(moved.table!.rows[0][6]).toBe("Not justified");
+  });
+});
+
+describe("transfers outside Kenya", () => {
+  it("has nothing to say when nothing leaves Kenya", () => {
+    const s = section({}, "transfer");
+    expect(fact(s, "Activities sending data outside Kenya")).toBe("0");
+    expect(s.table).toBeUndefined();
+    expect(s.open).toEqual([]);
+  });
+
+  it("reports an activity sending data abroad with no transfer record, whichever role it is in", () => {
+    const s = section({ activities: [activity(), mailing(), mailing({ id: "a7", name: "Client backups", role: "processor" })] }, "transfer");
+    expect(fact(s, "Activities sending data outside Kenya")).toBe("2");
+    expect(fact(s, "Of those, with a transfer record")).toBe("0");
+    expect(s.open).toEqual(["No transfer record says what sending data outside Kenya relies on for: Mailing list, Client backups."]);
+  });
+
+  it("is satisfied by a finished record", () => {
+    const s = section({ activities: [activity(), mailing()], transfers: [transfer()] }, "transfer");
+    expect(fact(s, "Of those, with a transfer record")).toBe("1");
+    expect(s.open).toEqual([]);
+    expect(s.table!.rows).toEqual([
+      ["Mailchimp", "Mailing list", "United States", "Appropriate safeguards, such as contract clauses", "1 Mar 2027", "In place"],
+    ]);
+  });
+
+  it("reports what is unfinished, due for review or without proof", () => {
+    const s = section(
+      {
+        activities: [activity(), mailing()],
+        transfers: [
+          transfer({ basis: "pending", basisDetail: "", evidence: "" }),
+          transfer({ id: "t2", recipient: "Google Workspace", reviewOn: "2026-10-01", evidence: "" }),
+        ],
+      },
+      "transfer",
+    );
+    expect(s.open).toEqual([
+      "Not finished, so they don't yet show what the transfer relies on: Mailchimp.",
+      "The transfer to Google Workspace was due for review on 1 Oct 2026.",
+      "Where the proof is kept isn't recorded for: Google Workspace.",
+    ]);
+    expect(s.table!.rows.map((r) => r[5])).toEqual(["Not finished", "Review due"]);
+  });
+
+  it("checks consent for sensitive data, the link and what the RoPA says", () => {
+    const s = section(
+      {
+        activities: [activity(), mailing({ sensitiveCategories: ["Health data"] })],
+        transfers: [
+          transfer(),
+          transfer({ id: "t2", recipient: "Clinic system", subjectConsent: "Asked on the registration form" }),
+          transfer({ id: "t3", recipient: "Payroll Bureau", activityId: "a1" }),
+          transfer({ id: "t4", recipient: "Old host", activityId: null }),
+        ],
+      },
+      "transfer",
+    );
+    expect(s.open).toEqual([
+      "Mailing list involves sensitive personal data, but the transfer to Mailchimp doesn't record people's consent (s.49).",
+      "Not linked to a processing activity: Old host.",
+      "The transfer to Payroll Bureau is recorded for Fee payments, which the RoPA doesn't say sends data outside Kenya.",
+    ]);
   });
 });
 

@@ -29,6 +29,7 @@ const RECORD_LABELS = {
   disposals: "Disposals",
   policies: "Policies",
   assessments: "Legitimate interest assessments",
+  transfers: "Transfers outside Kenya",
 } as const;
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
