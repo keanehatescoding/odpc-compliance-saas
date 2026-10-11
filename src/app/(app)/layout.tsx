@@ -33,6 +33,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
           <NavLink href="/processors">Processors</NavLink>
           <NavLink href="/disposals">Data disposal</NavLink>
           <NavLink href="/training">Staff training</NavLink>
+          <NavLink href="/policies">Policies</NavLink>
           <NavLink href="/report">Compliance report</NavLink>
           <NavLink href="/services">Expert services</NavLink>
           <NavLink href="/team">Team</NavLink>

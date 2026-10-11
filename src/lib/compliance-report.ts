@@ -44,6 +44,7 @@ import {
   type DisposalMethod,
   type DisposalReason,
 } from "./disposal";
+import { POLICY_KINDS, POLICY_STATUS_LABEL, policyStatus, type PolicyKind, type PolicyLike } from "./policy";
 import { refreshedIds, TRAINING_STATUS_LABEL, trainingStatus, type TrainingLike } from "./training";
 
 /**
@@ -130,6 +131,14 @@ export interface ReportDisposal extends DisposalLike {
   evidence: string;
 }
 
+export interface ReportPolicy extends PolicyLike {
+  id: string;
+  title: string;
+  kind: string;
+  owner: string;
+  location: string;
+}
+
 export interface ReportInput {
   org: ReportOrg;
   registrations: ReportRegistration[];
@@ -144,10 +153,11 @@ export interface ReportInput {
   training: ReportTraining[];
   consents: ReportConsent[];
   disposals: ReportDisposal[];
+  policies: ReportPolicy[];
   now: Date;
 }
 
-export type ReportSectionKey = "registration" | "ropa" | "notice" | "consent" | "dpia" | "breach" | "request" | "complaint" | "processor" | "disposal" | "training";
+export type ReportSectionKey = "registration" | "ropa" | "notice" | "consent" | "dpia" | "breach" | "request" | "complaint" | "processor" | "disposal" | "training" | "policy";
 
 export interface ReportSection {
   key: ReportSectionKey;
@@ -700,6 +710,44 @@ function trainingSection(input: ReportInput, today: string, periodFrom: string):
   };
 }
 
+function policySection(input: ReportInput, today: string): ReportSection {
+  const policies = [...input.policies].sort((a, b) => a.title.localeCompare(b.title));
+  const statusOf = new Map(policies.map((p) => [p.id, policyStatus(p, today)]));
+  const drafts = policies.filter((p) => statusOf.get(p.id) === "draft");
+  const due = policies.filter((p) => statusOf.get(p.id) === "review_due");
+
+  const open: string[] = [];
+  if (policies.length === 0) open.push("No data protection policy or procedure is recorded.");
+  else if (!policies.some((p) => p.kind === "data_protection")) open.push("No data protection policy is on the register.");
+  if (drafts.length > 0) open.push(`Not yet approved: ${titles(drafts)}.`);
+  for (const p of due) open.push(`${p.title} was due for review on ${formatDate(p.reviewOn)}.`);
+  const unplaced = policies.filter((p) => !p.location);
+  if (unplaced.length > 0) open.push(`Where the document is kept isn't recorded for: ${titles(unplaced)}.`);
+
+  const rows = policies.map((p) => [
+    p.title,
+    POLICY_KINDS[p.kind as PolicyKind],
+    p.owner || "—",
+    formatDate(p.approvedOn),
+    formatDate(p.reviewOn),
+    POLICY_STATUS_LABEL[statusOf.get(p.id)!],
+  ]);
+
+  return {
+    key: "policy",
+    heading: "Policies and procedures",
+    basis: "Data Protection Act, 2019, s.41; Data Protection (General) Regulations, 2021, reg. 23",
+    href: "/policies",
+    facts: [
+      { label: "Policies on the register", value: count(policies.length) },
+      { label: "Approved", value: count(policies.length - drafts.length) },
+      { label: "Due for review", value: count(due.length) },
+    ],
+    table: rows.length > 0 ? { columns: ["Policy", "Kind", "Responsible", "Approved", "Next review", "Status"], rows } : undefined,
+    open,
+  };
+}
+
 export function buildComplianceReport(input: ReportInput): ComplianceReport {
   const today = todayInKenya(input.now);
   const periodFrom = addMonths(today, -REPORT_PERIOD_MONTHS);
@@ -715,6 +763,7 @@ export function buildComplianceReport(input: ReportInput): ComplianceReport {
     processorSection(input, today),
     disposalSection(input, today, periodFrom),
     trainingSection(input, today, periodFrom),
+    policySection(input, today),
   ];
   return { preparedOn: today, periodFrom, sections, openCount: sections.reduce((n, s) => n + s.open.length, 0) };
 }

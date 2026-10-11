@@ -9,6 +9,7 @@ import { formatDate, formatDateTime, todayInKenya } from "@/lib/dates";
 import { disposalStatus, latestByActivity } from "@/lib/disposal";
 import { ODPC_FEES, REGISTRATION_ROLES, formatKsh, type OrgSize, type RegistrationRole } from "@/lib/dpa";
 import { dpiaStatus } from "@/lib/dpia";
+import { policyStatus } from "@/lib/policy";
 import { processorStatus } from "@/lib/processor";
 import {
   listActivities,
@@ -17,6 +18,7 @@ import {
   listDpias,
   listConsentRecords,
   listDisposals,
+  listPolicies,
   listProcessors,
   listRegistrations,
   listSubjectRequests,
@@ -35,7 +37,7 @@ export default async function DashboardPage() {
   const { org } = await requireOrgContext();
   const today = todayInKenya();
   const now = new Date();
-  const [regs, activities, reminders, breaches, dpias, requests, processors, training, consents, complaints, disposals] = await Promise.all([
+  const [regs, activities, reminders, breaches, dpias, requests, processors, training, consents, complaints, disposals, policies] = await Promise.all([
     listRegistrations(org.id),
     listActivities(org.id),
     recentReminders(org.id),
@@ -47,6 +49,7 @@ export default async function DashboardPage() {
     listConsentRecords(org.id),
     listComplaints(org.id),
     listDisposals(org.id),
+    listPolicies(org.id),
   ]);
   const urgentBreaches = breaches
     .map((b) => ({ ...b, status: breachStatus(b, now), deadline: notificationDeadline(b) }))
@@ -133,6 +136,12 @@ export default async function DashboardPage() {
     if (trainingStatus(s, refreshed, today) === "refresher_due") {
       todos.push({ text: `Hold the refresher for ${s.title} (due ${formatDate(s.refresherOn)})`, href: `/training/${s.id}` });
     }
+  }
+  if (policies.length === 0) todos.push({ text: "Record your data protection policy and who approved it", href: "/policies" });
+  for (const p of policies) {
+    const status = policyStatus(p, today);
+    if (status === "draft") todos.push({ text: `Get your policy approved: ${p.title}`, href: `/policies/${p.id}` });
+    else if (status === "review_due") todos.push({ text: `Review your policy: ${p.title} (due ${formatDate(p.reviewOn)})`, href: `/policies/${p.id}` });
   }
 
   return (

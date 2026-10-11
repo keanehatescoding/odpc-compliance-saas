@@ -6,6 +6,7 @@ import {
   complaints,
   disposals,
   dpias,
+  policies,
   processingActivities,
   consentRecords,
   processors,
@@ -19,6 +20,7 @@ import {
   type Disposal,
   type Dpia,
   type Organization,
+  type Policy,
   type ProcessingActivity,
   type ConsentRecord,
   type Processor,
@@ -218,6 +220,18 @@ export const FIELD_LABELS = {
     nextOn: "next disposal date",
     notes: "notes",
   } satisfies Partial<Record<keyof Disposal, string>>,
+  policy: {
+    title: "title",
+    kind: "kind of document",
+    version: "version",
+    owner: "who is responsible",
+    approvedBy: "who approved it",
+    approvedOn: "approval date",
+    reviewOn: "review date",
+    location: "where it is kept",
+    communicated: "how staff were told",
+    notes: "notes",
+  } satisfies Partial<Record<keyof Policy, string>>,
   organization: {
     name: "name",
     sector: "sector",
@@ -286,6 +300,7 @@ export const describe = {
   training: (t: Pick<TrainingSession, "title">) => `the training session ${quoted(t.title)}`,
   consent: (c: Pick<ConsentRecord, "name">) => `the consent record ${quoted(c.name)}`,
   disposal: (d: Pick<Disposal, "disposedOn">) => `the disposal on ${formatDate(d.disposedOn)}`,
+  policy: (p: Pick<Policy, "title">) => `the policy ${quoted(p.title)}`,
 };
 
 // ---------------------------------------------------------------------------
@@ -303,6 +318,7 @@ export const ACTIVITY_AREAS: Record<ActivityArea, string> = {
   training: "Staff training",
   consent: "Consent records",
   disposal: "Data disposal",
+  policy: "Policies",
   team: "Team",
   organization: "Settings",
   billing: "Billing",
@@ -360,6 +376,7 @@ const SUBJECT_TABLES = {
   training: trainingSessions,
   consent: consentRecords,
   disposal: disposals,
+  policy: policies,
 } as const;
 
 const SUBJECT_PATHS: Record<keyof typeof SUBJECT_TABLES, string> = {
@@ -373,6 +390,7 @@ const SUBJECT_PATHS: Record<keyof typeof SUBJECT_TABLES, string> = {
   training: "/training",
   consent: "/consents",
   disposal: "/disposals",
+  policy: "/policies",
 };
 
 /**
