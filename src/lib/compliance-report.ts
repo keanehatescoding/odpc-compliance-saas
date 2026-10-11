@@ -20,6 +20,16 @@ import {
   type ConsentLike,
   type ConsentMethod,
 } from "./consent";
+import {
+  activitiesWithoutAssessment,
+  LIA_OUTCOMES,
+  LIA_STATUS_LABEL,
+  liaStatus,
+  reliesOnLegitimateInterests,
+  stillReliedOn,
+  type LiaLike,
+  type LiaOutcome,
+} from "./lia";
 import { controlled, noticeAudiences } from "./privacy-notice";
 import { PROCESSOR_STATUS_LABEL, processorStatus } from "./processor";
 import { daysUntilExpiry, registrationStatus, STATUS_LABEL, type RegistrationLike } from "./registration";
@@ -124,6 +134,16 @@ export interface ReportConsent extends ConsentLike {
   conditional: boolean;
 }
 
+export interface ReportAssessment extends LiaLike {
+  id: string;
+  name: string;
+  activityId: string | null;
+  safeguards: string;
+  objection: string;
+  decidedBy: string;
+  decidedOn: string | null;
+}
+
 export interface ReportDisposal extends DisposalLike {
   method: string;
   reason: string;
@@ -152,12 +172,13 @@ export interface ReportInput {
   processorLinks: { processorId: string; activityId: string }[];
   training: ReportTraining[];
   consents: ReportConsent[];
+  assessments: ReportAssessment[];
   disposals: ReportDisposal[];
   policies: ReportPolicy[];
   now: Date;
 }
 
-export type ReportSectionKey = "registration" | "ropa" | "notice" | "consent" | "dpia" | "breach" | "request" | "complaint" | "processor" | "disposal" | "training" | "policy";
+export type ReportSectionKey = "registration" | "ropa" | "notice" | "consent" | "lia" | "dpia" | "breach" | "request" | "complaint" | "processor" | "disposal" | "training" | "policy";
 
 export interface ReportSection {
   key: ReportSectionKey;
@@ -560,6 +581,70 @@ function consentSection(input: ReportInput, today: string): ReportSection {
   };
 }
 
+function liaSection(input: ReportInput, today: string): ReportSection {
+  const { assessments } = input;
+  const activity = new Map(input.activities.map((a) => [a.id, a]));
+  const relying = input.activities.filter(reliesOnLegitimateInterests);
+  const uncovered = activitiesWithoutAssessment(input.activities, assessments);
+  const statusOf = new Map(assessments.map((l) => [l.id, liaStatus(l, today)]));
+  const decided = assessments.filter((l) => l.outcome !== "pending");
+
+  const open: string[] = [];
+  if (uncovered.length > 0) open.push(`No legitimate interest assessment covers: ${names(uncovered)}.`);
+  const unfinished = assessments.filter((l) => statusOf.get(l.id) === "incomplete");
+  if (unfinished.length > 0) open.push(`Not finished, so they don't yet show the interest justifies the processing: ${names(unfinished)}.`);
+  for (const l of assessments) {
+    const a = l.activityId ? activity.get(l.activityId) : undefined;
+    if (a && stillReliedOn(l, a)) {
+      open.push(`${l.name} found that people's rights outweigh the interest, but the RoPA still relies on legitimate interests for ${a.name}.`);
+    }
+  }
+  for (const l of assessments) {
+    if (statusOf.get(l.id) === "review_due") open.push(`${l.name} was due for review on ${formatDate(l.reviewOn)}.`);
+  }
+  const unsigned = decided.filter((l) => !l.decidedBy || !l.decidedOn);
+  if (unsigned.length > 0) open.push(`Who made the decision, or when, isn't recorded for: ${names(unsigned)}.`);
+  const noObjection = assessments.filter((l) => !l.objection);
+  if (noObjection.length > 0) open.push(`How people object (s.36) isn't recorded for: ${names(noObjection)}.`);
+  const unlinked = assessments.filter((l) => !l.activityId || !activity.has(l.activityId));
+  if (unlinked.length > 0) open.push(`Not linked to a processing activity: ${names(unlinked)}.`);
+  for (const l of assessments) {
+    const a = l.activityId ? activity.get(l.activityId) : undefined;
+    if (!a) continue;
+    if (a.lawfulBasis !== "legitimate_interests" && l.outcome !== "overridden") {
+      open.push(`${l.name} is recorded for ${a.name}, whose lawful basis in the RoPA isn't legitimate interests.`);
+    }
+    if (a.involvesChildren && !l.safeguards) {
+      open.push(`${a.name} involves children's data, but ${l.name} doesn't record the safeguards that protect them.`);
+    }
+  }
+
+  const rows = assessments.map((l) => [
+    l.name,
+    (l.activityId && activity.get(l.activityId)?.name) || "—",
+    LIA_OUTCOMES[l.outcome as LiaOutcome] ?? l.outcome,
+    l.decidedBy || "—",
+    formatDate(l.decidedOn),
+    formatDate(l.reviewOn),
+    LIA_STATUS_LABEL[statusOf.get(l.id)!],
+  ]);
+
+  return {
+    key: "lia",
+    heading: "Legitimate interests",
+    basis: "Data Protection Act, 2019, ss.30(1)(b)(vii) and 36",
+    href: "/lia",
+    facts: [
+      { label: "Activities relying on legitimate interests", value: count(relying.length) },
+      { label: "Of those, with an assessment", value: count(relying.length - uncovered.length) },
+      { label: "Assessments", value: count(assessments.length) },
+      { label: "Found against the processing", value: count(assessments.filter((l) => l.outcome === "overridden").length) },
+    ],
+    table: rows.length > 0 ? { columns: ["Assessment", "Activity", "Decision", "Decided by", "Decided", "Next review", "Status"], rows } : undefined,
+    open,
+  };
+}
+
 function processorSection(input: ReportInput, today: string): ReportSection {
   const { processors } = input;
   const open: string[] = [];
@@ -756,6 +841,7 @@ export function buildComplianceReport(input: ReportInput): ComplianceReport {
     ropaSection(input),
     noticeSection(input),
     consentSection(input, today),
+    liaSection(input, today),
     dpiaSection(input, today),
     breachSection(input, periodFrom),
     requestSection(input, today, periodFrom),

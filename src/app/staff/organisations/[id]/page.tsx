@@ -28,6 +28,7 @@ const RECORD_LABELS = {
   consents: "Consent records",
   disposals: "Disposals",
   policies: "Policies",
+  assessments: "Legitimate interest assessments",
 } as const;
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {

@@ -3,6 +3,7 @@ import {
   buildComplianceReport,
   type ReportActivity,
   type ReportBreach,
+  type ReportAssessment,
   type ReportConsent,
   type ReportDisposal,
   type ReportInput,
@@ -128,6 +129,24 @@ function consent(over: Partial<ReportConsent> = {}): ReportConsent {
     ...over,
   };
 }
+function assessment(over: Partial<ReportAssessment> = {}): ReportAssessment {
+  return {
+    id: "l1",
+    name: "CCTV at the gate",
+    activityId: "a4",
+    interest: "Keeping pupils, staff and property safe",
+    necessity: "Two break-ins went unsolved; lighting and guards leave no evidence",
+    impact: "People expect cameras at a school gate",
+    safeguards: "No audio, 30-day retention",
+    objection: "Tell the school office",
+    outcome: "justified",
+    decidedBy: "The Principal",
+    decidedOn: "2026-03-01",
+    reviewOn: "2027-03-01",
+    ...over,
+  };
+}
+const cctv = (over: Partial<ReportActivity> = {}) => activity({ id: "a4", name: "CCTV", lawfulBasis: "legitimate_interests", ...over });
 const newsletter = (over: Partial<ReportActivity> = {}) => activity({ id: "a2", name: "Newsletter", lawfulBasis: "consent", provision: "", ...over });
 
 /** An organisation with everything in order. */
@@ -145,6 +164,7 @@ function input(over: Partial<ReportInput> = {}): ReportInput {
     processorLinks: [{ processorId: "p1", activityId: "a1" }],
     training: [training()],
     consents: [],
+    assessments: [],
     disposals: [disposal()],
     policies: [policy()],
     now,
@@ -161,7 +181,7 @@ describe("buildComplianceReport", () => {
   it("finds nothing open when every record is in order", () => {
     const report = buildComplianceReport(input());
     expect(report.openCount).toBe(0);
-    expect(report.sections.map((s) => s.key)).toEqual(["registration", "ropa", "notice", "consent", "dpia", "breach", "request", "complaint", "processor", "disposal", "training", "policy"]);
+    expect(report.sections.map((s) => s.key)).toEqual(["registration", "ropa", "notice", "consent", "lia", "dpia", "breach", "request", "complaint", "processor", "disposal", "training", "policy"]);
     expect(report.preparedOn).toBe("2026-10-10");
     expect(report.periodFrom).toBe("2025-10-10");
   });
@@ -529,6 +549,78 @@ describe("consent", () => {
       "How the parent or guardian is verified isn't recorded for: Trip photos.",
       "A service is refused to people who don't agree, so the consent may not be freely given (s.32(4)), for: Fee reminders.",
     ]);
+  });
+});
+
+describe("legitimate interests", () => {
+  it("has nothing to say when nothing relies on legitimate interests", () => {
+    const s = section({}, "lia");
+    expect(fact(s, "Activities relying on legitimate interests")).toBe("0");
+    expect(s.table).toBeUndefined();
+    expect(s.open).toEqual([]);
+  });
+
+  it("reports an activity relying on legitimate interests with no assessment, but not one processed for someone else", () => {
+    const s = section({ activities: [activity(), cctv(), cctv({ id: "a5", name: "Client fraud checks", role: "processor" })] }, "lia");
+    expect(fact(s, "Activities relying on legitimate interests")).toBe("1");
+    expect(fact(s, "Of those, with an assessment")).toBe("0");
+    expect(s.open).toEqual(["No legitimate interest assessment covers: CCTV."]);
+  });
+
+  it("is satisfied by a finished assessment", () => {
+    const s = section({ activities: [activity(), cctv()], assessments: [assessment()] }, "lia");
+    expect(fact(s, "Of those, with an assessment")).toBe("1");
+    expect(s.open).toEqual([]);
+    expect(s.table!.rows).toEqual([
+      ["CCTV at the gate", "CCTV", "The interest justifies the processing", "The Principal", "1 Mar 2026", "1 Mar 2027", "In place"],
+    ]);
+  });
+
+  it("reports what is unfinished, unsigned or due for review", () => {
+    const s = section(
+      {
+        activities: [activity(), cctv()],
+        assessments: [
+          assessment({ necessity: "", outcome: "pending", decidedBy: "", decidedOn: null, objection: "" }),
+          assessment({ id: "l2", name: "Visitor log", reviewOn: "2026-10-01", decidedBy: "" }),
+        ],
+      },
+      "lia",
+    );
+    expect(s.open).toEqual([
+      "Not finished, so they don't yet show the interest justifies the processing: CCTV at the gate.",
+      "Visitor log was due for review on 1 Oct 2026.",
+      "Who made the decision, or when, isn't recorded for: Visitor log.",
+      "How people object (s.36) isn't recorded for: CCTV at the gate.",
+    ]);
+    expect(s.table!.rows.map((r) => r[6])).toEqual(["Not finished", "Review due"]);
+  });
+
+  it("holds an adverse decision against the RoPA until the basis changes, and checks the link, the basis and children", () => {
+    const against = assessment({ id: "l2", name: "Staff location tracking", outcome: "overridden" });
+    const s = section(
+      {
+        activities: [activity(), cctv({ involvesChildren: true })],
+        assessments: [
+          assessment({ safeguards: "" }),
+          against,
+          assessment({ id: "l3", name: "Fee arrears", activityId: "a1" }),
+          assessment({ id: "l4", name: "Old note", activityId: null }),
+        ],
+      },
+      "lia",
+    );
+    expect(fact(s, "Found against the processing")).toBe("1");
+    expect(s.open).toEqual([
+      "Staff location tracking found that people's rights outweigh the interest, but the RoPA still relies on legitimate interests for CCTV.",
+      "Not linked to a processing activity: Old note.",
+      "CCTV involves children's data, but CCTV at the gate doesn't record the safeguards that protect them.",
+      "Fee arrears is recorded for Fee payments, whose lawful basis in the RoPA isn't legitimate interests.",
+    ]);
+
+    const moved = section({ activities: [activity(), cctv({ lawfulBasis: "consent" })], assessments: [against], consents: [consent({ activityId: "a4" })] }, "lia");
+    expect(moved.open).toEqual([]);
+    expect(moved.table!.rows[0][6]).toBe("Not justified");
   });
 });
 

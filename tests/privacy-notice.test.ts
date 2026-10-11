@@ -89,6 +89,38 @@ describe("consent records", () => {
   });
 });
 
+describe("legitimate interest assessments", () => {
+  const cctv = (over: Partial<NoticeActivity> = {}) => activity({ name: "CCTV", lawfulBasis: "legitimate_interests", ...over });
+
+  it("asks for an assessment when an activity on legitimate interests has none", () => {
+    const n = build({ activities: [cctv({ assessments: [] }), activity({ assessments: [] })] });
+    expect(n.checks).toContain("Assess whether your interest justifies the processing (Legitimate interests), for: CCTV.");
+  });
+
+  it("asks how people object when an assessment doesn't say", () => {
+    const n = build({ activities: [cctv({ assessments: [{ outcome: "justified", objection: "Tell the office" }, { outcome: "justified", objection: "" }] })] });
+    expect(n.checks).toContain("Say how people object (Legitimate interests), for: CCTV.");
+  });
+
+  it("flags an assessment that found against processing the notice still puts down to legitimate interests", () => {
+    const n = build({ activities: [cctv({ assessments: [{ outcome: "overridden", objection: "Tell the office" }] })] });
+    expect(n.checks).toContain(
+      "Stop or change the processing your assessment found against, or record another lawful basis (Legitimate interests), for: CCTV.",
+    );
+  });
+
+  it("says nothing once every assessment says how to object, or when the caller doesn't know the assessments", () => {
+    for (const a of [cctv({ assessments: [{ outcome: "justified", objection: "Tell the office" }] }), cctv()]) {
+      expect(build({ activities: [a] }).checks.join(" ")).not.toContain("Legitimate interests");
+    }
+  });
+
+  it("leaves alone what the organisation processes for someone else", () => {
+    const n = build({ activities: [activity({}), cctv({ role: "processor", assessments: [] })] });
+    expect(n.checks.join(" ")).not.toContain("Legitimate interests");
+  });
+});
+
 describe("activitiesFor", () => {
   const all = [activity({ name: "A", dataSubjects: ["Parents"] }), activity({ name: "B", dataSubjects: ["Staff"] })];
 

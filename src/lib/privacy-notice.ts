@@ -30,10 +30,15 @@ export interface NoticeRegistration {
 }
 
 /**
- * A RoPA activity, with the names of the processors that handle its data and
- * the consent records behind it, when the caller knows them.
+ * A RoPA activity, with the names of the processors that handle its data, the
+ * consent records behind it and its legitimate interest assessments, when the
+ * caller knows them.
  */
-export type NoticeActivity = ActivityInput & { processors?: string[]; consents?: { withdrawal: string }[] };
+export type NoticeActivity = ActivityInput & {
+  processors?: string[];
+  consents?: { withdrawal: string }[];
+  assessments?: { outcome: string; objection: string }[];
+};
 
 export type NoticeBlock =
   | { kind: "p"; text: string }
@@ -207,6 +212,23 @@ export function buildPrivacyNotice(input: {
   const noWayOut = byConsent.filter((a) => a.consents!.length > 0 && a.consents!.some((c) => !c.withdrawal));
   if (noWayOut.length > 0) {
     checks.push(`Say how people withdraw their consent (Consent records), for: ${names(noWayOut)}.`);
+  }
+  // The notice tells people they can object to processing in the organisation's interests, so it should know how they do.
+  const byInterest = activities.filter((a) => a.lawfulBasis === "legitimate_interests" && a.assessments);
+  const unassessed = byInterest.filter((a) => a.assessments!.length === 0);
+  if (unassessed.length > 0) {
+    checks.push(`Assess whether your interest justifies the processing (Legitimate interests), for: ${names(unassessed)}.`);
+  }
+  const noObjection = byInterest.filter((a) => a.assessments!.length > 0 && a.assessments!.some((l) => !l.objection));
+  if (noObjection.length > 0) {
+    checks.push(`Say how people object (Legitimate interests), for: ${names(noObjection)}.`);
+  }
+  // The notice would go on giving legitimate interests as the basis for processing an assessment found against.
+  const adverse = byInterest.filter((a) => a.assessments!.some((l) => l.outcome === "overridden"));
+  if (adverse.length > 0) {
+    checks.push(
+      `Stop or change the processing your assessment found against, or record another lawful basis (Legitimate interests), for: ${names(adverse)}.`,
+    );
   }
   const unsafeguarded = activities.filter((a) => a.crossBorder && !a.transferSafeguards);
   if (unsafeguarded.length > 0) {

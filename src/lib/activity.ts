@@ -6,6 +6,7 @@ import {
   complaints,
   disposals,
   dpias,
+  interestAssessments,
   policies,
   processingActivities,
   consentRecords,
@@ -19,6 +20,7 @@ import {
   type Complaint,
   type Disposal,
   type Dpia,
+  type InterestAssessment,
   type Organization,
   type Policy,
   type ProcessingActivity,
@@ -232,6 +234,20 @@ export const FIELD_LABELS = {
     communicated: "how staff were told",
     notes: "notes",
   } satisfies Partial<Record<keyof Policy, string>>,
+  lia: {
+    name: "name",
+    activityId: "processing activity",
+    interest: "the interest",
+    necessity: "why it's necessary",
+    impact: "what it means for people",
+    safeguards: "safeguards",
+    objection: "how to object",
+    outcome: "decision",
+    decidedBy: "who decided",
+    decidedOn: "decision date",
+    reviewOn: "review date",
+    notes: "notes",
+  } satisfies Partial<Record<keyof InterestAssessment, string>>,
   organization: {
     name: "name",
     sector: "sector",
@@ -301,6 +317,7 @@ export const describe = {
   consent: (c: Pick<ConsentRecord, "name">) => `the consent record ${quoted(c.name)}`,
   disposal: (d: Pick<Disposal, "disposedOn">) => `the disposal on ${formatDate(d.disposedOn)}`,
   policy: (p: Pick<Policy, "title">) => `the policy ${quoted(p.title)}`,
+  lia: (l: Pick<InterestAssessment, "name">) => `the legitimate interest assessment ${quoted(l.name)}`,
 };
 
 // ---------------------------------------------------------------------------
@@ -319,6 +336,7 @@ export const ACTIVITY_AREAS: Record<ActivityArea, string> = {
   consent: "Consent records",
   disposal: "Data disposal",
   policy: "Policies",
+  lia: "Legitimate interests",
   team: "Team",
   organization: "Settings",
   billing: "Billing",
@@ -377,6 +395,7 @@ const SUBJECT_TABLES = {
   consent: consentRecords,
   disposal: disposals,
   policy: policies,
+  lia: interestAssessments,
 } as const;
 
 const SUBJECT_PATHS: Record<keyof typeof SUBJECT_TABLES, string> = {
@@ -391,6 +410,7 @@ const SUBJECT_PATHS: Record<keyof typeof SUBJECT_TABLES, string> = {
   consent: "/consents",
   disposal: "/disposals",
   policy: "/policies",
+  lia: "/lia",
 };
 
 /**

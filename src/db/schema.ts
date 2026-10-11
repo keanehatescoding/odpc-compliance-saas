@@ -20,6 +20,7 @@ import { COMPLAINT_KIND_KEYS } from "../lib/complaint";
 import { CONSENT_METHOD_KEYS } from "../lib/consent";
 import { DISPOSAL_METHOD_KEYS, DISPOSAL_REASON_KEYS } from "../lib/disposal";
 import { LIKELIHOOD_KEYS, SEVERITY_KEYS } from "../lib/dpia";
+import { LIA_OUTCOME_KEYS } from "../lib/lia";
 import { POLICY_KIND_KEYS } from "../lib/policy";
 import { BILLING_INTERVAL_KEYS, TRIAL_DAYS } from "../lib/plans";
 import { LAWFUL_BASIS_KEYS, ORG_SIZE_KEYS, SECTOR_KEYS } from "../lib/dpa";
@@ -36,6 +37,7 @@ export const consentMethodEnum = pgEnum("consent_method", CONSENT_METHOD_KEYS as
 export const disposalMethodEnum = pgEnum("disposal_method", DISPOSAL_METHOD_KEYS as [string, ...string[]]);
 export const disposalReasonEnum = pgEnum("disposal_reason", DISPOSAL_REASON_KEYS as [string, ...string[]]);
 export const policyKindEnum = pgEnum("policy_kind", POLICY_KIND_KEYS as [string, ...string[]]);
+export const liaOutcomeEnum = pgEnum("lia_outcome", LIA_OUTCOME_KEYS as [string, ...string[]]);
 export const breachRiskEnum = pgEnum("breach_risk", BREACH_RISK_KEYS as [string, ...string[]]);
 export const likelihoodEnum = pgEnum("risk_likelihood", LIKELIHOOD_KEYS as [string, ...string[]]);
 export const severityEnum = pgEnum("risk_severity", SEVERITY_KEYS as [string, ...string[]]);
@@ -961,6 +963,45 @@ export const policies = pgTable(
   (t) => [index("policies_org_idx").on(t.orgId)],
 );
 
+/**
+ * Legitimate interest assessments, one row per activity the organisation
+ * carries on without consent because its own interest justifies it
+ * (s.30(1)(b)(vii) of the Act). A row answers the three questions (the
+ * interest, whether the processing is necessary for it, and how it weighs
+ * against the people concerned) and records the decision.
+ */
+export const interestAssessments = pgTable(
+  "interest_assessments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    // The RoPA activity it is for. Null once that activity is deleted.
+    activityId: uuid("activity_id").references(() => processingActivities.id, { onDelete: "set null" }),
+    // What is being assessed, such as "CCTV at the gate and in corridors".
+    name: text("name").notNull(),
+    // What the interest is and whose.
+    interest: text("interest").notNull().default(""),
+    // Why the processing is needed for it, and what else was considered.
+    necessity: text("necessity").notNull().default(""),
+    // What it means for the people concerned: what they would expect, and the harm it could do.
+    impact: text("impact").notNull().default(""),
+    // What limits that impact.
+    safeguards: text("safeguards").notNull().default(""),
+    // How someone objects (s.36), and what happens when they do.
+    objection: text("objection").notNull().default(""),
+    outcome: liaOutcomeEnum("outcome").notNull().default("pending"),
+    decidedBy: text("decided_by").notNull().default(""),
+    // Null until a decision is recorded.
+    decidedOn: date("decided_on", { mode: "string" }),
+    reviewOn: date("review_on", { mode: "string" }),
+    notes: text("notes").notNull().default(""),
+    ...timestamps,
+  },
+  (t) => [index("interest_assessments_org_idx").on(t.orgId), index("interest_assessments_activity_idx").on(t.activityId)],
+);
+
 export const activityAreaEnum = pgEnum("activity_area", [
   "registration",
   "ropa",
@@ -973,6 +1014,7 @@ export const activityAreaEnum = pgEnum("activity_area", [
   "consent",
   "disposal",
   "policy",
+  "lia",
   "team",
   "organization",
   "billing",
@@ -1020,6 +1062,7 @@ export const organizationsRelations = relations(organizations, ({ many }) => ({
   consentRecords: many(consentRecords),
   disposals: many(disposals),
   policies: many(policies),
+  interestAssessments: many(interestAssessments),
 }));
 
 export const membershipsRelations = relations(memberships, ({ one }) => ({
@@ -1055,6 +1098,7 @@ export type TrainingSession = typeof trainingSessions.$inferSelect;
 export type ConsentRecord = typeof consentRecords.$inferSelect;
 export type Disposal = typeof disposals.$inferSelect;
 export type Policy = typeof policies.$inferSelect;
+export type InterestAssessment = typeof interestAssessments.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
 export type ServiceOrder = typeof serviceOrders.$inferSelect;
 export type EtimsInvoice = typeof etimsInvoices.$inferSelect;
