@@ -11,6 +11,7 @@ import {
   daysToAct,
   defaultDueOn,
   dueComplaintAlert,
+  dueOnAfterEdit,
   respondedLate,
   type ComplaintLike,
 } from "@/lib/complaint";
@@ -56,6 +57,27 @@ describe("deadlines", () => {
   it("is closed once the ODPC has decided, responded to or not", () => {
     expect(complaintStatus(complaint({ respondedOn: "2026-10-10", closedOn: "2026-11-20" }), "2026-12-01")).toBe("closed");
     expect(complaintStatus(complaint({ closedOn: "2026-10-05" }), "2026-12-01")).toBe("closed");
+  });
+});
+
+describe("dueOnAfterEdit", () => {
+  const before = { kind: "complaint", receivedOn: "2026-10-01", dueOn: "2026-10-22" };
+
+  it("moves a default deadline with a corrected received date", () => {
+    expect(dueOnAfterEdit(before, { ...before, receivedOn: "2026-09-28" })).toBe("2026-10-19");
+    expect(dueOnAfterEdit(before, before)).toBe("2026-10-22");
+  });
+
+  it("keeps a date changed in the same edit, or one taken from the letter", () => {
+    expect(dueOnAfterEdit(before, { ...before, receivedOn: "2026-09-28", dueOn: "2026-10-15" })).toBe("2026-10-15");
+    const fromLetter = { ...before, dueOn: "2026-10-15" };
+    expect(dueOnAfterEdit(fromLetter, { ...fromLetter, receivedOn: "2026-09-28" })).toBe("2026-10-15");
+  });
+
+  it("keeps the date when the kind has no default", () => {
+    expect(dueOnAfterEdit(before, { ...before, kind: "enforcement_notice" })).toBe("2026-10-22");
+    const notice = { kind: "information", receivedOn: "2026-10-01", dueOn: "2026-10-22" };
+    expect(dueOnAfterEdit(notice, { ...notice, receivedOn: "2026-09-28" })).toBe("2026-10-22");
   });
 });
 

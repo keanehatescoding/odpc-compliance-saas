@@ -7,6 +7,7 @@ import { after } from "next/server";
 import { db } from "@/db";
 import { complaintAlertLog, complaints } from "@/db/schema";
 import { changedFields, describe, editSummary, FIELD_LABELS, recordActivity } from "@/lib/activity";
+import { dueOnAfterEdit } from "@/lib/complaint";
 import { runComplaintAlerts } from "@/lib/complaint-alerts";
 import { parseComplaintForm } from "@/lib/complaint-form";
 import { formatDate, todayInKenya } from "@/lib/dates";
@@ -42,6 +43,7 @@ export async function saveComplaint(_prev: FormState, formData: FormData): Promi
       .where(and(eq(complaints.id, id), eq(complaints.orgId, org.id)))
       .for("update");
     if (!before) return null;
+    data.dueOn = dueOnAfterEdit(before, data);
     await tx
       .update(complaints)
       .set(data)

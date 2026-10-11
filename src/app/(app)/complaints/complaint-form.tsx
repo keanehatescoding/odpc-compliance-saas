@@ -41,7 +41,7 @@ export function ComplaintForm({ complaint, defaults }: { complaint?: Complaint; 
             name="dueOn"
             label="Act by"
             type="date"
-            hint={`The date the letter gives. For a complaint, leave it empty to use ${COMPLAINT_KINDS.complaint.days} days from the day you received it.`}
+            hint={`The date the letter gives. For a complaint, leave it empty to use ${COMPLAINT_KINDS.complaint.days} days from the day you received it${complaint ? "; a date counted that way follows the received date if you correct it" : ""}.`}
             initial={complaint?.dueOn}
             {...f}
           />

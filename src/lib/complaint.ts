@@ -99,6 +99,20 @@ export function defaultDueOn(kind: string, receivedOn: string): string | null {
   return days === undefined ? null : addDays(receivedOn, days);
 }
 
+/**
+ * The deadline to save on an edit. One that was the law's default and was left
+ * as it was moves with a corrected received date; a date typed in from the
+ * letter, or changed in this edit, is kept.
+ */
+export function dueOnAfterEdit(
+  before: Pick<ComplaintLike, "kind" | "receivedOn" | "dueOn">,
+  after: Pick<ComplaintLike, "kind" | "receivedOn" | "dueOn">,
+): string {
+  const wasDefault = before.dueOn === defaultDueOn(before.kind, before.receivedOn);
+  if (!wasDefault || after.dueOn !== before.dueOn) return after.dueOn;
+  return defaultDueOn(after.kind, after.receivedOn) ?? after.dueOn;
+}
+
 /** Days from today to the deadline (0 on the day, negative once passed). */
 export function daysToAct(c: Pick<ComplaintLike, "dueOn">, today: string): number {
   return daysBetween(today, c.dueOn);
