@@ -6,12 +6,13 @@ import { deleteActivity } from "@/app/actions/ropa";
 import { RecordHistory } from "@/components/activity-list";
 import { DeleteButton } from "@/components/delete-button";
 import { SubmitButton } from "@/components/submit-button";
-import { BackLink, buttonClass, Card, ConsentStatusBadge, DpiaStatusBadge, PageHeader, ProcessorStatusBadge } from "@/components/ui";
+import { BackLink, buttonClass, Card, ConsentStatusBadge, DpiaStatusBadge, LiaStatusBadge, PageHeader, ProcessorStatusBadge } from "@/components/ui";
 import { formatDate, todayInKenya } from "@/lib/dates";
 import { dpiaStatus } from "@/lib/dpia";
 import { consentStatus, reliesOnConsent } from "@/lib/consent";
+import { liaStatus, reliesOnLegitimateInterests } from "@/lib/lia";
 import { processorStatus } from "@/lib/processor";
-import { activityConsents, activityProcessors, getActivity, getDpiaForActivity, listDisposals } from "@/lib/queries";
+import { activityAssessments, activityConsents, activityProcessors, getActivity, getDpiaForActivity, listDisposals } from "@/lib/queries";
 import { dpiaRecommended, dpiaTriggers } from "@/lib/ropa";
 import { requireOrgContext } from "@/lib/session";
 import { isUuid } from "@/lib/uuid";
@@ -26,10 +27,11 @@ export default async function EditActivityPage({ params }: PageProps<"/ropa/[id]
   if (!activity) notFound();
   const triggers = dpiaTriggers(activity);
   const recommended = dpiaRecommended(activity);
-  const [dpia, processors, consents, allDisposals] = await Promise.all([
+  const [dpia, processors, consents, assessments, allDisposals] = await Promise.all([
     getDpiaForActivity(org.id, activity.id),
     activityProcessors(org.id, activity.id),
     activityConsents(org.id, activity.id),
+    activityAssessments(org.id, activity.id),
     listDisposals(org.id),
   ]);
   const disposals = allDisposals.filter((d) => d.activityId === activity.id);
@@ -115,6 +117,36 @@ export default async function EditActivityPage({ params }: PageProps<"/ropa/[id]
             </div>
             <Link href={`/consents/new?activity=${activity.id}`} className={buttonClass.secondary}>
               Record the consent
+            </Link>
+          </Card>
+        )
+      )}
+      {assessments.length > 0 ? (
+        <Card className="mb-6 max-w-3xl">
+          <h2 className="font-semibold">Legitimate interest assessments</h2>
+          <ul className="mt-2 divide-y divide-stone-100">
+            {assessments.map((l) => (
+              <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                <Link href={`/lia/${l.id}`} className="font-medium hover:underline">
+                  {l.name}
+                </Link>
+                <LiaStatusBadge status={liaStatus(l, today)} />
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : (
+        reliesOnLegitimateInterests(activity) && (
+          <Card className="mb-6 flex max-w-3xl flex-wrap items-center justify-between gap-3 border-amber-300 bg-amber-50">
+            <div>
+              <h2 className="font-semibold">No legitimate interest assessment</h2>
+              <p className="mt-1 text-sm text-stone-700">
+                This activity relies on legitimate interests, which only holds if your interest outweighs the effect on the people
+                concerned. An assessment is how you show it does.
+              </p>
+            </div>
+            <Link href={`/lia/new?activity=${activity.id}`} className={buttonClass.secondary}>
+              Assess it
             </Link>
           </Card>
         )

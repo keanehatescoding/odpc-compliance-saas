@@ -8,6 +8,7 @@ import {
   breachUpdates,
   consentRecords,
   disposals,
+  interestAssessments,
   policies,
   dpiaRisks,
   dpias,
@@ -394,6 +395,27 @@ await db.insert(consentRecords).values([
   },
 ]);
 
+// CCTV and the visitor log rely on legitimate interests. The cameras have been assessed; the visitor log hasn't.
+await db.insert(interestAssessments).values({
+  orgId: org.id,
+  activityId: activities.find((a) => a.templateId === "cctv")?.id ?? null,
+  name: "CCTV at the gate and in the corridors",
+  interest:
+    "The school's interest in keeping pupils, staff and property safe, and in having evidence when something goes wrong. Parents and the police share that interest.",
+  necessity:
+    "Two break-ins and a bullying incident could not be investigated because nobody saw them. Better lighting and a second guard at the gate were tried first; they deter, but leave no record. The cameras cover the gate, the corridors and the car park only.",
+  impact:
+    "Pupils, staff and visitors are filmed going about the school day. Signs at the gate say so, and cameras at a school entrance are expected. There are none in classrooms, the staff room, toilets or changing rooms, and no sound is recorded.",
+  safeguards:
+    "Footage is overwritten after 30 days unless an incident is being investigated. Only the principal and the bursar can view it, and each viewing is logged. Footage of a pupil goes to nobody but the police or that pupil's parent.",
+  objection:
+    "Write to the principal. The objection is answered within 14 days; a camera is moved or footage deleted early unless it is needed to investigate an incident.",
+  outcome: "justified",
+  decidedBy: "The Principal, with the board's chair",
+  decidedOn: addMonths(today, -7),
+  reviewOn: addMonths(today, 5),
+});
+
 // Two disposals: last year's clear-out of old pupil files, whose next round is now due, and a routine wipe of CCTV footage.
 await db.insert(disposals).values([
   {
@@ -454,7 +476,7 @@ await db.insert(policies).values([
 ]);
 
 console.log(
-  `Seeded "${org.name}" with ${templates.length + 1} RoPA entries, one DPIA, one open breach, two data subject requests, two ODPC letters, two processors, two training sessions, two consent records, two disposals and three policies.`,
+  `Seeded "${org.name}" with ${templates.length + 1} RoPA entries, one DPIA, one open breach, two data subject requests, two ODPC letters, two processors, two training sessions, two consent records, one legitimate interest assessment, two disposals and three policies.`,
 );
 console.log(`Sign in as ${EMAIL} / ${PASSWORD}`);
 process.exit(0);

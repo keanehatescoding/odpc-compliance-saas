@@ -31,6 +31,7 @@ const {
   complaints,
   trainingSessions,
   consentRecords,
+  interestAssessments,
   disposals,
   policies,
   users,
@@ -114,6 +115,7 @@ beforeEach(async () => {
   await db.insert(trainingSessions).values({ orgId, title: "Refresher", heldOn: "2026-09-01", audience: "All staff", topics: "The basics again", refreshesId: induction.id });
   await db.insert(consentRecords).values({ orgId, activityId: activity.id, name: "Pupil photographs", method: "written" });
   await db.insert(disposals).values({ orgId, activityId: activity.id, description: "Old admission files", disposedOn: "2026-09-15", method: "shredded", reason: "retention" });
+  await db.insert(interestAssessments).values({ orgId, activityId: activity.id, name: "Fee arrears follow-up", outcome: "justified", decidedOn: "2026-03-01" });
   await db.insert(policies).values({ orgId, title: "Data Protection Policy", kind: "data_protection", approvedOn: "2026-02-01" });
   await issueInvitation(db, { orgId, actorId: owner, email: "new@sunrise.ke", role: "member" }, t0);
 
@@ -153,6 +155,10 @@ describe("exportOrganization", () => {
     expect(data!.disposals[0]).not.toHaveProperty("orgId");
     expect(data!.policies).toEqual([expect.objectContaining({ title: "Data Protection Policy", kind: "data_protection", approvedOn: "2026-02-01" })]);
     expect(data!.policies[0]).not.toHaveProperty("orgId");
+    expect(data!.interestAssessments).toEqual([
+      expect.objectContaining({ name: "Fee arrears follow-up", outcome: "justified", activityId: data!.processingActivities[0].id }),
+    ]);
+    expect(data!.interestAssessments[0]).not.toHaveProperty("orgId");
     expect(data!.payments).toEqual([
       expect.objectContaining({
         amount: 2000,
@@ -195,7 +201,7 @@ describe("deleteOrganization", () => {
     expect(r.team.map((m) => m.email).sort()).toEqual(["admin@sunrise.ke", "member@sunrise.ke", "owner@sunrise.ke"]);
     expect(r.card?.authorizationCode).toBe("AUTH_secret");
 
-    for (const table of [registrations, processingActivities, breaches, dpias, subjectRequests, complaints, processors, processorActivities, trainingSessions, consentRecords, disposals, policies, invitations, memberships, savedCards]) {
+    for (const table of [registrations, processingActivities, breaches, dpias, subjectRequests, complaints, processors, processorActivities, trainingSessions, consentRecords, interestAssessments, disposals, policies, invitations, memberships, savedCards]) {
       expect(await db.select().from(table)).toEqual([]);
     }
     const [org] = await db.select().from(organizations).where(eq(organizations.id, orgId));

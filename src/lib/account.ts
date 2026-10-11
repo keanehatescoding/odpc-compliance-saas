@@ -12,6 +12,7 @@ import {
   dpiaRisks,
   dpias,
   etimsInvoices,
+  interestAssessments,
   invitations,
   memberships,
   organizations,
@@ -55,7 +56,7 @@ export async function exportOrganization(db: Db | Tx, orgId: string, now: Date =
   const [org] = await db.select().from(organizations).where(eq(organizations.id, orgId));
   if (!org) return null;
 
-  const [team, invited, regs, activities, breachRows, dpiaRows, requests, complaintRows, processorRows, trainingRows, consentRows, disposalRows, policyRows, paymentRows, orders, card, history] = await Promise.all([
+  const [team, invited, regs, activities, breachRows, dpiaRows, requests, complaintRows, processorRows, trainingRows, consentRows, assessmentRows, disposalRows, policyRows, paymentRows, orders, card, history] = await Promise.all([
     db
       .select({ id: users.id, name: users.name, email: users.email, role: memberships.role, joinedAt: memberships.createdAt })
       .from(memberships)
@@ -75,6 +76,7 @@ export async function exportOrganization(db: Db | Tx, orgId: string, now: Date =
     db.select().from(processors).where(eq(processors.orgId, orgId)).orderBy(asc(processors.createdAt)),
     db.select().from(trainingSessions).where(eq(trainingSessions.orgId, orgId)).orderBy(asc(trainingSessions.heldOn)),
     db.select().from(consentRecords).where(eq(consentRecords.orgId, orgId)).orderBy(asc(consentRecords.createdAt)),
+    db.select().from(interestAssessments).where(eq(interestAssessments.orgId, orgId)).orderBy(asc(interestAssessments.createdAt)),
     db.select().from(disposals).where(eq(disposals.orgId, orgId)).orderBy(asc(disposals.disposedOn), asc(disposals.createdAt)),
     db.select().from(policies).where(eq(policies.orgId, orgId)).orderBy(asc(policies.createdAt)),
     db
@@ -165,6 +167,7 @@ export async function exportOrganization(db: Db | Tx, orgId: string, now: Date =
     })),
     trainingSessions: trainingRows.map(({ orgId: _o, ...t }) => t),
     consentRecords: consentRows.map(({ orgId: _o, ...c }) => c),
+    interestAssessments: assessmentRows.map(({ orgId: _o, ...l }) => l),
     disposals: disposalRows.map(({ orgId: _o, ...d }) => d),
     policies: policyRows.map(({ orgId: _o, ...p }) => p),
     payments: paymentRows.map((p) => {
@@ -254,6 +257,7 @@ export async function deleteOrganization(
     // DPIAs before the activities they point to; the rest cascade to their logs and children.
     await tx.delete(dpias).where(eq(dpias.orgId, p.orgId));
     await tx.delete(consentRecords).where(eq(consentRecords.orgId, p.orgId));
+    await tx.delete(interestAssessments).where(eq(interestAssessments.orgId, p.orgId));
     await tx.delete(disposals).where(eq(disposals.orgId, p.orgId));
     await tx.delete(policies).where(eq(policies.orgId, p.orgId));
     await tx.delete(breaches).where(eq(breaches.orgId, p.orgId));

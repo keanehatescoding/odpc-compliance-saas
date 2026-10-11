@@ -9,6 +9,7 @@ import { formatDate, formatDateTime, todayInKenya } from "@/lib/dates";
 import { disposalStatus, latestByActivity } from "@/lib/disposal";
 import { ODPC_FEES, REGISTRATION_ROLES, formatKsh, type OrgSize, type RegistrationRole } from "@/lib/dpa";
 import { dpiaStatus } from "@/lib/dpia";
+import { activitiesWithoutAssessment, liaStatus, stillReliedOn } from "@/lib/lia";
 import { policyStatus } from "@/lib/policy";
 import { processorStatus } from "@/lib/processor";
 import {
@@ -17,6 +18,7 @@ import {
   listComplaints,
   listDpias,
   listConsentRecords,
+  listInterestAssessments,
   listDisposals,
   listPolicies,
   listProcessors,
@@ -37,7 +39,7 @@ export default async function DashboardPage() {
   const { org } = await requireOrgContext();
   const today = todayInKenya();
   const now = new Date();
-  const [regs, activities, reminders, breaches, dpias, requests, processors, training, consents, complaints, disposals, policies] = await Promise.all([
+  const [regs, activities, reminders, breaches, dpias, requests, processors, training, consents, complaints, disposals, policies, assessments] = await Promise.all([
     listRegistrations(org.id),
     listActivities(org.id),
     recentReminders(org.id),
@@ -50,6 +52,7 @@ export default async function DashboardPage() {
     listComplaints(org.id),
     listDisposals(org.id),
     listPolicies(org.id),
+    listInterestAssessments(org.id),
   ]);
   const urgentBreaches = breaches
     .map((b) => ({ ...b, status: breachStatus(b, now), deadline: notificationDeadline(b) }))
@@ -111,6 +114,17 @@ export default async function DashboardPage() {
     const status = consentStatus(c, today);
     if (status === "incomplete") todos.push({ text: `Complete the consent record: ${c.name}`, href: `/consents/${c.id}` });
     else if (status === "review_due") todos.push({ text: `Review the consent wording: ${c.name}`, href: `/consents/${c.id}` });
+  }
+  for (const a of activitiesWithoutAssessment(activities, assessments)) {
+    todos.push({ text: `Assess your legitimate interest in ${a.name}`, href: `/lia/new?activity=${a.id}` });
+  }
+  for (const l of assessments) {
+    const status = liaStatus(l, today);
+    if (status === "incomplete") todos.push({ text: `Finish the legitimate interest assessment: ${l.name}`, href: `/lia/${l.id}` });
+    else if (stillReliedOn(l, activities.find((a) => a.id === l.activityId))) {
+      todos.push({ text: `Stop or change the processing your assessment found against: ${l.name}`, href: `/lia/${l.id}` });
+    }
+    else if (status === "review_due") todos.push({ text: `Review the legitimate interest assessment: ${l.name}`, href: `/lia/${l.id}` });
   }
   const uncontracted = processors.filter((p) => processorStatus(p, today) === "no_contract");
   if (uncontracted.length === 1) {
