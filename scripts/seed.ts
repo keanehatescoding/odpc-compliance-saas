@@ -5,6 +5,7 @@ import {
   breachActivities,
   breaches,
   breachUpdates,
+  consentRecords,
   dpiaRisks,
   dpias,
   invitations,
@@ -314,8 +315,54 @@ await db.insert(trainingSessions).values([
   },
 ]);
 
+// Photographs are the one thing the school does on consent. One consent record is complete, the other can't be proved yet.
+const [photos] = await db
+  .insert(processingActivities)
+  .values({
+    orgId: org.id,
+    name: "Pupil photographs and videos",
+    purpose: "Show school life on the website, in the termly newsletter and in the local press.",
+    lawfulBasis: "consent",
+    role: "controller",
+    dataSubjects: ["Students", "Parents and guardians"],
+    dataCategories: ["Photograph", "Video", "Name", "Class"],
+    recipients: "Website visitors, newsletter readers, local newspapers",
+    retentionPeriod: "Taken down when consent is withdrawn or the pupil leaves; archive copies kept 2 years",
+    securityMeasures: "Originals on the school's shared drive, open to the communications teacher and the deputy principal",
+    systems: "School website, shared drive",
+    owner: "Communications teacher",
+    involvesChildren: true,
+  })
+  .returning({ id: processingActivities.id });
+await db.insert(consentRecords).values([
+  {
+    orgId: org.id,
+    activityId: photos.id,
+    name: "Photographs on the website and in the newsletter",
+    wording:
+      "I agree that Sunrise Academy may use photographs and videos of my child on the school website and in the school newsletter. I can change my mind at any time by telling the school office.",
+    method: "written",
+    collection: "A separate tick-box and signature on the admission form, asked again at the start of each year",
+    evidence: "Signed admission forms in each pupil's file; the class teacher keeps a list of pupils who must not be photographed",
+    withdrawal: "Tell the school office in person, by phone or by note. The pupil goes on the no-photo list that day and their pictures come off the website within a week.",
+    parental: true,
+    guardianCheck: "The signature is checked against the guardian named on the admission record",
+    inUseFrom: addMonths(today, -9),
+    reviewOn: addMonths(today, 3),
+  },
+  {
+    orgId: org.id,
+    activityId: photos.id,
+    name: "Photographs given to newspapers",
+    wording: "",
+    method: "verbal",
+    collection: "The class teacher phones the parent before a press visit",
+    parental: true,
+  },
+]);
+
 console.log(
-  `Seeded "${org.name}" with ${templates.length} RoPA entries, one DPIA, one open breach, two data subject requests, two processors and two training sessions.`,
+  `Seeded "${org.name}" with ${templates.length + 1} RoPA entries, one DPIA, one open breach, two data subject requests, two processors, two training sessions and two consent records.`,
 );
 console.log(`Sign in as ${EMAIL} / ${PASSWORD}`);
 process.exit(0);

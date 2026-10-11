@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Countdown } from "@/components/countdown";
 import { BreachStatusBadge, buttonClass, Card, cx, PageHeader, StatusBadge } from "@/components/ui";
 import { breachStatus, notificationDeadline, NOTIFY_WHOM, outstandingTasks } from "@/lib/breach";
+import { activitiesWithoutConsent, consentStatus } from "@/lib/consent";
 import { formatDate, formatDateTime, todayInKenya } from "@/lib/dates";
 import { ODPC_FEES, REGISTRATION_ROLES, formatKsh, type OrgSize, type RegistrationRole } from "@/lib/dpa";
 import { dpiaStatus } from "@/lib/dpia";
@@ -11,6 +12,7 @@ import {
   listActivities,
   listBreaches,
   listDpias,
+  listConsentRecords,
   listProcessors,
   listRegistrations,
   listSubjectRequests,
@@ -29,7 +31,7 @@ export default async function DashboardPage() {
   const { org } = await requireOrgContext();
   const today = todayInKenya();
   const now = new Date();
-  const [regs, activities, reminders, breaches, dpias, requests, processors, training] = await Promise.all([
+  const [regs, activities, reminders, breaches, dpias, requests, processors, training, consents] = await Promise.all([
     listRegistrations(org.id),
     listActivities(org.id),
     recentReminders(org.id),
@@ -38,6 +40,7 @@ export default async function DashboardPage() {
     listSubjectRequests(org.id),
     listProcessors(org.id),
     listTrainingSessions(org.id),
+    listConsentRecords(org.id),
   ]);
   const urgentBreaches = breaches
     .map((b) => ({ ...b, status: breachStatus(b, now), deadline: notificationDeadline(b) }))
@@ -83,6 +86,14 @@ export default async function DashboardPage() {
     const status = dpiaStatus(dpia, today);
     if (status === "draft") todos.push({ text: `Finish and approve the DPIA: ${dpia.title}`, href: `/dpia/${dpia.id}` });
     else if (status === "review_due") todos.push({ text: `Review the DPIA: ${dpia.title}`, href: `/dpia/${dpia.id}` });
+  }
+  for (const a of activitiesWithoutConsent(activities, consents)) {
+    todos.push({ text: `Record how you get consent for ${a.name}`, href: `/consents/new?activity=${a.id}` });
+  }
+  for (const c of consents) {
+    const status = consentStatus(c, today);
+    if (status === "incomplete") todos.push({ text: `Complete the consent record: ${c.name}`, href: `/consents/${c.id}` });
+    else if (status === "review_due") todos.push({ text: `Review the consent wording: ${c.name}`, href: `/consents/${c.id}` });
   }
   const uncontracted = processors.filter((p) => processorStatus(p, today) === "no_contract");
   if (uncontracted.length === 1) {

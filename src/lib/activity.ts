@@ -5,6 +5,7 @@ import {
   breaches,
   dpias,
   processingActivities,
+  consentRecords,
   processors,
   registrations,
   subjectRequests,
@@ -15,6 +16,7 @@ import {
   type Dpia,
   type Organization,
   type ProcessingActivity,
+  type ConsentRecord,
   type Processor,
   type Registration,
   type SubjectRequest,
@@ -170,6 +172,21 @@ export const FIELD_LABELS = {
     refreshesId: "session it refreshes",
     notes: "notes",
   } satisfies Partial<Record<keyof TrainingSession, string>>,
+  consent: {
+    name: "what people agree to",
+    activityId: "processing activity",
+    wording: "wording",
+    method: "how it's given",
+    collection: "where it's asked",
+    evidence: "where the proof is kept",
+    withdrawal: "how to withdraw",
+    parental: "given by a parent or guardian",
+    guardianCheck: "parent or guardian check",
+    conditional: "service depends on it",
+    inUseFrom: "in use from",
+    reviewOn: "review date",
+    notes: "notes",
+  } satisfies Partial<Record<keyof ConsentRecord, string>>,
   organization: {
     name: "name",
     sector: "sector",
@@ -233,6 +250,7 @@ export const describe = {
     `the ${REQUEST_NOUN[r.kind as RequestKind]} request received ${formatDate(r.receivedOn)}`,
   processor: (p: Pick<Processor, "name">) => `the processor ${quoted(p.name)}`,
   training: (t: Pick<TrainingSession, "title">) => `the training session ${quoted(t.title)}`,
+  consent: (c: Pick<ConsentRecord, "name">) => `the consent record ${quoted(c.name)}`,
 };
 
 // ---------------------------------------------------------------------------
@@ -247,6 +265,7 @@ export const ACTIVITY_AREAS: Record<ActivityArea, string> = {
   request: "Data subject requests",
   processor: "Processors",
   training: "Staff training",
+  consent: "Consent records",
   team: "Team",
   organization: "Settings",
   billing: "Billing",
@@ -301,6 +320,7 @@ const SUBJECT_TABLES = {
   request: subjectRequests,
   processor: processors,
   training: trainingSessions,
+  consent: consentRecords,
 } as const;
 
 const SUBJECT_PATHS: Record<keyof typeof SUBJECT_TABLES, string> = {
@@ -311,6 +331,7 @@ const SUBJECT_PATHS: Record<keyof typeof SUBJECT_TABLES, string> = {
   request: "/requests",
   processor: "/processors",
   training: "/training",
+  consent: "/consents",
 };
 
 /**

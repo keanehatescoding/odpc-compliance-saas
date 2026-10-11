@@ -3,6 +3,7 @@ import {
   buildComplianceReport,
   type ReportActivity,
   type ReportBreach,
+  type ReportConsent,
   type ReportInput,
   type ReportProcessor,
   type ReportSectionKey,
@@ -82,6 +83,24 @@ function training(over: Partial<ReportTraining> = {}): ReportTraining {
   };
 }
 
+function consent(over: Partial<ReportConsent> = {}): ReportConsent {
+  return {
+    id: "c1",
+    name: "Newsletter emails",
+    activityId: "a2",
+    method: "online",
+    wording: "I agree to receive the school newsletter by email.",
+    evidence: "Sign-up log in the mailing tool",
+    withdrawal: "Unsubscribe link in every email",
+    parental: false,
+    guardianCheck: "",
+    conditional: false,
+    reviewOn: "2027-06-01",
+    ...over,
+  };
+}
+const newsletter = (over: Partial<ReportActivity> = {}) => activity({ id: "a2", name: "Newsletter", lawfulBasis: "consent", provision: "", ...over });
+
 /** An organisation with everything in order. */
 function input(over: Partial<ReportInput> = {}): ReportInput {
   return {
@@ -95,6 +114,7 @@ function input(over: Partial<ReportInput> = {}): ReportInput {
     processors: [processor()],
     processorLinks: [{ processorId: "p1", activityId: "a1" }],
     training: [training()],
+    consents: [],
     now,
     ...over,
   };
@@ -109,7 +129,7 @@ describe("buildComplianceReport", () => {
   it("finds nothing open when every record is in order", () => {
     const report = buildComplianceReport(input());
     expect(report.openCount).toBe(0);
-    expect(report.sections.map((s) => s.key)).toEqual(["registration", "ropa", "notice", "dpia", "breach", "request", "processor", "training"]);
+    expect(report.sections.map((s) => s.key)).toEqual(["registration", "ropa", "notice", "consent", "dpia", "breach", "request", "processor", "training"]);
     expect(report.preparedOn).toBe("2026-10-10");
     expect(report.periodFrom).toBe("2025-10-10");
   });
@@ -360,6 +380,69 @@ describe("data subject requests", () => {
   it("reports a request past its deadline", () => {
     const s = section({ requests: [{ kind: "access", receivedOn: "2026-10-01", outcome: null, respondedOn: null }] }, "request");
     expect(s.open).toEqual(["Access request received 1 Oct 2026: not answered, 2 days overdue (7 days allowed)."]);
+  });
+});
+
+describe("consent", () => {
+  it("has nothing to say when nothing relies on consent", () => {
+    const s = section({}, "consent");
+    expect(fact(s, "Activities relying on consent")).toBe("0");
+    expect(s.table).toBeUndefined();
+    expect(s.open).toEqual([]);
+  });
+
+  it("reports an activity relying on consent with no record, but not one processed for someone else", () => {
+    const s = section({ activities: [activity(), newsletter(), newsletter({ id: "a3", name: "Client campaigns", role: "processor" })] }, "consent");
+    expect(fact(s, "Activities relying on consent")).toBe("1");
+    expect(fact(s, "Of those, with a consent record")).toBe("0");
+    expect(s.open).toEqual(["No consent record covers: Newsletter."]);
+  });
+
+  it("is satisfied by a complete record", () => {
+    const s = section({ activities: [activity(), newsletter()], consents: [consent()] }, "consent");
+    expect(fact(s, "Of those, with a consent record")).toBe("1");
+    expect(s.open).toEqual([]);
+    expect(s.table!.rows).toEqual([["Newsletter emails", "Newsletter", "Online form or tick-box", "Sign-up log in the mailing tool", "1 Jun 2027", "In place"]]);
+  });
+
+  it("reports what a record can't prove, and reviews that have come due", () => {
+    const s = section(
+      {
+        activities: [activity(), newsletter()],
+        consents: [consent({ wording: "", evidence: "", withdrawal: "" }), consent({ id: "c2", name: "Event photos", reviewOn: "2026-10-01" })],
+      },
+      "consent",
+    );
+    expect(s.open).toEqual([
+      "The wording people agree to isn't recorded for: Newsletter emails.",
+      "Where the proof of consent is kept isn't recorded for: Newsletter emails.",
+      "How people withdraw isn't recorded for: Newsletter emails.",
+      "Event photos was due for review on 1 Oct 2026.",
+    ]);
+    expect(s.table!.rows.map((r) => r[5])).toEqual(["Proof incomplete", "Review due"]);
+  });
+
+  it("checks children's consent, the lawful basis and whether the consent is free", () => {
+    const s = section(
+      {
+        activities: [activity(), newsletter({ involvesChildren: true })],
+        consents: [
+          consent(),
+          consent({ id: "c2", name: "Trip photos", parental: true }),
+          consent({ id: "c3", name: "Fee reminders", activityId: "a1", conditional: true }),
+          consent({ id: "c4", name: "Old form", activityId: null }),
+        ],
+      },
+      "consent",
+    );
+    expect(fact(s, "Given by a parent or guardian")).toBe("1");
+    expect(s.open).toEqual([
+      "Not linked to a processing activity: Old form.",
+      "Newsletter involves children's data, but Newsletter emails doesn't record a parent's or guardian's consent.",
+      "Fee reminders is recorded for Fee payments, whose lawful basis in the RoPA isn't consent.",
+      "How the parent or guardian is verified isn't recorded for: Trip photos.",
+      "A service is refused to people who don't agree, so the consent may not be freely given (s.32(4)), for: Fee reminders.",
+    ]);
   });
 });
 
