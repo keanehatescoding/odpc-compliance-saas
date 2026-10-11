@@ -64,6 +64,31 @@ describe("processors", () => {
   });
 });
 
+describe("consent records", () => {
+  const marketing = (over: Partial<NoticeActivity> = {}) => activity({ name: "Newsletter", lawfulBasis: "consent", provision: "", ...over });
+
+  it("asks for a consent record when a consent-based activity has none", () => {
+    const n = build({ activities: [marketing({ consents: [] }), activity({ consents: [] })] });
+    expect(n.checks).toContain("Record how you ask for consent and how people withdraw it (Consent records), for: Newsletter.");
+  });
+
+  it("asks how people withdraw when a record doesn't say", () => {
+    const n = build({ activities: [marketing({ consents: [{ withdrawal: "Unsubscribe link" }, { withdrawal: "" }] })] });
+    expect(n.checks).toContain("Say how people withdraw their consent (Consent records), for: Newsletter.");
+  });
+
+  it("says nothing once every record has a way out, or when the caller doesn't know the records", () => {
+    for (const a of [marketing({ consents: [{ withdrawal: "Unsubscribe link" }] }), marketing()]) {
+      expect(build({ activities: [a] }).checks.join(" ")).not.toContain("Consent records");
+    }
+  });
+
+  it("leaves alone what the organisation processes for someone else", () => {
+    const n = build({ activities: [activity({}), marketing({ role: "processor", consents: [] })] });
+    expect(n.checks.join(" ")).not.toContain("Consent records");
+  });
+});
+
 describe("activitiesFor", () => {
   const all = [activity({ name: "A", dataSubjects: ["Parents"] }), activity({ name: "B", dataSubjects: ["Staff"] })];
 

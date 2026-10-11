@@ -93,11 +93,11 @@ describe("organisation summaries", () => {
 
     const [clinic, school] = await orgSummaries(db, t0);
     expect(clinic.org.name).toBe("Mji Clinic");
-    expect(clinic.counts).toEqual({ registrations: 0, ropa: 0, dpias: 0, breaches: 0, requests: 0, processors: 0, training: 0 });
+    expect(clinic.counts).toEqual({ registrations: 0, ropa: 0, dpias: 0, breaches: 0, requests: 0, processors: 0, training: 0, consents: 0 });
     expect(clinic.owners).toEqual([{ name: "nurse", email: "nurse@mji.ke", verified: false }]);
     expect(clinic.lastChangeAt).toBeNull();
 
-    expect(school.counts).toEqual({ registrations: 1, ropa: 2, dpias: 0, breaches: 0, requests: 0, processors: 0, training: 0 });
+    expect(school.counts).toEqual({ registrations: 1, ropa: 2, dpias: 0, breaches: 0, requests: 0, processors: 0, training: 0, consents: 0 });
     expect(school.teamSize).toBe(2);
     expect(school.owners.map((o) => o.email)).toEqual(["owner@sunrise.ke"]);
     expect(school.lastChangeAt).toEqual(later(2 * DAY));

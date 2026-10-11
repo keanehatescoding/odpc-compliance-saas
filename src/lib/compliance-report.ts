@@ -2,6 +2,15 @@ import { notificationDeadline, notificationRequired, notifiedLate, outstandingTa
 import { addMonths, formatDate, formatDateTime, todayInKenya } from "./dates";
 import { LAWFUL_BASES, REGISTRATION_ROLES, type LawfulBasis, type RegistrationRole } from "./dpa";
 import { DPIA_STATUS_LABEL, dpiaStatus, highestLevel, residualLevel, RISK_LEVEL_LABEL, type DpiaLike, type RiskLevel } from "./dpia";
+import {
+  activitiesWithoutConsent,
+  CONSENT_METHODS,
+  CONSENT_STATUS_LABEL,
+  consentStatus,
+  reliesOnConsent,
+  type ConsentLike,
+  type ConsentMethod,
+} from "./consent";
 import { controlled, noticeAudiences } from "./privacy-notice";
 import { PROCESSOR_STATUS_LABEL, processorStatus } from "./processor";
 import { daysUntilExpiry, registrationStatus, STATUS_LABEL, type RegistrationLike } from "./registration";
@@ -81,6 +90,16 @@ export interface ReportTraining extends TrainingLike {
   evidence: string;
 }
 
+export interface ReportConsent extends ConsentLike {
+  id: string;
+  name: string;
+  activityId: string | null;
+  method: string;
+  parental: boolean;
+  guardianCheck: string;
+  conditional: boolean;
+}
+
 export interface ReportInput {
   org: ReportOrg;
   registrations: ReportRegistration[];
@@ -92,10 +111,11 @@ export interface ReportInput {
   processors: ReportProcessor[];
   processorLinks: { processorId: string; activityId: string }[];
   training: ReportTraining[];
+  consents: ReportConsent[];
   now: Date;
 }
 
-export type ReportSectionKey = "registration" | "ropa" | "notice" | "dpia" | "breach" | "request" | "processor" | "training";
+export type ReportSectionKey = "registration" | "ropa" | "notice" | "consent" | "dpia" | "breach" | "request" | "processor" | "training";
 
 export interface ReportSection {
   key: ReportSectionKey;
@@ -395,6 +415,66 @@ function requestSection(input: ReportInput, today: string, periodFrom: string): 
   };
 }
 
+function consentSection(input: ReportInput, today: string): ReportSection {
+  const { consents } = input;
+  const activity = new Map(input.activities.map((a) => [a.id, a]));
+  const relying = input.activities.filter(reliesOnConsent);
+  const uncovered = activitiesWithoutConsent(input.activities, consents);
+  const statusOf = new Map(consents.map((c) => [c.id, consentStatus(c, today)]));
+
+  const open: string[] = [];
+  if (uncovered.length > 0) open.push(`No consent record covers: ${names(uncovered)}.`);
+  const unworded = consents.filter((c) => !c.wording);
+  if (unworded.length > 0) open.push(`The wording people agree to isn't recorded for: ${names(unworded)}.`);
+  const unevidenced = consents.filter((c) => !c.evidence);
+  if (unevidenced.length > 0) open.push(`Where the proof of consent is kept isn't recorded for: ${names(unevidenced)}.`);
+  const noWayOut = consents.filter((c) => !c.withdrawal);
+  if (noWayOut.length > 0) open.push(`How people withdraw isn't recorded for: ${names(noWayOut)}.`);
+  for (const c of consents) {
+    if (statusOf.get(c.id) === "review_due") open.push(`${c.name} was due for review on ${formatDate(c.reviewOn)}.`);
+  }
+  const unlinked = consents.filter((c) => !c.activityId || !activity.has(c.activityId));
+  if (unlinked.length > 0) open.push(`Not linked to a processing activity: ${names(unlinked)}.`);
+  for (const c of consents) {
+    const a = c.activityId ? activity.get(c.activityId) : undefined;
+    if (!a) continue;
+    if (a.lawfulBasis !== "consent") open.push(`${c.name} is recorded for ${a.name}, whose lawful basis in the RoPA isn't consent.`);
+    if (a.involvesChildren && !c.parental) {
+      open.push(`${a.name} involves children's data, but ${c.name} doesn't record a parent's or guardian's consent.`);
+    }
+  }
+  const unchecked = consents.filter((c) => c.parental && !c.guardianCheck);
+  if (unchecked.length > 0) open.push(`How the parent or guardian is verified isn't recorded for: ${names(unchecked)}.`);
+  const conditional = consents.filter((c) => c.conditional);
+  if (conditional.length > 0) {
+    open.push(`A service is refused to people who don't agree, so the consent may not be freely given (s.32(4)), for: ${names(conditional)}.`);
+  }
+
+  const rows = consents.map((c) => [
+    c.name,
+    (c.activityId && activity.get(c.activityId)?.name) || "—",
+    CONSENT_METHODS[c.method as ConsentMethod] ?? c.method,
+    c.evidence || "—",
+    formatDate(c.reviewOn),
+    CONSENT_STATUS_LABEL[statusOf.get(c.id)!],
+  ]);
+
+  return {
+    key: "consent",
+    heading: "Consent",
+    basis: "Data Protection Act, 2019, ss.32–33",
+    href: "/consents",
+    facts: [
+      { label: "Activities relying on consent", value: count(relying.length) },
+      { label: "Of those, with a consent record", value: count(relying.length - uncovered.length) },
+      { label: "Consent records", value: count(consents.length) },
+      { label: "Given by a parent or guardian", value: count(consents.filter((c) => c.parental).length) },
+    ],
+    table: rows.length > 0 ? { columns: ["Consent", "Activity", "How it's given", "Proof kept", "Next review", "Status"], rows } : undefined,
+    open,
+  };
+}
+
 function processorSection(input: ReportInput, today: string): ReportSection {
   const { processors } = input;
   const open: string[] = [];
@@ -495,6 +575,7 @@ export function buildComplianceReport(input: ReportInput): ComplianceReport {
     registrationSection(input, today),
     ropaSection(input),
     noticeSection(input),
+    consentSection(input, today),
     dpiaSection(input, today),
     breachSection(input, periodFrom),
     requestSection(input, today, periodFrom),

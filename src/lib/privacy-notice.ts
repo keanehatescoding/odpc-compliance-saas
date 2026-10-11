@@ -29,8 +29,11 @@ export interface NoticeRegistration {
   expiresOn: string | null;
 }
 
-/** A RoPA activity, with the names of the processors that handle its data when the caller knows them. */
-export type NoticeActivity = ActivityInput & { processors?: string[] };
+/**
+ * A RoPA activity, with the names of the processors that handle its data and
+ * the consent records behind it, when the caller knows them.
+ */
+export type NoticeActivity = ActivityInput & { processors?: string[]; consents?: { withdrawal: string }[] };
 
 export type NoticeBlock =
   | { kind: "p"; text: string }
@@ -194,6 +197,16 @@ export function buildPrivacyNotice(input: {
   const undecided = activities.filter((a) => !provisionOf(a));
   if (undecided.length > 0) {
     checks.push(`Say whether people have to give the data, and what happens if they don't, for: ${names(undecided)}.`);
+  }
+  // The notice promises people can withdraw consent, so the organisation should know how they do.
+  const byConsent = activities.filter((a) => a.lawfulBasis === "consent" && a.consents);
+  const unrecorded = byConsent.filter((a) => a.consents!.length === 0);
+  if (unrecorded.length > 0) {
+    checks.push(`Record how you ask for consent and how people withdraw it (Consent records), for: ${names(unrecorded)}.`);
+  }
+  const noWayOut = byConsent.filter((a) => a.consents!.length > 0 && a.consents!.some((c) => !c.withdrawal));
+  if (noWayOut.length > 0) {
+    checks.push(`Say how people withdraw their consent (Consent records), for: ${names(noWayOut)}.`);
   }
   const unsafeguarded = activities.filter((a) => a.crossBorder && !a.transferSafeguards);
   if (unsafeguarded.length > 0) {

@@ -24,6 +24,7 @@ const RECORD_LABELS = {
   requests: "Data subject requests",
   processors: "Processors",
   training: "Training sessions",
+  consents: "Consent records",
 } as const;
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {

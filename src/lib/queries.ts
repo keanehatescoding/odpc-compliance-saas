@@ -8,6 +8,7 @@ import {
   dpiaRisks,
   dpias,
   processingActivities,
+  consentRecords,
   processorActivities,
   processors,
   registrations,
@@ -209,17 +210,41 @@ export async function getTrainingSession(orgId: string, id: string) {
   return row ?? null;
 }
 
+/** Consent records, by name. */
+export function listConsentRecords(orgId: string) {
+  return db.select().from(consentRecords).where(eq(consentRecords.orgId, orgId)).orderBy(asc(consentRecords.name), asc(consentRecords.createdAt));
+}
+
+export async function getConsentRecord(orgId: string, id: string) {
+  const [row] = await db
+    .select()
+    .from(consentRecords)
+    .where(and(eq(consentRecords.orgId, orgId), eq(consentRecords.id, id)))
+    .limit(1);
+  return row ?? null;
+}
+
+/** The consent records an activity relies on, by name. */
+export function activityConsents(orgId: string, activityId: string) {
+  return db
+    .select()
+    .from(consentRecords)
+    .where(and(eq(consentRecords.orgId, orgId), eq(consentRecords.activityId, activityId)))
+    .orderBy(asc(consentRecords.name), asc(consentRecords.createdAt));
+}
+
 /**
  * The organisation's privacy notice. `requested` picks the people it's for, by
  * a category of data subject from the RoPA, and none means everyone. `notice`
  * is null when it names a category the RoPA doesn't have.
  */
 export async function getPrivacyNotice(org: NoticeOrg & { id: string }, requested: string | null | undefined, today: string) {
-  const [rows, regs, processorRows, links] = await Promise.all([
+  const [rows, regs, processorRows, links, consents] = await Promise.all([
     listActivities(org.id),
     listRegistrations(org.id),
     listProcessors(org.id),
     listProcessorLinks(org.id),
+    listConsentRecords(org.id),
   ]);
   const linked = new Map<string, Set<string>>();
   for (const l of links) {
@@ -232,6 +257,7 @@ export async function getPrivacyNotice(org: NoticeOrg & { id: string }, requeste
     return {
       ...(a as ActivityInput),
       processors: ids ? processorRows.filter((p) => ids.has(p.id)).map((p) => p.name) : [],
+      consents: consents.filter((c) => c.activityId === a.id),
     };
   });
   const audiences = noticeAudiences(controlled(activities));
@@ -243,7 +269,7 @@ export async function getPrivacyNotice(org: NoticeOrg & { id: string }, requeste
 
 /** The organisation's compliance report as of `now`, from every record it keeps. */
 export async function getComplianceReport(org: ReportOrg & { id: string }, now: Date) {
-  const [regs, activities, dpiaRows, dpiaRisks, breachRows, requests, processorRows, processorLinks, training] = await Promise.all([
+  const [regs, activities, dpiaRows, dpiaRisks, breachRows, requests, processorRows, processorLinks, training, consents] = await Promise.all([
     listRegistrations(org.id),
     listActivities(org.id),
     listDpias(org.id),
@@ -253,6 +279,7 @@ export async function getComplianceReport(org: ReportOrg & { id: string }, now: 
     listProcessors(org.id),
     listProcessorLinks(org.id),
     listTrainingSessions(org.id),
+    listConsentRecords(org.id),
   ]);
   return buildComplianceReport({
     org,
@@ -265,6 +292,7 @@ export async function getComplianceReport(org: ReportOrg & { id: string }, now: 
     processors: processorRows,
     processorLinks,
     training,
+    consents,
     now,
   });
 }
