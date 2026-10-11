@@ -18,6 +18,7 @@ import {
 import { BREACH_KIND_KEYS, BREACH_RISK_KEYS } from "../lib/breach";
 import { COMPLAINT_KIND_KEYS } from "../lib/complaint";
 import { CONSENT_METHOD_KEYS } from "../lib/consent";
+import { DISPOSAL_METHOD_KEYS, DISPOSAL_REASON_KEYS } from "../lib/disposal";
 import { LIKELIHOOD_KEYS, SEVERITY_KEYS } from "../lib/dpia";
 import { BILLING_INTERVAL_KEYS, TRIAL_DAYS } from "../lib/plans";
 import { LAWFUL_BASIS_KEYS, ORG_SIZE_KEYS, SECTOR_KEYS } from "../lib/dpa";
@@ -31,6 +32,8 @@ export const registrationRoleEnum = pgEnum("registration_role", ["controller", "
 export const lawfulBasisEnum = pgEnum("lawful_basis", LAWFUL_BASIS_KEYS as [string, ...string[]]);
 export const breachKindEnum = pgEnum("breach_kind", BREACH_KIND_KEYS as [string, ...string[]]);
 export const consentMethodEnum = pgEnum("consent_method", CONSENT_METHOD_KEYS as [string, ...string[]]);
+export const disposalMethodEnum = pgEnum("disposal_method", DISPOSAL_METHOD_KEYS as [string, ...string[]]);
+export const disposalReasonEnum = pgEnum("disposal_reason", DISPOSAL_REASON_KEYS as [string, ...string[]]);
 export const breachRiskEnum = pgEnum("breach_risk", BREACH_RISK_KEYS as [string, ...string[]]);
 export const likelihoodEnum = pgEnum("risk_likelihood", LIKELIHOOD_KEYS as [string, ...string[]]);
 export const severityEnum = pgEnum("risk_severity", SEVERITY_KEYS as [string, ...string[]]);
@@ -885,6 +888,45 @@ export const consentRecords = pgTable(
   (t) => [index("consent_records_org_idx").on(t.orgId), index("consent_records_activity_idx").on(t.activityId)],
 );
 
+/**
+ * Personal data the organisation has got rid of, one row per disposal. Section
+ * 39 of the Act says data is kept no longer than its purpose needs, and the
+ * RoPA says how long that is; this is the evidence it was acted on. A row
+ * describes the records that went and never holds them.
+ */
+export const disposals = pgTable(
+  "disposals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    // The RoPA activity the data belonged to. Null when none was chosen, or once that activity is deleted.
+    activityId: uuid("activity_id").references(() => processingActivities.id, { onDelete: "set null" }),
+    // The records that went, such as "Admission files of pupils who left before 2019".
+    description: text("description").notNull(),
+    disposedOn: date("disposed_on", { mode: "string" }).notNull(),
+    method: disposalMethodEnum("method").notNull(),
+    reason: disposalReasonEnum("reason").notNull(),
+    // Roughly how many records. Null when nobody counted.
+    recordCount: integer("record_count"),
+    authorisedBy: text("authorised_by").notNull().default(""),
+    // A member of staff, or a supplier such as a shredding company.
+    carriedOutBy: text("carried_out_by").notNull().default(""),
+    // Where the destruction certificate, deletion log or signed note is kept.
+    evidence: text("evidence").notNull().default(""),
+    // When this activity's data should next be gone through. Null when no next round is planned.
+    nextOn: date("next_on", { mode: "string" }),
+    notes: text("notes").notNull().default(""),
+    ...timestamps,
+  },
+  (t) => [
+    index("disposals_org_idx").on(t.orgId),
+    index("disposals_activity_idx").on(t.activityId),
+    check("disposals_record_count_positive", sql`${t.recordCount} > 0`),
+  ],
+);
+
 export const activityAreaEnum = pgEnum("activity_area", [
   "registration",
   "ropa",
@@ -895,6 +937,7 @@ export const activityAreaEnum = pgEnum("activity_area", [
   "processor",
   "training",
   "consent",
+  "disposal",
   "team",
   "organization",
   "billing",
@@ -940,6 +983,7 @@ export const organizationsRelations = relations(organizations, ({ many }) => ({
   processors: many(processors),
   trainingSessions: many(trainingSessions),
   consentRecords: many(consentRecords),
+  disposals: many(disposals),
 }));
 
 export const membershipsRelations = relations(memberships, ({ one }) => ({
@@ -973,6 +1017,7 @@ export type Complaint = typeof complaints.$inferSelect;
 export type Processor = typeof processors.$inferSelect;
 export type TrainingSession = typeof trainingSessions.$inferSelect;
 export type ConsentRecord = typeof consentRecords.$inferSelect;
+export type Disposal = typeof disposals.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
 export type ServiceOrder = typeof serviceOrders.$inferSelect;
 export type EtimsInvoice = typeof etimsInvoices.$inferSelect;

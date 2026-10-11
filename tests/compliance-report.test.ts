@@ -4,6 +4,7 @@ import {
   type ReportActivity,
   type ReportBreach,
   type ReportConsent,
+  type ReportDisposal,
   type ReportInput,
   type ReportProcessor,
   type ReportSectionKey,
@@ -83,6 +84,20 @@ function training(over: Partial<ReportTraining> = {}): ReportTraining {
   };
 }
 
+function disposal(over: Partial<ReportDisposal> = {}): ReportDisposal {
+  return {
+    id: "x1",
+    activityId: "a1",
+    disposedOn: "2026-06-30",
+    nextOn: "2027-06-30",
+    method: "shredded",
+    reason: "retention",
+    recordCount: 40,
+    evidence: "Destruction certificate in the compliance file",
+    ...over,
+  };
+}
+
 function consent(over: Partial<ReportConsent> = {}): ReportConsent {
   return {
     id: "c1",
@@ -116,6 +131,7 @@ function input(over: Partial<ReportInput> = {}): ReportInput {
     processorLinks: [{ processorId: "p1", activityId: "a1" }],
     training: [training()],
     consents: [],
+    disposals: [disposal()],
     now,
     ...over,
   };
@@ -130,7 +146,7 @@ describe("buildComplianceReport", () => {
   it("finds nothing open when every record is in order", () => {
     const report = buildComplianceReport(input());
     expect(report.openCount).toBe(0);
-    expect(report.sections.map((s) => s.key)).toEqual(["registration", "ropa", "notice", "consent", "dpia", "breach", "request", "complaint", "processor", "training"]);
+    expect(report.sections.map((s) => s.key)).toEqual(["registration", "ropa", "notice", "consent", "dpia", "breach", "request", "complaint", "processor", "disposal", "training"]);
     expect(report.preparedOn).toBe("2026-10-10");
     expect(report.periodFrom).toBe("2025-10-10");
   });
@@ -532,6 +548,51 @@ describe("processors", () => {
 
     const recorded = section({ processors: [abroad], activities: [activity({ crossBorder: true, transferSafeguards: "Standard clauses" })] }, "processor");
     expect(recorded.open).toEqual([]);
+  });
+});
+
+describe("disposal", () => {
+  it("says when nothing is recorded, unless there is no RoPA to dispose from", () => {
+    expect(section({ disposals: [] }, "disposal").open).toEqual(["No disposal of personal data is recorded."]);
+    expect(section({ activities: [], disposals: [] }, "disposal").open).toEqual([]);
+  });
+
+  it("counts the period's disposals and names them by activity", () => {
+    const s = section(
+      {
+        activities: [activity(), newsletter()],
+        disposals: [
+          disposal(),
+          disposal({ id: "x2", activityId: null, disposedOn: "2026-08-01", nextOn: null, recordCount: null, method: "deleted", reason: "erasure" }),
+          disposal({ id: "x3", disposedOn: "2025-06-30", nextOn: "2026-06-30" }),
+        ],
+      },
+      "disposal",
+    );
+    expect(fact(s, "Disposals in the period")).toBe("2");
+    expect(fact(s, "Records disposed of in the period")).toBe("40, with 1 disposal not counted");
+    expect(fact(s, "Most recent disposal")).toBe("1 Aug 2026");
+    expect(fact(s, "Activities with a disposal on record")).toBe("1 of 2");
+    // The 2025 disposal was followed up in June 2026, so it is neither due nor in the period.
+    expect(s.table?.rows).toEqual([
+      ["1 Aug 2026", "No activity linked", "Someone asked for erasure", "Deleted from systems", "Not counted", "—", "Done"],
+      ["30 Jun 2026", "Fee payments", "Retention period ended", "Shredded or destroyed", "40", "30 Jun 2027", "Done"],
+    ]);
+    expect(s.open).toEqual([]);
+  });
+
+  it("reports a next round that has come due, and proof that isn't recorded", () => {
+    const s = section({ disposals: [disposal({ disposedOn: "2025-09-01", nextOn: "2026-09-01", evidence: "" })] }, "disposal");
+    expect(s.table?.rows).toHaveLength(1);
+    expect(s.open).toEqual([
+      "The next disposal after 1 Sept 2025 for Fee payments was due on 1 Sept 2026.",
+      "Where the proof is kept isn't recorded for the disposal on: 1 Sept 2025.",
+    ]);
+  });
+
+  it("says when the last disposal is more than a year old", () => {
+    const s = section({ disposals: [disposal({ disposedOn: "2025-09-01", nextOn: null })] }, "disposal");
+    expect(s.open).toEqual(["No disposal is recorded in the last 12 months. The most recent was on 1 Sept 2025."]);
   });
 });
 

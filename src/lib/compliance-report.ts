@@ -34,6 +34,16 @@ import {
   respondedLate,
   type RequestLike,
 } from "./subject-request";
+import {
+  DISPOSAL_METHODS,
+  DISPOSAL_REASONS,
+  DISPOSAL_STATUS_LABEL,
+  disposalStatus,
+  latestByActivity,
+  type DisposalLike,
+  type DisposalMethod,
+  type DisposalReason,
+} from "./disposal";
 import { refreshedIds, TRAINING_STATUS_LABEL, trainingStatus, type TrainingLike } from "./training";
 
 /**
@@ -46,7 +56,7 @@ import { refreshedIds, TRAINING_STATUS_LABEL, trainingStatus, type TrainingLike 
  * requester, because the report is meant to leave the building.
  */
 
-/** Breaches, requests and training are reported over this many months up to the day of the report. */
+/** Breaches, requests, disposals and training are reported over this many months up to the day of the report. */
 export const REPORT_PERIOD_MONTHS = 12;
 
 export interface ReportOrg {
@@ -113,6 +123,13 @@ export interface ReportConsent extends ConsentLike {
   conditional: boolean;
 }
 
+export interface ReportDisposal extends DisposalLike {
+  method: string;
+  reason: string;
+  recordCount: number | null;
+  evidence: string;
+}
+
 export interface ReportInput {
   org: ReportOrg;
   registrations: ReportRegistration[];
@@ -126,10 +143,11 @@ export interface ReportInput {
   processorLinks: { processorId: string; activityId: string }[];
   training: ReportTraining[];
   consents: ReportConsent[];
+  disposals: ReportDisposal[];
   now: Date;
 }
 
-export type ReportSectionKey = "registration" | "ropa" | "notice" | "consent" | "dpia" | "breach" | "request" | "complaint" | "processor" | "training";
+export type ReportSectionKey = "registration" | "ropa" | "notice" | "consent" | "dpia" | "breach" | "request" | "complaint" | "processor" | "disposal" | "training";
 
 export interface ReportSection {
   key: ReportSectionKey;
@@ -146,7 +164,7 @@ export interface ReportSection {
 
 export interface ComplianceReport {
   preparedOn: string;
-  /** First day of the period breaches, requests and training are counted over. */
+  /** First day of the period breaches, requests, disposals and training are counted over. */
   periodFrom: string;
   sections: ReportSection[];
   openCount: number;
@@ -577,6 +595,63 @@ function processorSection(input: ReportInput, today: string): ReportSection {
   };
 }
 
+function disposalSection(input: ReportInput, today: string, periodFrom: string): ReportSection {
+  const disposals = [...input.disposals].sort((a, b) => b.disposedOn.localeCompare(a.disposedOn));
+  const latest = latestByActivity(disposals);
+  const statusOf = new Map(disposals.map((d) => [d.id, disposalStatus(d, latest, today)]));
+  const activityName = new Map(input.activities.map((a) => [a.id, a.name]));
+  const inPeriod = disposals.filter((d) => d.disposedOn >= periodFrom);
+  const due = disposals.filter((d) => statusOf.get(d.id) === "next_due");
+  // A disposal from before the period still belongs here while its next round is outstanding.
+  const listed = disposals.filter((d) => inPeriod.includes(d) || due.includes(d));
+  // Named by activity and date. The free-text description stays out, since it may say whose records went.
+  const nameOf = (d: ReportDisposal) => (d.activityId && activityName.get(d.activityId)) || "No activity linked";
+
+  const open: string[] = [];
+  if (disposals.length === 0 && input.activities.length > 0) open.push("No disposal of personal data is recorded.");
+  for (const d of due) {
+    open.push(`The next disposal after ${formatDate(d.disposedOn)}${d.activityId && activityName.has(d.activityId) ? ` for ${nameOf(d)}` : ""} was due on ${formatDate(d.nextOn)}.`);
+  }
+  if (disposals.length > 0 && inPeriod.length === 0 && due.length === 0) {
+    open.push(`No disposal is recorded in the last ${REPORT_PERIOD_MONTHS} months. The most recent was on ${formatDate(disposals[0].disposedOn)}.`);
+  }
+  const unevidenced = listed.filter((d) => !d.evidence);
+  if (unevidenced.length > 0) {
+    open.push(`Where the proof is kept isn't recorded for the ${unevidenced.length === 1 ? "disposal" : "disposals"} on: ${unevidenced.map((d) => formatDate(d.disposedOn)).join(", ")}.`);
+  }
+
+  const uncounted = inPeriod.filter((d) => d.recordCount === null).length;
+  const records = inPeriod.reduce((n, d) => n + (d.recordCount ?? 0), 0);
+  const covered = input.activities.filter((a) => latest.has(a.id)).length;
+  const rows = listed.map((d) => [
+    formatDate(d.disposedOn),
+    nameOf(d),
+    DISPOSAL_REASONS[d.reason as DisposalReason],
+    DISPOSAL_METHODS[d.method as DisposalMethod],
+    d.recordCount === null ? "Not counted" : count(d.recordCount),
+    formatDate(d.nextOn),
+    DISPOSAL_STATUS_LABEL[statusOf.get(d.id)!],
+  ]);
+
+  return {
+    key: "disposal",
+    heading: "Retention and disposal",
+    basis: "Data Protection Act, 2019, s.39 (limitation of retention)",
+    href: "/disposals",
+    facts: [
+      { label: "Disposals in the period", value: count(inPeriod.length) },
+      {
+        label: "Records disposed of in the period",
+        value: `${records}${uncounted > 0 ? `, with ${plural(uncounted, "disposal")} not counted` : ""}`,
+      },
+      { label: "Most recent disposal", value: disposals.length > 0 ? formatDate(disposals[0].disposedOn) : "None recorded" },
+      { label: "Activities with a disposal on record", value: `${covered} of ${input.activities.length}` },
+    ],
+    table: rows.length > 0 ? { columns: ["Disposed of", "Activity", "Why", "How", "Records", "Next round", "Status"], rows } : undefined,
+    open,
+  };
+}
+
 function trainingSection(input: ReportInput, today: string, periodFrom: string): ReportSection {
   const sessions = [...input.training].sort((a, b) => b.heldOn.localeCompare(a.heldOn));
   const refreshed = refreshedIds(sessions);
@@ -638,6 +713,7 @@ export function buildComplianceReport(input: ReportInput): ComplianceReport {
     requestSection(input, today, periodFrom),
     complaintSection(input, today, periodFrom),
     processorSection(input, today),
+    disposalSection(input, today, periodFrom),
     trainingSection(input, today, periodFrom),
   ];
   return { preparedOn: today, periodFrom, sections, openCount: sections.reduce((n, s) => n + s.open.length, 0) };

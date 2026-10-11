@@ -3,6 +3,7 @@ import type { ComponentProps, ReactNode } from "react";
 import { BREACH_STATUS_LABEL, type BreachStatus } from "@/lib/breach";
 import { COMPLAINT_STATUS_LABEL, type ComplaintStatus } from "@/lib/complaint";
 import { CONSENT_STATUS_LABEL, type ConsentStatus } from "@/lib/consent";
+import { DISPOSAL_STATUS_LABEL, type DisposalStatus } from "@/lib/disposal";
 import { DPIA_STATUS_LABEL, RISK_LEVEL_LABEL, type DpiaStatus, type RiskLevel } from "@/lib/dpia";
 import type { FormValues } from "@/lib/forms";
 import { PROCESSOR_STATUS_LABEL, type ProcessorStatus } from "@/lib/processor";
@@ -143,6 +144,19 @@ export function ConsentStatusBadge({ status }: { status: ConsentStatus }) {
   return (
     <span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset", CONSENT_STATUS_STYLE[status])}>
       {CONSENT_STATUS_LABEL[status]}
+    </span>
+  );
+}
+
+const DISPOSAL_STATUS_STYLE: Record<DisposalStatus, string> = {
+  done: "bg-emerald-50 text-emerald-800 ring-emerald-200",
+  next_due: "bg-amber-50 text-amber-800 ring-amber-200",
+};
+
+export function DisposalStatusBadge({ status }: { status: DisposalStatus }) {
+  return (
+    <span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset", DISPOSAL_STATUS_STYLE[status])}>
+      {DISPOSAL_STATUS_LABEL[status]}
     </span>
   );
 }

@@ -6,6 +6,7 @@ import { breachStatus, notificationDeadline, NOTIFY_WHOM, outstandingTasks } fro
 import { awaitsResponse, complaintStatus, daysToAct, kindInfo as complaintKindInfo } from "@/lib/complaint";
 import { activitiesWithoutConsent, consentStatus } from "@/lib/consent";
 import { formatDate, formatDateTime, todayInKenya } from "@/lib/dates";
+import { disposalStatus, latestByActivity } from "@/lib/disposal";
 import { ODPC_FEES, REGISTRATION_ROLES, formatKsh, type OrgSize, type RegistrationRole } from "@/lib/dpa";
 import { dpiaStatus } from "@/lib/dpia";
 import { processorStatus } from "@/lib/processor";
@@ -15,6 +16,7 @@ import {
   listComplaints,
   listDpias,
   listConsentRecords,
+  listDisposals,
   listProcessors,
   listRegistrations,
   listSubjectRequests,
@@ -33,7 +35,7 @@ export default async function DashboardPage() {
   const { org } = await requireOrgContext();
   const today = todayInKenya();
   const now = new Date();
-  const [regs, activities, reminders, breaches, dpias, requests, processors, training, consents, complaints] = await Promise.all([
+  const [regs, activities, reminders, breaches, dpias, requests, processors, training, consents, complaints, disposals] = await Promise.all([
     listRegistrations(org.id),
     listActivities(org.id),
     recentReminders(org.id),
@@ -44,6 +46,7 @@ export default async function DashboardPage() {
     listTrainingSessions(org.id),
     listConsentRecords(org.id),
     listComplaints(org.id),
+    listDisposals(org.id),
   ]);
   const urgentBreaches = breaches
     .map((b) => ({ ...b, status: breachStatus(b, now), deadline: notificationDeadline(b) }))
@@ -114,6 +117,15 @@ export default async function DashboardPage() {
   }
   for (const p of processors) {
     if (processorStatus(p, today) === "review_due") todos.push({ text: `Review your contract with ${p.name}`, href: `/processors/${p.id}` });
+  }
+  if (activities.length > 0 && disposals.length === 0) {
+    todos.push({ text: "Check for personal data past its retention period, and record what you dispose of", href: "/disposals" });
+  }
+  const lastDisposal = latestByActivity(disposals);
+  for (const d of disposals) {
+    if (disposalStatus(d, lastDisposal, today) === "next_due") {
+      todos.push({ text: `Go through your data for disposal again (due ${formatDate(d.nextOn)})`, href: `/disposals/${d.id}` });
+    }
   }
   if (training.length === 0) todos.push({ text: "Record the data protection training your staff have had", href: "/training" });
   const refreshed = refreshedIds(training);

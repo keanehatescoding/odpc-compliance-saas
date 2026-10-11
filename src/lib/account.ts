@@ -18,6 +18,7 @@ import {
   payments,
   processingActivities,
   consentRecords,
+  disposals,
   processorActivities,
   processors,
   refunds,
@@ -53,7 +54,7 @@ export async function exportOrganization(db: Db | Tx, orgId: string, now: Date =
   const [org] = await db.select().from(organizations).where(eq(organizations.id, orgId));
   if (!org) return null;
 
-  const [team, invited, regs, activities, breachRows, dpiaRows, requests, complaintRows, processorRows, trainingRows, consentRows, paymentRows, orders, card, history] = await Promise.all([
+  const [team, invited, regs, activities, breachRows, dpiaRows, requests, complaintRows, processorRows, trainingRows, consentRows, disposalRows, paymentRows, orders, card, history] = await Promise.all([
     db
       .select({ id: users.id, name: users.name, email: users.email, role: memberships.role, joinedAt: memberships.createdAt })
       .from(memberships)
@@ -73,6 +74,7 @@ export async function exportOrganization(db: Db | Tx, orgId: string, now: Date =
     db.select().from(processors).where(eq(processors.orgId, orgId)).orderBy(asc(processors.createdAt)),
     db.select().from(trainingSessions).where(eq(trainingSessions.orgId, orgId)).orderBy(asc(trainingSessions.heldOn)),
     db.select().from(consentRecords).where(eq(consentRecords.orgId, orgId)).orderBy(asc(consentRecords.createdAt)),
+    db.select().from(disposals).where(eq(disposals.orgId, orgId)).orderBy(asc(disposals.disposedOn), asc(disposals.createdAt)),
     db
       .select()
       .from(payments)
@@ -161,6 +163,7 @@ export async function exportOrganization(db: Db | Tx, orgId: string, now: Date =
     })),
     trainingSessions: trainingRows.map(({ orgId: _o, ...t }) => t),
     consentRecords: consentRows.map(({ orgId: _o, ...c }) => c),
+    disposals: disposalRows.map(({ orgId: _o, ...d }) => d),
     payments: paymentRows.map((p) => {
       const sale = invoices.find((i) => i.paymentId === p.id && i.refundId === null);
       return {
@@ -248,6 +251,7 @@ export async function deleteOrganization(
     // DPIAs before the activities they point to; the rest cascade to their logs and children.
     await tx.delete(dpias).where(eq(dpias.orgId, p.orgId));
     await tx.delete(consentRecords).where(eq(consentRecords.orgId, p.orgId));
+    await tx.delete(disposals).where(eq(disposals.orgId, p.orgId));
     await tx.delete(breaches).where(eq(breaches.orgId, p.orgId));
     await tx.delete(processingActivities).where(eq(processingActivities.orgId, p.orgId));
     await tx.delete(registrations).where(eq(registrations.orgId, p.orgId));
