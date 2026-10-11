@@ -8,6 +8,7 @@ import type { Db } from "@/db";
 import {
   activityLog,
   breaches,
+  complaints,
   dpias,
   invitations,
   memberships,
@@ -60,6 +61,7 @@ export interface RecordCounts {
   dpias: number;
   breaches: number;
   requests: number;
+  complaints: number;
   processors: number;
   training: number;
   consents: number;
@@ -70,7 +72,7 @@ export interface RecordCounts {
 const qualified = (table: AnyPgTable, column: AnyPgColumn) => sql`${table}.${sql.identifier(column.name)}`;
 const orgIdColumn = qualified(organizations, organizations.id);
 
-const countFor = (table: typeof registrations | typeof processingActivities | typeof dpias | typeof breaches | typeof subjectRequests | typeof processors | typeof trainingSessions | typeof consentRecords) =>
+const countFor = (table: typeof registrations | typeof processingActivities | typeof dpias | typeof breaches | typeof subjectRequests | typeof complaints | typeof processors | typeof trainingSessions | typeof consentRecords) =>
   sql<number>`(select count(*)::int from ${table} where ${qualified(table, table.orgId)} = ${orgIdColumn})`.mapWith(Number);
 
 const recordCounts = {
@@ -79,6 +81,7 @@ const recordCounts = {
   dpias: countFor(dpias),
   breaches: countFor(breaches),
   requests: countFor(subjectRequests),
+  complaints: countFor(complaints),
   processors: countFor(processors),
   training: countFor(trainingSessions),
   consents: countFor(consentRecords),

@@ -4,6 +4,7 @@ import { db } from "@/db";
 import {
   breachActivities,
   breaches,
+  complaints,
   breachUpdates,
   dpiaRisks,
   dpias,
@@ -163,6 +164,20 @@ export async function getSubjectRequest(orgId: string, id: string) {
   return row ?? null;
 }
 
+/** Complaints and notices from the ODPC, newest first. */
+export function listComplaints(orgId: string) {
+  return db.select().from(complaints).where(eq(complaints.orgId, orgId)).orderBy(desc(complaints.receivedOn), desc(complaints.createdAt));
+}
+
+export async function getComplaint(orgId: string, id: string) {
+  const [row] = await db
+    .select()
+    .from(complaints)
+    .where(and(eq(complaints.orgId, orgId), eq(complaints.id, id)))
+    .limit(1);
+  return row ?? null;
+}
+
 export function listProcessors(orgId: string) {
   return db.select().from(processors).where(eq(processors.orgId, orgId)).orderBy(asc(processors.name));
 }
@@ -269,13 +284,14 @@ export async function getPrivacyNotice(org: NoticeOrg & { id: string }, requeste
 
 /** The organisation's compliance report as of `now`, from every record it keeps. */
 export async function getComplianceReport(org: ReportOrg & { id: string }, now: Date) {
-  const [regs, activities, dpiaRows, dpiaRisks, breachRows, requests, processorRows, processorLinks, training, consents] = await Promise.all([
+  const [regs, activities, dpiaRows, dpiaRisks, breachRows, requests, complaintRows, processorRows, processorLinks, training, consents] = await Promise.all([
     listRegistrations(org.id),
     listActivities(org.id),
     listDpias(org.id),
     listOrgDpiaRisks(org.id),
     listBreaches(org.id),
     listSubjectRequests(org.id),
+    listComplaints(org.id),
     listProcessors(org.id),
     listProcessorLinks(org.id),
     listTrainingSessions(org.id),
@@ -289,6 +305,7 @@ export async function getComplianceReport(org: ReportOrg & { id: string }, now: 
     dpiaRisks,
     breaches: breachRows,
     requests,
+    complaints: complaintRows,
     processors: processorRows,
     processorLinks,
     training,

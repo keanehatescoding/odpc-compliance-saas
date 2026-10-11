@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ComponentProps, ReactNode } from "react";
 import { BREACH_STATUS_LABEL, type BreachStatus } from "@/lib/breach";
+import { COMPLAINT_STATUS_LABEL, type ComplaintStatus } from "@/lib/complaint";
 import { CONSENT_STATUS_LABEL, type ConsentStatus } from "@/lib/consent";
 import { DPIA_STATUS_LABEL, RISK_LEVEL_LABEL, type DpiaStatus, type RiskLevel } from "@/lib/dpia";
 import type { FormValues } from "@/lib/forms";
@@ -84,6 +85,22 @@ export function RequestStatusBadge({ status }: { status: RequestStatus }) {
   return (
     <span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset", REQUEST_STATUS_STYLE[status])}>
       {REQUEST_STATUS_LABEL[status]}
+    </span>
+  );
+}
+
+const COMPLAINT_STATUS_STYLE: Record<ComplaintStatus, string> = {
+  open: "bg-sky-50 text-sky-800 ring-sky-200",
+  due_soon: "bg-orange-50 text-orange-800 ring-orange-300",
+  overdue: "bg-red-50 text-red-800 ring-red-300",
+  responded: "bg-amber-50 text-amber-800 ring-amber-200",
+  closed: "bg-stone-100 text-stone-700 ring-stone-300",
+};
+
+export function ComplaintStatusBadge({ status }: { status: ComplaintStatus }) {
+  return (
+    <span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset", COMPLAINT_STATUS_STYLE[status])}>
+      {COMPLAINT_STATUS_LABEL[status]}
     </span>
   );
 }
