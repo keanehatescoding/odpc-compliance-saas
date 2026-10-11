@@ -6,11 +6,12 @@ import { deleteActivity } from "@/app/actions/ropa";
 import { RecordHistory } from "@/components/activity-list";
 import { DeleteButton } from "@/components/delete-button";
 import { SubmitButton } from "@/components/submit-button";
-import { BackLink, buttonClass, Card, DpiaStatusBadge, PageHeader, ProcessorStatusBadge } from "@/components/ui";
+import { BackLink, buttonClass, Card, ConsentStatusBadge, DpiaStatusBadge, PageHeader, ProcessorStatusBadge } from "@/components/ui";
 import { todayInKenya } from "@/lib/dates";
 import { dpiaStatus } from "@/lib/dpia";
+import { consentStatus, reliesOnConsent } from "@/lib/consent";
 import { processorStatus } from "@/lib/processor";
-import { activityProcessors, getActivity, getDpiaForActivity } from "@/lib/queries";
+import { activityConsents, activityProcessors, getActivity, getDpiaForActivity } from "@/lib/queries";
 import { dpiaRecommended, dpiaTriggers } from "@/lib/ropa";
 import { requireOrgContext } from "@/lib/session";
 import { isUuid } from "@/lib/uuid";
@@ -25,7 +26,11 @@ export default async function EditActivityPage({ params }: PageProps<"/ropa/[id]
   if (!activity) notFound();
   const triggers = dpiaTriggers(activity);
   const recommended = dpiaRecommended(activity);
-  const [dpia, processors] = await Promise.all([getDpiaForActivity(org.id, activity.id), activityProcessors(org.id, activity.id)]);
+  const [dpia, processors, consents] = await Promise.all([
+    getDpiaForActivity(org.id, activity.id),
+    activityProcessors(org.id, activity.id),
+    activityConsents(org.id, activity.id),
+  ]);
   const today = todayInKenya();
 
   return (
@@ -82,6 +87,35 @@ export default async function EditActivityPage({ params }: PageProps<"/ropa/[id]
             ))}
           </ul>
         </Card>
+      )}
+      {consents.length > 0 ? (
+        <Card className="mb-6 max-w-3xl">
+          <h2 className="font-semibold">Consent this activity relies on</h2>
+          <ul className="mt-2 divide-y divide-stone-100">
+            {consents.map((c) => (
+              <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                <Link href={`/consents/${c.id}`} className="font-medium hover:underline">
+                  {c.name}
+                </Link>
+                <ConsentStatusBadge status={consentStatus(c, today)} />
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : (
+        reliesOnConsent(activity) && (
+          <Card className="mb-6 flex max-w-3xl flex-wrap items-center justify-between gap-3 border-amber-300 bg-amber-50">
+            <div>
+              <h2 className="font-semibold">No consent record</h2>
+              <p className="mt-1 text-sm text-stone-700">
+                This activity relies on consent, and section 32 of the Act says it is for you to prove it was given.
+              </p>
+            </div>
+            <Link href={`/consents/new?activity=${activity.id}`} className={buttonClass.secondary}>
+              Record the consent
+            </Link>
+          </Card>
+        )
       )}
       <ActivityForm activity={activity} />
       <RecordHistory orgId={org.id} subjectId={activity.id} />

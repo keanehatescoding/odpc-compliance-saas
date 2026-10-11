@@ -16,6 +16,7 @@ import {
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { BREACH_KIND_KEYS, BREACH_RISK_KEYS } from "../lib/breach";
+import { CONSENT_METHOD_KEYS } from "../lib/consent";
 import { LIKELIHOOD_KEYS, SEVERITY_KEYS } from "../lib/dpia";
 import { BILLING_INTERVAL_KEYS, TRIAL_DAYS } from "../lib/plans";
 import { LAWFUL_BASIS_KEYS, ORG_SIZE_KEYS, SECTOR_KEYS } from "../lib/dpa";
@@ -28,6 +29,7 @@ export const memberRoleEnum = pgEnum("member_role", ["owner", "admin", "member"]
 export const registrationRoleEnum = pgEnum("registration_role", ["controller", "processor"]);
 export const lawfulBasisEnum = pgEnum("lawful_basis", LAWFUL_BASIS_KEYS as [string, ...string[]]);
 export const breachKindEnum = pgEnum("breach_kind", BREACH_KIND_KEYS as [string, ...string[]]);
+export const consentMethodEnum = pgEnum("consent_method", CONSENT_METHOD_KEYS as [string, ...string[]]);
 export const breachRiskEnum = pgEnum("breach_risk", BREACH_RISK_KEYS as [string, ...string[]]);
 export const likelihoodEnum = pgEnum("risk_likelihood", LIKELIHOOD_KEYS as [string, ...string[]]);
 export const severityEnum = pgEnum("risk_severity", SEVERITY_KEYS as [string, ...string[]]);
@@ -789,6 +791,48 @@ export const trainingSessions = pgTable(
 );
 
 /** What part of the organisation's records an activity log entry is about. */
+/**
+ * How the organisation asks for consent, one row per thing people are asked to
+ * agree to. Section 32 of the Act puts the burden of proving consent on the
+ * controller, so each row says what was asked, how, where the proof is kept
+ * and how someone withdraws. It describes the mechanism; the signed forms and
+ * opt-in logs themselves stay wherever `evidence` says they are.
+ */
+export const consentRecords = pgTable(
+  "consent_records",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    // The RoPA activity that relies on it. Null once that activity is deleted.
+    activityId: uuid("activity_id").references(() => processingActivities.id, { onDelete: "set null" }),
+    // What people are asked to agree to, such as "Marketing SMS to customers".
+    name: text("name").notNull(),
+    // The words put to them.
+    wording: text("wording").notNull().default(""),
+    method: consentMethodEnum("method").notNull(),
+    // Where and when it is asked: "On the admission form, at enrolment".
+    collection: text("collection").notNull().default(""),
+    // Where the signed forms, opt-in logs or recordings are kept.
+    evidence: text("evidence").notNull().default(""),
+    // How someone withdraws, and what happens when they do.
+    withdrawal: text("withdrawal").notNull().default(""),
+    // Given by a parent or guardian for a child (s.33).
+    parental: boolean("parental").notNull().default(false),
+    // How the organisation checks the person agreeing is the parent or guardian.
+    guardianCheck: text("guardian_check").notNull().default(""),
+    // Whether a service is refused to people who don't agree (s.32(4)).
+    conditional: boolean("conditional").notNull().default(false),
+    // When this wording came into use. Null when not recorded.
+    inUseFrom: date("in_use_from", { mode: "string" }),
+    reviewOn: date("review_on", { mode: "string" }),
+    notes: text("notes").notNull().default(""),
+    ...timestamps,
+  },
+  (t) => [index("consent_records_org_idx").on(t.orgId), index("consent_records_activity_idx").on(t.activityId)],
+);
+
 export const activityAreaEnum = pgEnum("activity_area", [
   "registration",
   "ropa",
@@ -797,6 +841,7 @@ export const activityAreaEnum = pgEnum("activity_area", [
   "request",
   "processor",
   "training",
+  "consent",
   "team",
   "organization",
   "billing",
@@ -840,6 +885,7 @@ export const organizationsRelations = relations(organizations, ({ many }) => ({
   subjectRequests: many(subjectRequests),
   processors: many(processors),
   trainingSessions: many(trainingSessions),
+  consentRecords: many(consentRecords),
 }));
 
 export const membershipsRelations = relations(memberships, ({ one }) => ({
@@ -871,6 +917,7 @@ export type DpiaRisk = typeof dpiaRisks.$inferSelect;
 export type SubjectRequest = typeof subjectRequests.$inferSelect;
 export type Processor = typeof processors.$inferSelect;
 export type TrainingSession = typeof trainingSessions.$inferSelect;
+export type ConsentRecord = typeof consentRecords.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
 export type ServiceOrder = typeof serviceOrders.$inferSelect;
 export type EtimsInvoice = typeof etimsInvoices.$inferSelect;
