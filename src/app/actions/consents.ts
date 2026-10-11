@@ -43,7 +43,11 @@ export async function saveConsent(_prev: FormState, formData: FormData): Promise
         .where(and(eq(consentRecords.id, id), eq(consentRecords.orgId, org.id)))
         .for("update");
       if (!before) return null;
-      [saved] = await tx.update(consentRecords).set(data).where(eq(consentRecords.id, id)).returning();
+      [saved] = await tx
+        .update(consentRecords)
+        .set(data)
+        .where(and(eq(consentRecords.id, id), eq(consentRecords.orgId, org.id)))
+        .returning();
       const summary = editSummary(describe.consent(saved), changedFields(before, data, FIELD_LABELS.consent));
       if (summary) await log(id, summary);
     } else {
