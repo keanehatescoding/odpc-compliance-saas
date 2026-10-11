@@ -20,6 +20,7 @@ import { COMPLAINT_KIND_KEYS } from "../lib/complaint";
 import { CONSENT_METHOD_KEYS } from "../lib/consent";
 import { DISPOSAL_METHOD_KEYS, DISPOSAL_REASON_KEYS } from "../lib/disposal";
 import { LIKELIHOOD_KEYS, SEVERITY_KEYS } from "../lib/dpia";
+import { POLICY_KIND_KEYS } from "../lib/policy";
 import { BILLING_INTERVAL_KEYS, TRIAL_DAYS } from "../lib/plans";
 import { LAWFUL_BASIS_KEYS, ORG_SIZE_KEYS, SECTOR_KEYS } from "../lib/dpa";
 import { SERVICE_KEYS, SERVICE_ORDER_STATUS_KEYS } from "../lib/services";
@@ -34,6 +35,7 @@ export const breachKindEnum = pgEnum("breach_kind", BREACH_KIND_KEYS as [string,
 export const consentMethodEnum = pgEnum("consent_method", CONSENT_METHOD_KEYS as [string, ...string[]]);
 export const disposalMethodEnum = pgEnum("disposal_method", DISPOSAL_METHOD_KEYS as [string, ...string[]]);
 export const disposalReasonEnum = pgEnum("disposal_reason", DISPOSAL_REASON_KEYS as [string, ...string[]]);
+export const policyKindEnum = pgEnum("policy_kind", POLICY_KIND_KEYS as [string, ...string[]]);
 export const breachRiskEnum = pgEnum("breach_risk", BREACH_RISK_KEYS as [string, ...string[]]);
 export const likelihoodEnum = pgEnum("risk_likelihood", LIKELIHOOD_KEYS as [string, ...string[]]);
 export const severityEnum = pgEnum("risk_severity", SEVERITY_KEYS as [string, ...string[]]);
@@ -927,6 +929,38 @@ export const disposals = pgTable(
   ],
 );
 
+/**
+ * The organisation's written policies and procedures for data protection, one
+ * row per document (s.41 of the Act and reg. 23 of the General Regulations). A
+ * row says what the document is, who approved it and when it is next reviewed;
+ * the document itself stays where `location` says it is.
+ */
+export const policies = pgTable(
+  "policies",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    kind: policyKindEnum("kind").notNull(),
+    version: text("version").notNull().default(""),
+    // Who keeps it up to date, such as the data protection officer.
+    owner: text("owner").notNull().default(""),
+    approvedBy: text("approved_by").notNull().default(""),
+    // Null while it is still a draft.
+    approvedOn: date("approved_on", { mode: "string" }),
+    reviewOn: date("review_on", { mode: "string" }),
+    // Where the document is kept, such as a shared drive, the staff handbook or the website.
+    location: text("location").notNull().default(""),
+    // How staff were told about it.
+    communicated: text("communicated").notNull().default(""),
+    notes: text("notes").notNull().default(""),
+    ...timestamps,
+  },
+  (t) => [index("policies_org_idx").on(t.orgId)],
+);
+
 export const activityAreaEnum = pgEnum("activity_area", [
   "registration",
   "ropa",
@@ -938,6 +972,7 @@ export const activityAreaEnum = pgEnum("activity_area", [
   "training",
   "consent",
   "disposal",
+  "policy",
   "team",
   "organization",
   "billing",
@@ -984,6 +1019,7 @@ export const organizationsRelations = relations(organizations, ({ many }) => ({
   trainingSessions: many(trainingSessions),
   consentRecords: many(consentRecords),
   disposals: many(disposals),
+  policies: many(policies),
 }));
 
 export const membershipsRelations = relations(memberships, ({ one }) => ({
@@ -1018,6 +1054,7 @@ export type Processor = typeof processors.$inferSelect;
 export type TrainingSession = typeof trainingSessions.$inferSelect;
 export type ConsentRecord = typeof consentRecords.$inferSelect;
 export type Disposal = typeof disposals.$inferSelect;
+export type Policy = typeof policies.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
 export type ServiceOrder = typeof serviceOrders.$inferSelect;
 export type EtimsInvoice = typeof etimsInvoices.$inferSelect;

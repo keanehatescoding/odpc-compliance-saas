@@ -6,6 +6,7 @@ import { CONSENT_STATUS_LABEL, type ConsentStatus } from "@/lib/consent";
 import { DISPOSAL_STATUS_LABEL, type DisposalStatus } from "@/lib/disposal";
 import { DPIA_STATUS_LABEL, RISK_LEVEL_LABEL, type DpiaStatus, type RiskLevel } from "@/lib/dpia";
 import type { FormValues } from "@/lib/forms";
+import { POLICY_STATUS_LABEL, type PolicyStatus } from "@/lib/policy";
 import { PROCESSOR_STATUS_LABEL, type ProcessorStatus } from "@/lib/processor";
 import { STATUS_LABEL, type RegistrationStatus } from "@/lib/registration";
 import { REQUEST_STATUS_LABEL, type RequestStatus } from "@/lib/subject-request";
@@ -157,6 +158,20 @@ export function DisposalStatusBadge({ status }: { status: DisposalStatus }) {
   return (
     <span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset", DISPOSAL_STATUS_STYLE[status])}>
       {DISPOSAL_STATUS_LABEL[status]}
+    </span>
+  );
+}
+
+const POLICY_STATUS_STYLE: Record<PolicyStatus, string> = {
+  draft: "bg-stone-100 text-stone-700 ring-stone-300",
+  review_due: "bg-amber-50 text-amber-800 ring-amber-200",
+  in_place: "bg-emerald-50 text-emerald-800 ring-emerald-200",
+};
+
+export function PolicyStatusBadge({ status }: { status: PolicyStatus }) {
+  return (
+    <span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset", POLICY_STATUS_STYLE[status])}>
+      {POLICY_STATUS_LABEL[status]}
     </span>
   );
 }

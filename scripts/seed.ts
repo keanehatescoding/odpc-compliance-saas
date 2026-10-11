@@ -8,6 +8,7 @@ import {
   breachUpdates,
   consentRecords,
   disposals,
+  policies,
   dpiaRisks,
   dpias,
   invitations,
@@ -419,8 +420,41 @@ await db.insert(disposals).values([
   },
 ]);
 
+// Three policies: one in place, one whose review fell due last month, and a breach plan still in draft.
+await db.insert(policies).values([
+  {
+    orgId: org.id,
+    title: "Data Protection Policy",
+    kind: "data_protection",
+    version: "2.0",
+    owner: "The deputy principal",
+    approvedBy: "The board of management",
+    approvedOn: addMonths(today, -5),
+    reviewOn: addMonths(today, 7),
+    location: "Shared drive, Policies folder; a printed copy in the staff room",
+    communicated: "Covered at the term 1 staff meeting, and signed for by each member of staff",
+  },
+  {
+    orgId: org.id,
+    title: "Records Retention Schedule",
+    kind: "retention",
+    version: "1.0",
+    owner: "The bursar",
+    approvedBy: "The head teacher",
+    approvedOn: addMonths(today, -13),
+    reviewOn: addMonths(today, -1),
+    location: "Shared drive, Policies folder",
+  },
+  {
+    orgId: org.id,
+    title: "Data Breach Response Plan",
+    kind: "breach",
+    owner: "The deputy principal",
+  },
+]);
+
 console.log(
-  `Seeded "${org.name}" with ${templates.length + 1} RoPA entries, one DPIA, one open breach, two data subject requests, two ODPC letters, two processors, two training sessions, two consent records and two disposals.`,
+  `Seeded "${org.name}" with ${templates.length + 1} RoPA entries, one DPIA, one open breach, two data subject requests, two ODPC letters, two processors, two training sessions, two consent records, two disposals and three policies.`,
 );
 console.log(`Sign in as ${EMAIL} / ${PASSWORD}`);
 process.exit(0);

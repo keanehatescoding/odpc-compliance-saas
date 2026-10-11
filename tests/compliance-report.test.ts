@@ -6,6 +6,7 @@ import {
   type ReportConsent,
   type ReportDisposal,
   type ReportInput,
+  type ReportPolicy,
   type ReportProcessor,
   type ReportSectionKey,
   type ReportTraining,
@@ -98,6 +99,19 @@ function disposal(over: Partial<ReportDisposal> = {}): ReportDisposal {
   };
 }
 
+function policy(over: Partial<ReportPolicy> = {}): ReportPolicy {
+  return {
+    id: "y1",
+    title: "Data Protection Policy",
+    kind: "data_protection",
+    owner: "The Bursar",
+    location: "Shared drive, Policies folder",
+    approvedOn: "2026-02-01",
+    reviewOn: "2027-02-01",
+    ...over,
+  };
+}
+
 function consent(over: Partial<ReportConsent> = {}): ReportConsent {
   return {
     id: "c1",
@@ -132,6 +146,7 @@ function input(over: Partial<ReportInput> = {}): ReportInput {
     training: [training()],
     consents: [],
     disposals: [disposal()],
+    policies: [policy()],
     now,
     ...over,
   };
@@ -146,7 +161,7 @@ describe("buildComplianceReport", () => {
   it("finds nothing open when every record is in order", () => {
     const report = buildComplianceReport(input());
     expect(report.openCount).toBe(0);
-    expect(report.sections.map((s) => s.key)).toEqual(["registration", "ropa", "notice", "consent", "dpia", "breach", "request", "complaint", "processor", "disposal", "training"]);
+    expect(report.sections.map((s) => s.key)).toEqual(["registration", "ropa", "notice", "consent", "dpia", "breach", "request", "complaint", "processor", "disposal", "training", "policy"]);
     expect(report.preparedOn).toBe("2026-10-10");
     expect(report.periodFrom).toBe("2025-10-10");
   });
@@ -647,5 +662,39 @@ describe("training", () => {
     const s = section({ training: [training({ heldOn: "2025-06-01", refresherOn: null })] }, "training");
     expect(s.open).toEqual(["No training is recorded in the last 12 months. The most recent session was on 1 Jun 2025."]);
     expect(s.table).toBeUndefined();
+  });
+});
+
+describe("policies", () => {
+  it("says when nothing is recorded, and when the data protection policy itself is missing", () => {
+    expect(section({ policies: [] }, "policy").open).toEqual(["No data protection policy or procedure is recorded."]);
+    const s = section({ policies: [policy({ title: "Breach Response Plan", kind: "breach" })] }, "policy");
+    expect(s.open).toEqual(["No data protection policy is on the register."]);
+  });
+
+  it("lists every policy by title with where it stands", () => {
+    const s = section(
+      {
+        policies: [
+          policy({ id: "y2", title: "Retention Schedule", kind: "retention", owner: "", approvedOn: "2025-09-01", reviewOn: "2026-09-01" }),
+          policy(),
+          policy({ id: "y3", title: "Breach Response Plan", kind: "breach", approvedOn: null, reviewOn: null, location: "" }),
+        ],
+      },
+      "policy",
+    );
+    expect(fact(s, "Policies on the register")).toBe("3");
+    expect(fact(s, "Approved")).toBe("2");
+    expect(fact(s, "Due for review")).toBe("1");
+    expect(s.table?.rows).toEqual([
+      ["Breach Response Plan", "Breach response plan", "The Bursar", "—", "—", "Not approved"],
+      ["Data Protection Policy", "Data protection policy", "The Bursar", "1 Feb 2026", "1 Feb 2027", "In place"],
+      ["Retention Schedule", "Retention and disposal schedule", "—", "1 Sept 2025", "1 Sept 2026", "Review due"],
+    ]);
+    expect(s.open).toEqual([
+      "Not yet approved: Breach Response Plan.",
+      "Retention Schedule was due for review on 1 Sept 2026.",
+      "Where the document is kept isn't recorded for: Breach Response Plan.",
+    ]);
   });
 });

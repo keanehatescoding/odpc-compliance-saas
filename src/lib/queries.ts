@@ -11,6 +11,7 @@ import {
   processingActivities,
   consentRecords,
   disposals,
+  policies,
   processorActivities,
   processors,
   registrations,
@@ -254,6 +255,11 @@ export function listDisposals(orgId: string) {
   return db.select().from(disposals).where(eq(disposals.orgId, orgId)).orderBy(desc(disposals.disposedOn), desc(disposals.createdAt));
 }
 
+/** Policies and procedures, by title. */
+export function listPolicies(orgId: string) {
+  return db.select().from(policies).where(eq(policies.orgId, orgId)).orderBy(asc(policies.title), asc(policies.createdAt));
+}
+
 /**
  * The organisation's privacy notice. `requested` picks the people it's for, by
  * a category of data subject from the RoPA, and none means everyone. `notice`
@@ -290,7 +296,7 @@ export async function getPrivacyNotice(org: NoticeOrg & { id: string }, requeste
 
 /** The organisation's compliance report as of `now`, from every record it keeps. */
 export async function getComplianceReport(org: ReportOrg & { id: string }, now: Date) {
-  const [regs, activities, dpiaRows, dpiaRisks, breachRows, requests, complaintRows, processorRows, processorLinks, training, consents, disposalRows] = await Promise.all([
+  const [regs, activities, dpiaRows, dpiaRisks, breachRows, requests, complaintRows, processorRows, processorLinks, training, consents, disposalRows, policyRows] = await Promise.all([
     listRegistrations(org.id),
     listActivities(org.id),
     listDpias(org.id),
@@ -303,6 +309,7 @@ export async function getComplianceReport(org: ReportOrg & { id: string }, now: 
     listTrainingSessions(org.id),
     listConsentRecords(org.id),
     listDisposals(org.id),
+    listPolicies(org.id),
   ]);
   return buildComplianceReport({
     org,
@@ -318,6 +325,7 @@ export async function getComplianceReport(org: ReportOrg & { id: string }, now: 
     training,
     consents,
     disposals: disposalRows,
+    policies: policyRows,
     now,
   });
 }
