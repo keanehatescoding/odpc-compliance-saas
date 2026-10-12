@@ -12,7 +12,7 @@ import { dpiaStatus } from "@/lib/dpia";
 import { activitiesWithoutAssessment, liaStatus, stillReliedOn } from "@/lib/lia";
 import { policyStatus } from "@/lib/policy";
 import { processorStatus } from "@/lib/processor";
-import { activitiesWithoutTransfer, transferStatus } from "@/lib/transfer";
+import { activitiesWithoutTransfer, transferGaps, transferStatus } from "@/lib/transfer";
 import {
   listActivities,
   listBreaches,
@@ -143,7 +143,8 @@ export default async function DashboardPage() {
   }
   for (const t of transfers) {
     const status = transferStatus(t, today);
-    if (status === "incomplete") todos.push({ text: `Finish the record of the transfer to ${t.recipient}`, href: `/transfers/${t.id}` });
+    const gaps = transferGaps(t, activities.find((a) => a.id === t.activityId) ?? null);
+    if (status === "incomplete" || gaps.length > 0) todos.push({ text: `Finish the record of the transfer to ${t.recipient}`, href: `/transfers/${t.id}` });
     else if (status === "review_due") todos.push({ text: `Review the transfer to ${t.recipient}`, href: `/transfers/${t.id}` });
   }
   if (activities.length > 0 && disposals.length === 0) {
