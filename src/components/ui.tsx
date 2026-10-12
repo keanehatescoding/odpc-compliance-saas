@@ -10,6 +10,7 @@ import { LIA_STATUS_LABEL, type LiaStatus } from "@/lib/lia";
 import { POLICY_STATUS_LABEL, type PolicyStatus } from "@/lib/policy";
 import { PROCESSOR_STATUS_LABEL, type ProcessorStatus } from "@/lib/processor";
 import { STATUS_LABEL, type RegistrationStatus } from "@/lib/registration";
+import { TRANSFER_STATUS_LABEL, type TransferStatus } from "@/lib/transfer";
 import { REQUEST_STATUS_LABEL, type RequestStatus } from "@/lib/subject-request";
 import { TRAINING_STATUS_LABEL, type TrainingStatus } from "@/lib/training";
 
@@ -188,6 +189,20 @@ export function LiaStatusBadge({ status }: { status: LiaStatus }) {
   return (
     <span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset", LIA_STATUS_STYLE[status])}>
       {LIA_STATUS_LABEL[status]}
+    </span>
+  );
+}
+
+const TRANSFER_STATUS_STYLE: Record<TransferStatus, string> = {
+  incomplete: "bg-stone-100 text-stone-700 ring-stone-300",
+  review_due: "bg-amber-50 text-amber-800 ring-amber-200",
+  in_place: "bg-emerald-50 text-emerald-800 ring-emerald-200",
+};
+
+export function TransferStatusBadge({ status }: { status: TransferStatus }) {
+  return (
+    <span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset", TRANSFER_STATUS_STYLE[status])}>
+      {TRANSFER_STATUS_LABEL[status]}
     </span>
   );
 }
