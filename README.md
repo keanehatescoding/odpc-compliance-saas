@@ -119,7 +119,7 @@ Run the app behind a reverse proxy. Rate limiting reads the client IP from a hea
 
 - **Default (`TRUST_IP_HEADER=x-forwarded-for`, `TRUSTED_PROXY_HOPS=1`):** the app uses the rightmost `X-Forwarded-For` entry. This fits one proxy that appends the client address, such as Vercel, Caddy's `reverse_proxy`, or nginx with `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for`.
 - **More than one proxy** (for example a CDN in front of nginx): set `TRUSTED_PROXY_HOPS` to the number of proxies that append an entry. With the default of 1, every client would share the CDN's address and one bucket.
-- **`TRUST_IP_HEADER=x-real-ip`:** use this only if your proxy overwrites `X-Real-IP` on every request (nginx: `proxy_set_header X-Real-IP $remote_addr`). Caddy and nginx pass a client-supplied `X-Real-IP` through unchanged unless configured to overwrite it, so a client could pick a new address on each request.
+- **`TRUST_IP_HEADER=x-real-ip`:** use this only if your proxy overwrites `X-Real-IP` on every request (nginx: `proxy_set_header X-Real-IP $remote_addr`; Railway's edge does). Caddy and nginx pass a client-supplied `X-Real-IP` through unchanged unless configured to overwrite it, so a client could pick a new address on each request.
 
 If `next start` is exposed directly, clients can send their own `X-Forwarded-For` and dodge the per-IP limits. The per-email login limit still applies.
 
@@ -133,7 +133,14 @@ Server errors are logged as one JSON line with `"event":"server_error"`, and the
 
 ### Railway
 
-`railway.json` builds the app with Railpack, runs `npm run db:migrate` before each deploy and starts it with `npm start`. Create a project with a Postgres database and a service from this repository, then set the service's variables: `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `APP_URL` (its public domain), `CRON_SECRET` and the others above.
+`railway.json` builds the app with Railpack, runs `npm run db:migrate` before each deploy and starts it with `npm start`. Create a project with a Postgres database and a service from this repository, then set the service's variables: `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `APP_URL` (its public domain), `CRON_SECRET`, `SMTP_URL` and `TRUST_IP_HEADER=x-real-ip`, and the others above.
+
+Two things about Railway's edge are worth knowing:
+
+- **Set `TRUST_IP_HEADER=x-real-ip`.** The edge overwrites `X-Forwarded-For` with `[client, its own hop]`, so the default rightmost-entry rule reads Railway's address: the same one for every visitor, which puts the whole company in one rate-limit bucket and lets anyone lock everyone else out. `X-Real-IP` is overwritten at the same point, so it holds the client and cannot be forged.
+- **Keep `DATABASE_URL` as the reference variable.** It is the address on Railway's private network, where no TLS is needed. The pool sets no `ssl` option, so if you ever point it at Postgres's public proxy endpoint instead, the URL itself needs `?sslmode=require`.
+
+The health check is `/api/health`, which asks Postgres as well as the app itself: `/login` renders without a database, so a deploy with the wrong `DATABASE_URL` would otherwise be called healthy and then 500 on every request. `preDeployCommand` runs `tsx`, which is a dependency rather than a devDependency so it is still there if the build prunes devDependencies.
 
 `.github/workflows/reminders.yml` runs the hourly job by calling `/api/cron/reminders`. In the repository's Actions settings, add a variable `APP_URL` and a secret `CRON_SECRET` with the same value as the service's. GitHub can start scheduled runs a few minutes late, which the job allows for.
 
