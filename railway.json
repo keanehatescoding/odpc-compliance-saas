@@ -6,7 +6,7 @@
   "deploy": {
     "preDeployCommand": ["npm run db:migrate"],
     "startCommand": "npm start",
-    "healthcheckPath": "/login",
+    "healthcheckPath": "/api/health",
     "restartPolicyType": "ON_FAILURE"
   }
 }
