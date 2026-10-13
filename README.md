@@ -133,7 +133,17 @@ Server errors are logged as one JSON line with `"event":"server_error"`, and the
 
 ### Railway
 
-`railway.json` builds the app with Railpack, runs `npm run db:migrate` before each deploy and starts it with `npm start`. Create a project with a Postgres database and a service from this repository, then set the service's variables: `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `APP_URL` (its public domain), `CRON_SECRET`, `SMTP_URL` and `TRUST_IP_HEADER=x-real-ip`, and the others above.
+`.railway/railway.ts` describes the environment with Railway's Infrastructure as Code: it builds the app with Railpack, runs `npm run db:migrate` before each deploy, starts it with `npm start`, and health-checks `/api/health`. Install the SDK (`npm install railway`) and apply it:
+
+```bash
+railway link      # to the project holding the app service and its Postgres
+railway config plan    # safe: prints what would change
+railway config apply
+```
+
+Secrets aren't in that file. Set them on the service and declare them there as `preserve()` so an apply keeps them: `APP_URL` (its public domain), `CRON_SECRET`, `SMTP_URL`, `PAYSTACK_SECRET_KEY`, `SELLER_*` and the others above.
+
+`railway.json` (Config as Code) has been removed. Railway only reads it for legacy services, so for a service created after a given date it's ignored **silently**: the service deploys with no pre-deploy command, no health check and an auto-detected start command, and reports a successful deploy while serving nothing. Verify `preDeployCommand` and `healthcheckPath` are really set after migrating — `railway config plan` shows them as `null → …` when they were never applied. Railway stopped reading `railway.json` entirely on 2026-12-01.
 
 Two things about Railway's edge are worth knowing:
 

@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
 
-// The host's health check (`railway.json` → deploy.healthcheckPath). Anything
+// The host's health check (`.railway/railway.ts` → healthcheck). Anything
 // that answers 200 here is what the platform calls healthy, so this asks
 // Postgres as well: /login renders without a database, and a wrong or
 // unreachable DATABASE_URL would otherwise pass the check and then 500 on
