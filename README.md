@@ -64,6 +64,7 @@ Open http://localhost:3000. The seed creates a school, "Sunrise Academy", whose 
 | `npm run legal-notice -- 2026-12-08 changes.txt` | Preview the email telling owners about a change to the Terms, DPA, Privacy Notice, sub-processors or prices, taking effect on that date (at least 30 days away), with the summary in `changes.txt`. Add `--send` to save and send it. With no arguments, lists notices not yet in effect and how many owners each went to |
 | `npm run refunds -- R-000123`                    | Record the refunds Paystack has processed on a payment (by receipt number or Paystack reference) and send their eTIMS credit notes, in case the webhook didn't arrive. Lists each refund and its credit note                                                                                                              |
 | `npm run service-order`                          | List paid service orders not yet delivered. `npm run service-order -- <orderId> in_progress\|delivered\|cancelled` moves one on (delivering emails the owners; refund a cancelled order in the Paystack dashboard)                                                                                                        |
+| `npm run sessions:revoke` | Sign everyone out after a secret leak: `npm run sessions:revoke -- --all --yes`, or one user with `-- owner@example.com --yes`. Add `--force-password-reset` to make them go through "forgot password" as well (check SMTP first). Runs as a dry run without `--yes` |
 
 ## Environment
 
