@@ -3,7 +3,7 @@
 Status: **open — containment in progress**
 Owner: _[name]_
 Opened: 2026-10-23
-Last updated: 2026-10-23
+Last updated: 2026-11-04
 
 ## What happened
 
@@ -42,7 +42,7 @@ Preserve evidence before destroying anything.
 - [ ] Export Postgres logs and connection history for the same period.
 - [ ] Export Paystack API, transaction, refund and transfer logs.
 - [ ] Roll `PAYSTACK_SECRET_KEY`; confirm webhook and callback URLs are unchanged.
-- [ ] Deactivate every stored card authorisation (`POST /customer/deauthorize`, or ask Paystack support to bulk-revoke). Rotating the key does **not** invalidate them.
+- [ ] Deactivate every stored card authorisation: `npm run cards:deauthorize -- --yes`, with the new key in `PAYSTACK_SECRET_KEY`. Rotating the key does **not** invalidate them. Owners are emailed that automatic renewal has stopped, so check SMTP first; it reports any card Paystack refuses, which a later run retries, or `--force` forgets here once Paystack support has bulk-revoked it.
 - [ ] Rotate SMTP credentials; review the provider's sent-mail log.
 - [ ] Generate a new `CRON_SECRET`; set it in Railway and in GitHub → Settings → Secrets → `CRON_SECRET`.
 - [ ] `ALTER ROLE <app_user> WITH PASSWORD '<new>'`; update the password variable on the Postgres service so `db.env.DATABASE_URL` re-renders; `railway config apply` if needed.
@@ -130,3 +130,9 @@ Record the incident in our own breach register once the facts are settled.
   Actions denial-of-service.
 - `npm run sessions:revoke` added to sign users out and optionally force a
   password reset after a credential leak.
+- `npm run cards:deauthorize` added to deactivate every stored card
+  authorisation on Paystack and forget it here, turning automatic renewal off
+  and telling the owners. Renewal is turned off under each organisation's lock
+  before its card is touched, so it is safe to run while the reminders
+  scheduler is going, and a card Paystack refuses is kept until it can be
+  deactivated.

@@ -40,7 +40,10 @@ type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 export interface ActivityEntry {
   orgId: string;
-  actorId: string;
+  /** null for something Kinga did itself, rather than someone in the organisation. */
+  actorId: string | null;
+  /** Stands in for the actor's name where there's no actor. */
+  actorName?: string;
   area: ActivityArea;
   subjectId?: string | null;
   /** Follows the actor's name, e.g. "edited the controller registration (expiry date)". */
@@ -50,7 +53,8 @@ export interface ActivityEntry {
 /**
  * Adds entries to the activity log. Call it inside the transaction that makes
  * the change, so the change and its entry are saved together or not at all.
- * The actor's name is copied from their account as it is now.
+ * The actor's name is copied from their account as it is now, or is the
+ * `actorName` given for a change Kinga made itself.
  */
 export async function recordActivity(tx: Db | Tx, entries: ActivityEntry | ActivityEntry[], now: Date = new Date()) {
   const rows = Array.isArray(entries) ? entries : [entries];
@@ -59,7 +63,9 @@ export async function recordActivity(tx: Db | Tx, entries: ActivityEntry | Activ
     rows.map((e) => ({
       orgId: e.orgId,
       actorId: e.actorId,
-      actorName: sql`coalesce((select ${users.name} from ${users} where ${users.id} = ${e.actorId}), '')`,
+      actorName: e.actorId
+        ? sql`coalesce((select ${users.name} from ${users} where ${users.id} = ${e.actorId}), '')`
+        : (e.actorName ?? "Kinga"),
       area: e.area,
       subjectId: e.subjectId ?? null,
       summary: e.summary,

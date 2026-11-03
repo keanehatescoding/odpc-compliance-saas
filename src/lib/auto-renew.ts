@@ -494,6 +494,94 @@ export async function removeSavedCard(
   return { ok: true };
 }
 
+/** What `deauthorizeSavedCards` did, for whoever is running it. */
+export interface CardDeauthorizeResult {
+  removed: { orgId: string; orgName: string; card: string }[];
+  /** Cards still saved here, because Paystack wouldn't deactivate them. */
+  failed: { orgId: string; orgName: string; card: string; error: string }[];
+}
+
+/**
+ * Forgets every saved card, here and on Paystack, turning automatic renewal
+ * off with them. Written for the 21 October 2026 Railway incident
+ * (docs/railway-incident-2026-10-21.md): the authorisation codes in
+ * `saved_cards` sat in a database whose password may have been read, and
+ * rotating the Paystack key doesn't stop a code being charged with the new one.
+ *
+ * One organisation at a time, in three steps. Renewal goes off first, under
+ * the organisation's lock, so a charge already claimed is dropped and no
+ * further one is claimed (`chargeClaimed` looks again under the same lock).
+ * Then the code is deactivated on Paystack. Only then is the card deleted
+ * here, so a code Paystack refuses isn't lost while the card is still
+ * chargeable: that card is left saved and reported, and a later run tries it
+ * again. `force` deletes it anyway, for when Paystack has revoked the codes
+ * out of band instead.
+ *
+ * `reason` is a phrase for the owners and the activity log, such as "a
+ * security incident at our hosting provider". Owners are told renewal has
+ * stopped, since the next payment is now theirs to make.
+ */
+export async function deauthorizeSavedCards(
+  db: Db,
+  paystack: Paystack,
+  sendEmail: SendEmail,
+  opts: { reason: string; force?: boolean; now?: Date; appUrl?: string },
+): Promise<CardDeauthorizeResult> {
+  const now = opts.now ?? new Date();
+  const appUrl = opts.appUrl ?? process.env.APP_URL ?? "http://localhost:3000";
+  const result: CardDeauthorizeResult = { removed: [], failed: [] };
+
+  const saved = await db.select({ orgId: savedCards.orgId }).from(savedCards).orderBy(savedCards.createdAt);
+  for (const { orgId } of saved) {
+    const stopped = await db.transaction(async (tx) => {
+      const [org] = await tx.select().from(organizations).where(eq(organizations.id, orgId)).for("update");
+      const [card] = await tx.select().from(savedCards).where(eq(savedCards.orgId, orgId));
+      if (!org || !card) return null;
+      await tx.update(organizations).set({ autoRenewInterval: null }).where(eq(organizations.id, orgId));
+      return { org, card };
+    });
+    // Removed since the list was read.
+    if (!stopped) continue;
+    const { org, card } = stopped;
+    const label = cardLabel(card);
+
+    let refused: string | null = null;
+    try {
+      await paystack.deactivateAuthorization(card.authorizationCode);
+    } catch (err) {
+      refused = err instanceof Error ? err.message : String(err);
+    }
+    if (refused && !opts.force) {
+      result.failed.push({ orgId, orgName: org.name, card: label, error: refused });
+      continue;
+    }
+
+    const gone = await db.transaction(async (tx) => {
+      await tx.select({ id: organizations.id }).from(organizations).where(eq(organizations.id, orgId)).for("update");
+      const [deleted] = await tx.delete(savedCards).where(eq(savedCards.id, card.id)).returning({ id: savedCards.id });
+      if (!deleted) return null;
+      await recordActivity(
+        tx,
+        { orgId, actorId: null, area: "billing", summary: `removed the saved ${label} after ${opts.reason}` },
+        now,
+      );
+      return deleted;
+    });
+    if (!gone) continue;
+    await notifyRenewalStopped(
+      db,
+      sendEmail,
+      org,
+      `We've removed the saved ${label} after ${opts.reason}, and asked our payment provider to deactivate it.` +
+        (org.autoRenewInterval ? " That turns automatic renewal off." : ""),
+      now,
+      appUrl,
+    );
+    result.removed.push({ orgId, orgName: org.name, card: label });
+  }
+  return result;
+}
+
 async function notifyRenewalStopped(
   db: Db,
   sendEmail: SendEmail,

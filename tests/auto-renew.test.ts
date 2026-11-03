@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "@/db";
 import * as schema from "@/db/schema";
 import { deleteOrganization } from "@/lib/account";
-import { removeSavedCard, renewalReference, runAutoRenewals, setAutoRenew } from "@/lib/auto-renew";
+import { deauthorizeSavedCards, removeSavedCard, renewalReference, runAutoRenewals, setAutoRenew } from "@/lib/auto-renew";
 import { dueBillingAlert, recordPayment, runBillingAlerts, startCheckout } from "@/lib/billing";
 import type { EmailMessage } from "@/lib/email";
 import { createPaystack, PaystackError, type Paystack, type PaystackTransaction } from "@/lib/paystack";
@@ -502,6 +502,102 @@ describe("changing renewal", () => {
     expect((await org()).autoRenewInterval).toBeNull();
     expect(sent[0].text).toContain("removed the saved Visa ending 4242, which turns automatic renewal off");
     expect(await removeSavedCard(db, paystack, send, orgId, by)).toMatchObject({ error: expect.any(String) });
+  });
+});
+
+describe("forgetting every saved card after a leak", () => {
+  const reason = "a security incident at our hosting provider";
+
+  /** A second organisation with a card, so one card's failure can be seen not to stop the other. */
+  async function secondOrg() {
+    const [o] = await db
+      .insert(organizations)
+      .values({ name: "Mwangi Clinic", sector: "health", size: "micro_small", trialEndsAt: trialEnd, autoRenewInterval: "year" })
+      .returning({ id: organizations.id });
+    const [u] = await db
+      .insert(users)
+      .values({ email: "owner@mwangi.ke", name: "Otieno", passwordHash: "x", emailVerifiedAt: t0 })
+      .returning({ id: users.id });
+    await db.insert(memberships).values({ orgId: o.id, userId: u.id, role: "owner" });
+    await db
+      .insert(savedCards)
+      .values({ orgId: o.id, authorizationCode: "AUTH_clinic", email: "owner@mwangi.ke", brand: "mastercard", last4: "1111" });
+    return o.id;
+  }
+
+  it("deactivates each card, forgets it, turns renewal off and tells the owners", async () => {
+    await pay();
+    const otherId = await secondOrg();
+    const { paystack, deactivated } = fakePaystack();
+    const { sent, send } = inbox();
+
+    const result = await deauthorizeSavedCards(db, paystack, send, { reason, now: t0 });
+
+    expect(deactivated).toEqual(["AUTH_abc123", "AUTH_clinic"]);
+    expect(result.failed).toEqual([]);
+    expect(result.removed).toEqual([
+      { orgId, orgName: "Sunrise Academy", card: "Visa ending 4242" },
+      { orgId: otherId, orgName: "Mwangi Clinic", card: "Mastercard ending 1111" },
+    ]);
+    expect(await db.select().from(savedCards)).toEqual([]);
+    expect((await org()).autoRenewInterval).toBeNull();
+    expect(await db.select({ actorId: activityLog.actorId, actorName: activityLog.actorName, summary: activityLog.summary }).from(activityLog)).toEqual([
+      { actorId: null, actorName: "Kinga", summary: `removed the saved Visa ending 4242 after ${reason}` },
+      { actorId: null, actorName: "Kinga", summary: `removed the saved Mastercard ending 1111 after ${reason}` },
+    ]);
+    expect(sent.map((m) => m.to)).toEqual([["owner@sunrise.ke"], ["owner@mwangi.ke"]]);
+    expect(sent[0].text).toContain(`We've removed the saved Visa ending 4242 after ${reason}`);
+    expect(sent[0].text).toContain("That turns automatic renewal off.");
+
+    // Nothing left to do on a second run.
+    expect(await deauthorizeSavedCards(db, paystack, send, { reason, now: t0 })).toEqual({ removed: [], failed: [] });
+  });
+
+  it("leaves a card Paystack refuses, with renewal already off, and forgets it when forced", async () => {
+    await pay();
+    const otherId = await secondOrg();
+    const { paystack, deactivated } = fakePaystack();
+    const refusing: Paystack = {
+      ...paystack,
+      async deactivateAuthorization(code) {
+        // The message the real client builds, which is what the operator sees.
+        if (code === "AUTH_abc123") {
+          throw new PaystackError("Paystack /customer/deactivate_authorization failed (400): Authorization code not found", 400, "Authorization code not found");
+        }
+        return paystack.deactivateAuthorization(code);
+      },
+    };
+    const { sent, send } = inbox();
+
+    const result = await deauthorizeSavedCards(db, refusing, send, { reason, now: t0 });
+
+    // The other organisation's card still went.
+    expect(result.removed).toEqual([{ orgId: otherId, orgName: "Mwangi Clinic", card: "Mastercard ending 1111" }]);
+    expect(result.failed).toEqual([
+      { orgId, orgName: "Sunrise Academy", card: "Visa ending 4242", error: expect.stringContaining("Authorization code not found") },
+    ]);
+    // Kept, so the code isn't lost while the card is still chargeable — but no longer renewing.
+    expect(await db.select({ code: savedCards.authorizationCode }).from(savedCards)).toEqual([{ code: "AUTH_abc123" }]);
+    expect((await org()).autoRenewInterval).toBeNull();
+    expect(sent.map((m) => m.to)).toEqual([["owner@mwangi.ke"]]);
+
+    const forced = await deauthorizeSavedCards(db, refusing, send, { reason, force: true, now: t0 });
+    expect(forced.removed).toEqual([{ orgId, orgName: "Sunrise Academy", card: "Visa ending 4242" }]);
+    expect(await db.select().from(savedCards)).toEqual([]);
+    expect(deactivated).toEqual(["AUTH_clinic"]);
+  });
+
+  it("doesn't charge a card it is in the middle of forgetting", async () => {
+    await pay();
+    const { paystack, charges } = fakePaystack();
+    const { send } = inbox();
+    // Renewal is turned off before the card goes, so the claimed charge is dropped.
+    const racing = beforeTransaction(2, () => deauthorizeSavedCards(db, paystack, send, { reason, now: at(-HOUR) }));
+    await runAutoRenewals(racing, paystack, send, { now: at(-HOUR) });
+    expect(charges).toEqual([]);
+    expect(await db.select().from(savedCards)).toEqual([]);
+    expect(await db.select().from(renewalAttempts)).toEqual([]);
+    expect(await db.select().from(payments).where(eq(payments.status, "pending"))).toEqual([]);
   });
 });
 
