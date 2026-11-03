@@ -525,6 +525,23 @@ describe("forgetting every saved card after a leak", () => {
     return o.id;
   }
 
+  /** An organisation whose checkout credits while the run is going, saving a card and turning renewal on. */
+  async function creditedOrg(n: number) {
+    const [o] = await db
+      .insert(organizations)
+      .values({ name: `Late Checkout ${n}`, sector: "retail", size: "micro_small", trialEndsAt: trialEnd, autoRenewInterval: "month" })
+      .returning({ id: organizations.id });
+    const [u] = await db
+      .insert(users)
+      .values({ email: `owner${n}@late.ke`, name: "Njeri", passwordHash: "x", emailVerifiedAt: t0 })
+      .returning({ id: users.id });
+    await db.insert(memberships).values({ orgId: o.id, userId: u.id, role: "owner" });
+    await db
+      .insert(savedCards)
+      .values({ orgId: o.id, authorizationCode: `AUTH_late${n}`, email: `owner${n}@late.ke`, brand: "visa", last4: String(1000 + n) });
+    return o.id;
+  }
+
   it("deactivates each card, forgets it, turns renewal off and tells the owners", async () => {
     await pay();
     const otherId = await secondOrg();
@@ -585,6 +602,65 @@ describe("forgetting every saved card after a leak", () => {
     expect(forced.removed).toEqual([{ orgId, orgName: "Sunrise Academy", card: "Visa ending 4242" }]);
     expect(await db.select().from(savedCards)).toEqual([]);
     expect(deactivated).toEqual(["AUTH_clinic"]);
+  });
+
+  it("comes back for a card saved while it was running", async () => {
+    await pay();
+    const { paystack, deactivated } = fakePaystack();
+    let lateId = "";
+    const crediting: Paystack = {
+      ...paystack,
+      async deactivateAuthorization(code) {
+        if (code === "AUTH_abc123") lateId = await creditedOrg(1);
+        return paystack.deactivateAuthorization(code);
+      },
+    };
+    const { sent, send } = inbox();
+
+    const result = await deauthorizeSavedCards(db, crediting, send, { reason, now: t0 });
+
+    expect(deactivated).toEqual(["AUTH_abc123", "AUTH_late1"]);
+    expect(result.failed).toEqual([]);
+    expect(result.removed).toEqual([
+      { orgId, orgName: "Sunrise Academy", card: "Visa ending 4242" },
+      { orgId: lateId, orgName: "Late Checkout 1", card: "Visa ending 1001" },
+    ]);
+    expect(await db.select().from(savedCards)).toEqual([]);
+    expect(sent.map((m) => m.to)).toEqual([["owner@sunrise.ke"], ["owner1@late.ke"]]);
+  });
+
+  it("stops and reports the card left if checkouts keep saving them", async () => {
+    await pay();
+    const { paystack } = fakePaystack();
+    let n = 0;
+    // A checkout credits during every single deactivation, so there is always one more card.
+    const endless: Paystack = {
+      ...paystack,
+      async deactivateAuthorization(code) {
+        await creditedOrg(++n);
+        return paystack.deactivateAuthorization(code);
+      },
+    };
+    const { send } = inbox();
+
+    const result = await deauthorizeSavedCards(db, endless, send, { reason, now: t0 });
+
+    // Ten passes, each catching the card the one before it saved, and then it gives up.
+    expect(result.removed).toHaveLength(10);
+    expect(result.removed.at(-1)).toMatchObject({ orgName: "Late Checkout 9", card: "Visa ending 1009" });
+    expect(result.failed).toEqual([
+      {
+        orgId: expect.any(String),
+        orgName: "Late Checkout 10",
+        card: "Visa ending 1010",
+        error: "saved while this was running; run it again",
+      },
+    ]);
+    // The one left over isn't chargeable: renewal went off before it was reported.
+    const left = await db.select().from(savedCards);
+    expect(left.map((c) => c.authorizationCode)).toEqual(["AUTH_late10"]);
+    const [leftOrg] = await db.select().from(organizations).where(eq(organizations.id, left[0].orgId));
+    expect(leftOrg.autoRenewInterval).toBeNull();
   });
 
   it("doesn't charge a card it is in the middle of forgetting", async () => {

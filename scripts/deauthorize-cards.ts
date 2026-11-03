@@ -32,7 +32,10 @@ const flags = args.filter((arg) => arg.startsWith("--"));
 const known = ["--yes", "--force", "--reason"];
 const unknown = flags.filter((flag) => !known.includes(flag));
 const reasonAt = args.indexOf("--reason");
-const reason = reasonAt === -1 ? DEFAULT_REASON : (args[reasonAt + 1] ?? "");
+// A flag where the reason should be means the reason was left out, not that
+// owners should be told their card went "after --yes".
+const given = args[reasonAt + 1] ?? "";
+const reason = reasonAt === -1 ? DEFAULT_REASON : given.startsWith("--") ? "" : given;
 const stray = args.filter((arg, i) => !arg.startsWith("--") && !(reasonAt !== -1 && i === reasonAt + 1));
 
 if (unknown.length > 0 || stray.length > 0 || !reason.trim()) {
@@ -78,11 +81,11 @@ const result = await deauthorizeSavedCards(db, paystack, createEmailSender(), {
 console.log(`\nForgot ${result.removed.length} card${result.removed.length === 1 ? "" : "s"}.`);
 for (const { orgName, card } of result.removed) console.log(`  ${orgName}: ${card}`);
 if (result.failed.length > 0) {
-  console.error(`\nStill saved — Paystack refused ${result.failed.length}:`);
+  console.error(`\nStill saved, ${result.failed.length}:`);
   for (const { orgName, card, error } of result.failed) console.error(`  ${orgName}: ${card} — ${error}`);
   console.error(
-    "\nAutomatic renewal is off for these, so they won't be charged. Run this again, or deactivate\n" +
-      "them in the Paystack dashboard and run it with --force.",
+    "\nAutomatic renewal is off for these, so they won't be charged. Run this again, or, for a card\n" +
+      "Paystack won't deactivate, deactivate it in the Paystack dashboard and run this with --force.",
   );
 }
 process.exit(result.failed.length > 0 ? 1 : 0);
