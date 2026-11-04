@@ -724,6 +724,35 @@ describe("forgetting every saved card after a leak", () => {
     expect((await org()).autoRenewInterval).toBeNull();
   });
 
+  it("carries on with the other cards when renewal can't be turned off for one", async () => {
+    await pay();
+    const otherId = await secondOrg();
+    const { paystack, deactivated } = fakePaystack();
+    const { send } = inbox();
+    // The first transaction is the one turning the first organisation's renewal off.
+    let count = 0;
+    const failing = new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop !== "transaction") return Reflect.get(target, prop, receiver);
+        return async (...args: Parameters<Db["transaction"]>) => {
+          if (++count === 1) throw new Error("connection reset");
+          return target.transaction(...args);
+        };
+      },
+    });
+
+    const result = await deauthorizeSavedCards(failing, paystack, send, { reason, now: t0 });
+
+    // Left alone, renewal and all, rather than deactivated with a charge maybe in flight.
+    expect(deactivated).toEqual(["AUTH_clinic"]);
+    expect(result.removed).toEqual([{ orgId: otherId, orgName: "Mwangi Clinic", card: "Mastercard ending 1111" }]);
+    expect(result.failed).toEqual([
+      { orgId, orgName: "Sunrise Academy", card: "Visa ending 4242", error: "couldn't turn automatic renewal off: connection reset" },
+    ]);
+    expect(await db.select({ code: savedCards.authorizationCode }).from(savedCards)).toEqual([{ code: "AUTH_abc123" }]);
+    expect((await org()).autoRenewInterval).toBe("month");
+  });
+
   it("stops and reports the card left if checkouts keep saving them", async () => {
     await pay();
     const { paystack } = fakePaystack();

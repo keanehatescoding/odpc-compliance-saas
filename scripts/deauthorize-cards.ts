@@ -84,9 +84,9 @@ if (result.failed.length > 0) {
   console.error(`\nStill saved, ${result.failed.length}:`);
   for (const { orgName, card, error } of result.failed) console.error(`  ${orgName}: ${card} — ${error}`);
   console.error(
-    "\nAutomatic renewal is off for these in Kinga, but Paystack may still accept charges on them.\n" +
-      "Run this again, or, for a card Paystack won't deactivate, deactivate it in the Paystack\n" +
-      "dashboard and run this with --force.",
+    "\nAutomatic renewal is off for these in Kinga, except any that say it couldn't be turned off,\n" +
+      "but Paystack may still accept charges on all of them. Run this again, or, for a card Paystack\n" +
+      "won't deactivate, deactivate it in the Paystack dashboard and run this with --force.",
   );
 }
 if (result.unnotified.length > 0) {

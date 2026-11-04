@@ -573,6 +573,27 @@ export async function deauthorizeSavedCards(
   // run out. A checkout replacing a reported card's code makes a new card.
   const reported = new Set<string>();
   const key = (card: { id: string; authorizationCode: string }) => `${card.id}:${card.authorizationCode}`;
+
+  /**
+   * `stopRenewal`, but a failure (a dropped connection, say) is reported
+   * against the card instead of ending the run with the other cards still
+   * chargeable. Renewal may still be on for that one, so it's left untouched.
+   * Null when there's nothing more to do with the card.
+   */
+  const stopOrReport = async (listed: SavedCard, orgName: string) => {
+    try {
+      return await stopRenewal(listed.orgId);
+    } catch (err) {
+      reported.add(key(listed));
+      result.failed.push({
+        orgId: listed.orgId,
+        orgName,
+        card: cardLabel(listed),
+        error: `couldn't turn automatic renewal off: ${err instanceof Error ? err.message : String(err)}`,
+      });
+      return null;
+    }
+  };
   for (let pass = 1; ; pass++) {
     const saved = (
       await db
@@ -586,9 +607,9 @@ export async function deauthorizeSavedCards(
     if (pass > DEAUTHORIZE_PASSES) {
       // Saved while this ran, and still arriving. Renewal goes off so they
       // aren't charged, and they're reported for another run.
-      for (const { card: listed } of saved) {
-        const stopped = await stopRenewal(listed.orgId);
-        // Removed since the list was read.
+      for (const { card: listed, orgName } of saved) {
+        const stopped = await stopOrReport(listed, orgName);
+        // Removed since the list was read, or reported.
         if (!stopped) continue;
         result.failed.push({
           orgId: listed.orgId,
@@ -600,10 +621,10 @@ export async function deauthorizeSavedCards(
       break;
     }
 
-    for (const { card: listed } of saved) {
+    for (const { card: listed, orgName } of saved) {
       const orgId = listed.orgId;
-      const stopped = await stopRenewal(orgId);
-      // Removed since the list was read.
+      const stopped = await stopOrReport(listed, orgName);
+      // Removed since the list was read, or reported.
       if (!stopped) continue;
       const { org, card } = stopped;
       const label = cardLabel(card);
