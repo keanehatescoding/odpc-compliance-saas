@@ -84,8 +84,17 @@ if (result.failed.length > 0) {
   console.error(`\nStill saved, ${result.failed.length}:`);
   for (const { orgName, card, error } of result.failed) console.error(`  ${orgName}: ${card} — ${error}`);
   console.error(
-    "\nAutomatic renewal is off for these, so they won't be charged. Run this again, or, for a card\n" +
-      "Paystack won't deactivate, deactivate it in the Paystack dashboard and run this with --force.",
+    "\nAutomatic renewal is off for these in Kinga, but Paystack may still accept charges on them.\n" +
+      "Run this again, or, for a card Paystack won't deactivate, deactivate it in the Paystack\n" +
+      "dashboard and run this with --force.",
   );
 }
-process.exit(result.failed.length > 0 ? 1 : 0);
+if (result.unnotified.length > 0) {
+  console.error(`\nForgotten, but the owners weren't emailed, ${result.unnotified.length}:`);
+  for (const { orgName, card, error } of result.unnotified) console.error(`  ${orgName}: ${card} — ${error}`);
+  console.error(
+    "\nRunning this again won't email them, as the cards are gone. Tell these owners yourself that\n" +
+      "automatic renewal has stopped and their next payment is theirs to make.",
+  );
+}
+process.exit(result.failed.length > 0 || result.unnotified.length > 0 ? 1 : 0);
