@@ -16,10 +16,12 @@ in scope, or evidence of access turns up, reopen this incident and work through
 the containment checklist below. The notification clocks then run from that
 day.
 
-No personal data breach occurred, so nothing was notified to the ODPC,
-customers or data subjects, and nothing goes in the breach register. Saved
-cards were left in place and no one was signed out. Secrets are rotated as a
-precaution, as Railway advised every customer to do (below).
+On that assessment no personal data breach is recorded, so nothing was
+notified to the ODPC, customers or data subjects, and nothing goes in the
+breach register. Saved cards were left in place and no one was signed out.
+Railway advised every customer to rotate their secrets; that precautionary
+rotation is still pending (below), and each step is ticked only once it is
+confirmed done.
 
 The rest of this document is kept as the plan we would have followed. Use it
 as the starting point for the next provider disclosure.
@@ -56,14 +58,16 @@ category data), billing records, and stored card authorisations.
 
 ## Precautionary rotation
 
-Done because Railway asked every customer to rotate, not because anything
-leaked. No sign-outs and no card deactivation.
+Status: **pending.** Railway asked every customer to rotate; this isn't
+because anything leaked. No sign-outs and no card deactivation. Tick each step
+only once it is confirmed done.
 
-- [ ] Roll `PAYSTACK_SECRET_KEY`; confirm webhook and callback URLs are unchanged.
+- [ ] Roll `PAYSTACK_SECRET_KEY`; set the new key in Railway; confirm webhook and callback URLs are unchanged.
 - [ ] Generate a new `CRON_SECRET`; set it in Railway and in GitHub → Settings → Secrets → `CRON_SECRET`.
-- [ ] Rotate SMTP credentials.
-- [ ] `ALTER ROLE <app_user> WITH PASSWORD '<new>'`; update the password variable on the Postgres service so `db.env.DATABASE_URL` re-renders; `railway config apply` if needed.
+- [ ] Rotate SMTP credentials; set the new `SMTP_URL` in Railway.
+- [ ] `ALTER ROLE <app_user> WITH PASSWORD '<new>'`; update the password variable on the Postgres service so `db.env.DATABASE_URL` re-renders; `railway config apply` if needed. Do this and the redeploy below back to back: once the password changes, the running app's open connections keep working but every new one fails until it restarts, so `/api/health` may fail or still pass on a pooled connection in between.
 - [ ] Redeploy and confirm `GET /api/health` returns `{"ok":true}`.
+- [ ] Once the redeploy is live, run the "Hourly reminders" workflow by hand (Actions → Run workflow) and confirm it succeeds. It runs the real jobs, including automatic renewals and mail.
 - [ ] `railway login` again (old tokens were invalidated) and reconnect the Railway GitHub integration if needed.
 - [ ] Update the local `.env` to the new secrets; never commit it.
 
@@ -75,13 +79,14 @@ destroying anything.
 - [ ] Export Railway deploy and runtime logs for the project, 2026-10-14 onward.
 - [ ] Export Postgres logs and connection history for the same period.
 - [ ] Export Paystack API, transaction, refund and transfer logs.
-- [ ] Roll `PAYSTACK_SECRET_KEY`; confirm webhook and callback URLs are unchanged.
+- [ ] Roll `PAYSTACK_SECRET_KEY`; set the new key in Railway; confirm webhook and callback URLs are unchanged.
 - [ ] Deactivate every stored card authorisation: `npm run cards:deauthorize -- --yes`, with the new key in `PAYSTACK_SECRET_KEY`. Rotating the key does **not** invalidate them. Owners are emailed that automatic renewal has stopped, so check SMTP first; it reports any card Paystack refuses, which a later run retries, or `--force` forgets here once Paystack support has bulk-revoked it.
-- [ ] Rotate SMTP credentials; review the provider's sent-mail log.
+- [ ] Rotate SMTP credentials and set the new `SMTP_URL` in Railway; review the provider's sent-mail log.
 - [ ] Generate a new `CRON_SECRET`; set it in Railway and in GitHub → Settings → Secrets → `CRON_SECRET`.
-- [ ] `ALTER ROLE <app_user> WITH PASSWORD '<new>'`; update the password variable on the Postgres service so `db.env.DATABASE_URL` re-renders; `railway config apply` if needed.
-- [ ] Terminate existing DB connections: `select pg_terminate_backend(pid) from pg_stat_activity where usename = '<app_user>' and pid <> pg_backend_pid();`
+- [ ] `ALTER ROLE <app_user> WITH PASSWORD '<new>'`; update the password variable on the Postgres service so `db.env.DATABASE_URL` re-renders; `railway config apply` if needed, then redeploy straight away (new connections fail with the old password until the app restarts).
 - [ ] Redeploy and confirm `GET /api/health` returns `{"ok":true}`.
+- [ ] Then terminate the remaining connections made with the old password: `select pg_terminate_backend(pid) from pg_stat_activity where usename = '<app_user>' and pid <> pg_backend_pid() and backend_start < '<redeploy time>';`. Before the redeploy this would only push the running app onto the old password.
+- [ ] Run the "Hourly reminders" workflow by hand and confirm it succeeds.
 - [ ] `railway login` again (old tokens were invalidated); review members, tokens, domains, services and deploy history.
 - [ ] Review GitHub deploy keys, Actions secrets, and commits/PRs since 2026-10-20. Reconnect the Railway GitHub integration if needed.
 - [ ] Sign everyone out: `npm run sessions:revoke -- --all --yes`.
@@ -107,8 +112,11 @@ deletions.
 
 ## Notification (not required)
 
-We were not affected, so none of the drafts below were sent. They are kept for
-reuse.
+On the assessment above, none of the drafts below were sent. They are kept for
+reuse. Before sending one for another incident, check and rewrite every fact
+outside the brackets too: the dates, which credentials were read, and the
+measures said to have been taken (sessions revoked, cards deactivated, the
+ODPC told). Only say a measure was taken once it has been.
 
 As a **processor**, tell each customer organisation without undue delay, per the
 DPA and our contracts. As a **controller** for our own account data, section 43
