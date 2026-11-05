@@ -10,8 +10,12 @@ Last updated: 2026-11-05
 
 Keane Lakwey Mbae assessed on 2026-11-05 that the `kinga` project was not
 among the subset of customers whose variables Railway found were accessed.
-Railway has still not published which projects were affected, so this rests on
-that assessment, not on a published list. If Railway later says the project was
+Railway has still not published which projects were affected. Its
+[preliminary report](https://blog.railway.com/p/preliminary-report-october-security-incident)
+gives only an upper bound (at most 1.85% of workspaces), says it is contacting
+the workspaces with definite impact and those it judges high risk, and does
+not say that workspaces it has not contacted are safe. So this rests on that
+assessment, not on a published list. If Railway later says the project was
 in scope, or evidence of access turns up, reopen this incident and work through
 the containment checklist below. The notification clocks then run from that
 day.
