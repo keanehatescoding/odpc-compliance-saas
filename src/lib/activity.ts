@@ -7,6 +7,7 @@ import {
   disposals,
   dpias,
   interestAssessments,
+  particularChanges,
   policies,
   processingActivities,
   transfers,
@@ -22,6 +23,7 @@ import {
   type Disposal,
   type Dpia,
   type InterestAssessment,
+  type ParticularChange,
   type Transfer,
   type Organization,
   type Policy,
@@ -88,6 +90,14 @@ export const FIELD_LABELS = {
     expiresOn: "expiry date",
     notes: "notes",
   } satisfies Partial<Record<keyof Registration, string>>,
+  particulars: {
+    role: "registration",
+    changedOn: "date of the change",
+    description: "what changed",
+    notifiedOn: "ODPC notified on",
+    notifiedHow: "how the ODPC was told",
+    notes: "notes",
+  } satisfies Partial<Record<keyof ParticularChange, string>>,
   ropa: {
     name: "name",
     purpose: "purpose",
@@ -327,6 +337,7 @@ const REQUEST_NOUN: Record<RequestKind, string> = {
  */
 export const describe = {
   registration: (r: Pick<Registration, "role">) => `the ${r.role} registration`,
+  particulars: (c: Pick<ParticularChange, "changedOn">) => `the change of registered particulars on ${formatDate(c.changedOn)}`,
   ropa: (a: Pick<ProcessingActivity, "name">) => `the RoPA activity ${quoted(a.name)}`,
   breach: (b: Pick<Breach, "title">) => `the breach ${quoted(b.title)}`,
   dpia: (d: Pick<Dpia, "title">) => `the DPIA ${quoted(d.title)}`,
@@ -348,6 +359,7 @@ export const describe = {
 
 export const ACTIVITY_AREAS: Record<ActivityArea, string> = {
   registration: "ODPC registration",
+  particulars: "Registered particulars",
   ropa: "Records of processing",
   dpia: "Impact assessments",
   breach: "Data breaches",
@@ -408,6 +420,7 @@ export function subjectHistory(db: Db, orgId: string, subjectId: string) {
 
 const SUBJECT_TABLES = {
   registration: registrations,
+  particulars: particularChanges,
   ropa: processingActivities,
   dpia: dpias,
   breach: breaches,
@@ -424,6 +437,7 @@ const SUBJECT_TABLES = {
 
 const SUBJECT_PATHS: Record<keyof typeof SUBJECT_TABLES, string> = {
   registration: "/registrations",
+  particulars: "/registrations/changes",
   ropa: "/ropa",
   dpia: "/dpia",
   breach: "/breaches",

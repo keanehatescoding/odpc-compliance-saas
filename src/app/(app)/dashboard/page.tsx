@@ -10,6 +10,7 @@ import { disposalStatus, latestByActivity } from "@/lib/disposal";
 import { ODPC_FEES, REGISTRATION_ROLES, formatKsh, type OrgSize, type RegistrationRole } from "@/lib/dpa";
 import { dpiaStatus } from "@/lib/dpia";
 import { activitiesWithoutAssessment, liaStatus, stillReliedOn } from "@/lib/lia";
+import { daysToNotify, roleLabel } from "@/lib/particulars";
 import { policyStatus } from "@/lib/policy";
 import { processorStatus } from "@/lib/processor";
 import { activitiesWithoutTransfer, transferGaps, transferStatus } from "@/lib/transfer";
@@ -20,6 +21,7 @@ import {
   listDpias,
   listConsentRecords,
   listInterestAssessments,
+  listParticularChanges,
   listTransfers,
   listDisposals,
   listPolicies,
@@ -41,8 +43,9 @@ export default async function DashboardPage() {
   const { org } = await requireOrgContext();
   const today = todayInKenya();
   const now = new Date();
-  const [regs, activities, reminders, breaches, dpias, requests, processors, training, consents, complaints, disposals, policies, assessments, transfers] = await Promise.all([
+  const [regs, changes, activities, reminders, breaches, dpias, requests, processors, training, consents, complaints, disposals, policies, assessments, transfers] = await Promise.all([
     listRegistrations(org.id),
+    listParticularChanges(org.id),
     listActivities(org.id),
     recentReminders(org.id),
     listBreaches(org.id),
@@ -93,6 +96,13 @@ export default async function DashboardPage() {
   for (const c of openComplaints) {
     const info = complaintKindInfo(c.kind);
     todos.push({ text: `${info.todo} the ODPC ${info.short} (${formatDaysLeft(c.daysLeft)})`, href: `/complaints/${c.id}` });
+  }
+  const unnotified = changes
+    .filter((c) => !c.notifiedOn)
+    .map((c) => ({ ...c, daysLeft: daysToNotify(c, today) }))
+    .sort((a, b) => a.daysLeft - b.daysLeft);
+  for (const c of unnotified) {
+    todos.push({ text: `Tell the ODPC about the change to ${roleLabel(c.role)} (${formatDaysLeft(c.daysLeft)})`, href: `/registrations/changes/${c.id}` });
   }
   if (regRows.length === 0) todos.push({ text: "Add your ODPC registration certificate", href: "/registrations/new" });
   for (const r of regRows) {

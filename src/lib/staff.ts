@@ -14,6 +14,7 @@ import {
   invitations,
   memberships,
   organizations,
+  particularChanges,
   payments,
   processingActivities,
   consentRecords,
@@ -61,6 +62,7 @@ export type OrgFilter = keyof typeof ORG_FILTERS;
 /** How many of each kind of record an organisation keeps. Counts only, never contents. */
 export interface RecordCounts {
   registrations: number;
+  particularChanges: number;
   ropa: number;
   dpias: number;
   breaches: number;
@@ -80,11 +82,12 @@ export interface RecordCounts {
 const qualified = (table: AnyPgTable, column: AnyPgColumn) => sql`${table}.${sql.identifier(column.name)}`;
 const orgIdColumn = qualified(organizations, organizations.id);
 
-const countFor = (table: typeof registrations | typeof processingActivities | typeof dpias | typeof breaches | typeof subjectRequests | typeof complaints | typeof processors | typeof trainingSessions | typeof consentRecords | typeof disposals | typeof policies | typeof interestAssessments | typeof transfers) =>
+const countFor = (table: typeof registrations | typeof particularChanges | typeof processingActivities | typeof dpias | typeof breaches | typeof subjectRequests | typeof complaints | typeof processors | typeof trainingSessions | typeof consentRecords | typeof disposals | typeof policies | typeof interestAssessments | typeof transfers) =>
   sql<number>`(select count(*)::int from ${table} where ${qualified(table, table.orgId)} = ${orgIdColumn})`.mapWith(Number);
 
 const recordCounts = {
   registrations: countFor(registrations),
+  particularChanges: countFor(particularChanges),
   ropa: countFor(processingActivities),
   dpias: countFor(dpias),
   breaches: countFor(breaches),

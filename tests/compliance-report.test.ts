@@ -171,6 +171,7 @@ function input(over: Partial<ReportInput> = {}): ReportInput {
   return {
     org: { privacyContact: "The Bursar", privacyEmail: "privacy@sunrise.test", privacyPhone: null, address: "PO Box 1, Nakuru" },
     registrations: [{ role: "controller", certificateNumber: "DC-001", appliedOn: "2025-12-01", issuedOn: "2026-01-10", expiresOn: "2028-01-10" }],
+    particularChanges: [],
     activities: [activity()],
     dpias: [],
     dpiaRisks: [],
@@ -244,6 +245,35 @@ describe("registration", () => {
   it("notices a role the RoPA shows but no registration covers", () => {
     const s = section({ activities: [activity(), activity({ id: "a2", name: "Bulk SMS for clients", role: "processor" })] }, "registration");
     expect(s.open).toEqual(["The RoPA records 1 activity carried out as a data processor, but no data processor registration is recorded."]);
+  });
+
+  it("lists changes of particulars the ODPC hasn't been told of, and counts late notices", () => {
+    const change = (over: Partial<ReportInput["particularChanges"][number]>) => ({
+      role: "controller",
+      changedOn: "2026-10-01",
+      description: "Moved to Lanet.",
+      notifiedOn: null,
+      ...over,
+    });
+    const s = section(
+      {
+        particularChanges: [
+          change({ changedOn: "2026-10-05", description: "New contact email" }),
+          change({}),
+          change({ changedOn: "2026-08-01", notifiedOn: "2026-08-20" }),
+          change({ changedOn: "2026-06-01", notifiedOn: "2026-06-10" }),
+        ],
+      },
+      "registration",
+    );
+    expect(s.open).toEqual([
+      "The change to the registered particulars on 1 Oct 2026 (Moved to Lanet) must be notified to the ODPC by 15 Oct 2026.",
+      "The change to the registered particulars on 5 Oct 2026 (New contact email) must be notified to the ODPC by 19 Oct 2026.",
+    ]);
+    expect(fact(s, "Changes to registered particulars logged")).toBe("4, 1 notified to the ODPC after the 14 days");
+
+    const overdue = section({ particularChanges: [change({ changedOn: "2026-09-20" })] }, "registration");
+    expect(overdue.open).toEqual(["The change to the registered particulars on 20 Sept 2026 (Moved to Lanet) hasn't been notified to the ODPC. It was due by 4 Oct 2026."]);
   });
 });
 

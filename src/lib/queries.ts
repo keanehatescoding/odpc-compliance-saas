@@ -9,6 +9,7 @@ import {
   dpiaRisks,
   dpias,
   interestAssessments,
+  particularChanges,
   processingActivities,
   transfers,
   consentRecords,
@@ -37,6 +38,24 @@ export async function getRegistration(orgId: string, id: string) {
     .select()
     .from(registrations)
     .where(and(eq(registrations.orgId, orgId), eq(registrations.id, id)))
+    .limit(1);
+  return row ?? null;
+}
+
+/** Changes to the registered particulars, newest first. */
+export function listParticularChanges(orgId: string) {
+  return db
+    .select()
+    .from(particularChanges)
+    .where(eq(particularChanges.orgId, orgId))
+    .orderBy(desc(particularChanges.changedOn), desc(particularChanges.createdAt));
+}
+
+export async function getParticularChange(orgId: string, id: string) {
+  const [row] = await db
+    .select()
+    .from(particularChanges)
+    .where(and(eq(particularChanges.orgId, orgId), eq(particularChanges.id, id)))
     .limit(1);
   return row ?? null;
 }
@@ -352,8 +371,9 @@ export async function getPrivacyNotice(org: NoticeOrg & { id: string }, requeste
 
 /** The organisation's compliance report as of `now`, from every record it keeps. */
 export async function getComplianceReport(org: ReportOrg & { id: string }, now: Date) {
-  const [regs, activities, dpiaRows, dpiaRisks, breachRows, requests, complaintRows, processorRows, processorLinks, training, consents, assessments, transferRows, disposalRows, policyRows] = await Promise.all([
+  const [regs, changes, activities, dpiaRows, dpiaRisks, breachRows, requests, complaintRows, processorRows, processorLinks, training, consents, assessments, transferRows, disposalRows, policyRows] = await Promise.all([
     listRegistrations(org.id),
+    listParticularChanges(org.id),
     listActivities(org.id),
     listDpias(org.id),
     listOrgDpiaRisks(org.id),
@@ -372,6 +392,7 @@ export async function getComplianceReport(org: ReportOrg & { id: string }, now: 
   return buildComplianceReport({
     org,
     registrations: regs,
+    particularChanges: changes,
     activities: activities as ReportActivity[],
     dpias: dpiaRows.map((d) => d.dpia),
     dpiaRisks,

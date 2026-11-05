@@ -696,6 +696,51 @@ export const complaintAlertLog = pgTable(
   (t) => [uniqueIndex("complaint_alert_log_unique_idx").on(t.complaintId, t.kind)],
 );
 
+/**
+ * A change to the particulars an organisation registered with the ODPC: its
+ * name or contact details, or the description of its processing (purposes,
+ * data subjects, personal data, recipients, transfers abroad, security
+ * measures). Regulation 15 of the Data Protection (Registration of Data
+ * Controllers and Data Processors) Regulations, 2021 gives 14 days from
+ * `changedOn` to notify the Data Commissioner in writing (see lib/particulars).
+ */
+export const particularChanges = pgTable(
+  "particular_changes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    // The registration it changes. Null for a change to both, such as the organisation's name.
+    role: registrationRoleEnum("role"),
+    changedOn: date("changed_on", { mode: "string" }).notNull(),
+    description: text("description").notNull(),
+    // Null until the ODPC has been told.
+    notifiedOn: date("notified_on", { mode: "string" }),
+    // How it was sent, and any reference the ODPC gave.
+    notifiedHow: text("notified_how").notNull().default(""),
+    notes: text("notes").notNull().default(""),
+    loggedBy: uuid("logged_by").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [index("particular_changes_org_idx").on(t.orgId, t.changedOn)],
+);
+
+/** One row per deadline alert email, so each kind goes out once per change. */
+export const particularChangeAlertLog = pgTable(
+  "particular_change_alert_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    changeId: uuid("change_id")
+      .notNull()
+      .references(() => particularChanges.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    recipients: text("recipients").array().notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("particular_change_alert_log_unique_idx").on(t.changeId, t.kind)],
+);
+
 /** eTIMS invoice numbers. KRA expects each branch's to run 1, 2, 3, ... */
 export const etimsInvoiceSeq = pgSequence("etims_invoice_seq");
 
@@ -1041,6 +1086,7 @@ export const transfers = pgTable(
 
 export const activityAreaEnum = pgEnum("activity_area", [
   "registration",
+  "particulars",
   "ropa",
   "dpia",
   "breach",
@@ -1090,6 +1136,7 @@ export const activityLog = pgTable(
 export const organizationsRelations = relations(organizations, ({ many }) => ({
   memberships: many(memberships),
   registrations: many(registrations),
+  particularChanges: many(particularChanges),
   activities: many(processingActivities),
   breaches: many(breaches),
   dpias: many(dpias),
@@ -1126,6 +1173,7 @@ export type Organization = typeof organizations.$inferSelect;
 export type SavedCard = typeof savedCards.$inferSelect;
 export type MemberRole = (typeof memberRoleEnum.enumValues)[number];
 export type Registration = typeof registrations.$inferSelect;
+export type ParticularChange = typeof particularChanges.$inferSelect;
 export type ProcessingActivity = typeof processingActivities.$inferSelect;
 export type Breach = typeof breaches.$inferSelect;
 export type Dpia = typeof dpias.$inferSelect;

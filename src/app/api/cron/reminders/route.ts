@@ -9,6 +9,7 @@ import { pruneVerificationTokens } from "@/lib/email-verification";
 import { etimsFromEnv } from "@/lib/etims";
 import { runEtimsRetries } from "@/lib/etims-invoices";
 import { runLegalNotices } from "@/lib/legal-notices";
+import { runParticularChangeAlerts } from "@/lib/particulars-alerts";
 import { pruneResetTokens } from "@/lib/password-reset";
 import { paystackFromEnv } from "@/lib/paystack";
 import { pruneRateLimits } from "@/lib/rate-limit";
@@ -33,6 +34,7 @@ export async function GET(request: Request) {
   const breaches = await runBreachAlerts(db, send);
   const requests = await runSubjectRequestAlerts(db, send);
   const complaints = await runComplaintAlerts(db, send);
+  const particulars = await runParticularChangeAlerts(db, send);
   // Charge saved cards before the billing emails, so a renewal that goes through isn't followed by an "ended" email.
   const paystack = paystackFromEnv();
   const renewals = paystack ? await runAutoRenewals(db, paystack, send) : null;
@@ -48,6 +50,6 @@ export async function GET(request: Request) {
   await pruneInvitations(db);
   await prunePayments(db);
   const failed =
-    reminders.failed.length + breaches.failed.length + requests.failed.length + complaints.failed.length + (renewals?.failed.length ?? 0) + billing.failed.length + (etims?.failed.length ?? 0) + notices.failed.length > 0;
-  return Response.json({ reminders, breaches, requests, complaints, renewals, billing, etims, notices }, { status: failed ? 500 : 200 });
+    reminders.failed.length + breaches.failed.length + requests.failed.length + complaints.failed.length + particulars.failed.length + (renewals?.failed.length ?? 0) + billing.failed.length + (etims?.failed.length ?? 0) + notices.failed.length > 0;
+  return Response.json({ reminders, breaches, requests, complaints, particulars, renewals, billing, etims, notices }, { status: failed ? 500 : 200 });
 }

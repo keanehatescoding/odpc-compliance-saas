@@ -41,6 +41,7 @@ import {
   type TransferBasis,
   type TransferLike,
 } from "./transfer";
+import { notifiedLate as particularsNotifiedLate, notifyBy, type ParticularChangeLike } from "./particulars";
 import { daysUntilExpiry, registrationStatus, STATUS_LABEL, type RegistrationLike } from "./registration";
 import { dpiaRecommended, type ActivityInput } from "./ropa";
 import {
@@ -89,6 +90,11 @@ export interface ReportOrg {
 export interface ReportRegistration extends RegistrationLike {
   role: string;
   certificateNumber: string | null;
+}
+
+export interface ReportParticularChange extends ParticularChangeLike {
+  role: string | null;
+  description: string;
 }
 
 export type ReportActivity = ActivityInput & { id: string; updatedAt: Date };
@@ -179,6 +185,7 @@ export interface ReportPolicy extends PolicyLike {
 export interface ReportInput {
   org: ReportOrg;
   registrations: ReportRegistration[];
+  particularChanges: ReportParticularChange[];
   activities: ReportActivity[];
   dpias: ReportDpia[];
   dpiaRisks: ReportDpiaRisk[];
@@ -256,12 +263,32 @@ function registrationSection(input: ReportInput, today: string): ReportSection {
     }
   }
 
+  // Regulation 15 of the Registration Regulations: 14 days to tell the Data Commissioner of a change.
+  const facts: ReportSection["facts"] = [];
+  const changes = input.particularChanges;
+  if (changes.length > 0) {
+    const late = changes.filter(particularsNotifiedLate).length;
+    facts.push({
+      label: "Changes to registered particulars logged",
+      value: `${count(changes.length)}${late > 0 ? `, ${late} notified to the ODPC after the 14 days` : ""}`,
+    });
+  }
+  for (const c of [...changes].filter((c) => !c.notifiedOn).sort((a, b) => a.changedOn.localeCompare(b.changedOn))) {
+    const due = notifyBy(c);
+    const what = `The change to the registered particulars on ${formatDate(c.changedOn)} (${c.description.trim().replace(/[.\s]+$/, "")})`;
+    open.push(
+      due < today
+        ? `${what} hasn't been notified to the ODPC. It was due by ${formatDate(due)}.`
+        : `${what} must be notified to the ODPC by ${formatDate(due)}.`,
+    );
+  }
+
   return {
     key: "registration",
     heading: "ODPC registration",
-    basis: "Data Protection Act, 2019, ss.18–19",
+    basis: "Data Protection Act, 2019, ss.18–19; Registration Regulations, 2021, reg. 15",
     href: "/registrations",
-    facts: [],
+    facts,
     table: rows.length > 0 ? { columns: ["Registered as", "Certificate no.", "Issued", "Expires", "Status"], rows } : undefined,
     open,
   };

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useActionState } from "react";
 import { updateOrganization } from "@/app/actions/settings";
+import { ParticularsPrompt } from "@/components/particulars-prompt";
 import { SubmitButton } from "@/components/submit-button";
 import { Card, FormMessage, SelectField, TextArea, TextField } from "@/components/ui";
 import type { Organization } from "@/db/schema";
@@ -15,6 +16,7 @@ export function SettingsForm({ org, canEdit, ownerEmails }: { org: Organization;
     <Card className="max-w-2xl">
       <form action={action} className="space-y-5">
         <FormMessage message={state?.message} tone={state?.message === "Saved." ? "success" : "error"} />
+        {state?.particulars && <ParticularsPrompt change={state.particulars} />}
         <fieldset disabled={!canEdit} className="space-y-5">
           <TextField name="name" label="Organisation name" initial={org.name} {...f} />
           <div className="grid gap-5 sm:grid-cols-2">

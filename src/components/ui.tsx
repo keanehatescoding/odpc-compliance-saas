@@ -7,6 +7,7 @@ import { DISPOSAL_STATUS_LABEL, type DisposalStatus } from "@/lib/disposal";
 import { DPIA_STATUS_LABEL, RISK_LEVEL_LABEL, type DpiaStatus, type RiskLevel } from "@/lib/dpia";
 import type { FormValues } from "@/lib/forms";
 import { LIA_STATUS_LABEL, type LiaStatus } from "@/lib/lia";
+import { PARTICULAR_CHANGE_STATUS_LABEL, type ParticularChangeStatus } from "@/lib/particulars";
 import { POLICY_STATUS_LABEL, type PolicyStatus } from "@/lib/policy";
 import { PROCESSOR_STATUS_LABEL, type ProcessorStatus } from "@/lib/processor";
 import { STATUS_LABEL, type RegistrationStatus } from "@/lib/registration";
@@ -57,6 +58,21 @@ export function StatusBadge({ status }: { status: RegistrationStatus }) {
   return (
     <span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset", STATUS_STYLE[status])}>
       {STATUS_LABEL[status]}
+    </span>
+  );
+}
+
+const PARTICULAR_CHANGE_STATUS_STYLE: Record<ParticularChangeStatus, string> = {
+  due: "bg-sky-50 text-sky-800 ring-sky-200",
+  due_soon: "bg-orange-50 text-orange-800 ring-orange-300",
+  overdue: "bg-red-50 text-red-800 ring-red-300",
+  notified: "bg-emerald-50 text-emerald-800 ring-emerald-200",
+};
+
+export function ParticularChangeStatusBadge({ status }: { status: ParticularChangeStatus }) {
+  return (
+    <span className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset", PARTICULAR_CHANGE_STATUS_STYLE[status])}>
+      {PARTICULAR_CHANGE_STATUS_LABEL[status]}
     </span>
   );
 }
