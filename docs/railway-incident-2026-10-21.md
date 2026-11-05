@@ -1,9 +1,28 @@
 # Incident: Railway environment variables disclosure (21 October 2026)
 
-Status: **open — containment in progress**
-Owner: _[name]_
+Status: **closed — not affected**
+Owner: Keane Lakwey Mbae
 Opened: 2026-10-23
-Last updated: 2026-11-04
+Closed: 2026-11-05
+Last updated: 2026-11-05
+
+## Outcome
+
+Keane Lakwey Mbae assessed on 2026-11-05 that the `kinga` project was not
+among the subset of customers whose variables Railway found were accessed.
+Railway has still not published which projects were affected, so this rests on
+that assessment, not on a published list. If Railway later says the project was
+in scope, or evidence of access turns up, reopen this incident and work through
+the containment checklist below. The notification clocks then run from that
+day.
+
+No personal data breach occurred, so nothing was notified to the ODPC,
+customers or data subjects, and nothing goes in the breach register. Saved
+cards were left in place and no one was signed out. Secrets are rotated as a
+precaution, as Railway advised every customer to do (below).
+
+The rest of this document is kept as the plan we would have followed. Use it
+as the starting point for the next provider disclosure.
 
 ## What happened
 
@@ -14,10 +33,11 @@ values. Railway invalidated API tokens and revoked some GitHub credentials. It
 has not said publicly which projects were affected, when access began, or how
 many customers were involved.
 
-We therefore treat **every variable stored on the `kinga` Railway project as
-read by an attacker**, including the production database password.
+Until we knew otherwise, we treated **every variable stored on the `kinga`
+Railway project as read by an attacker**, including the production database
+password.
 
-## What is exposed
+## What would have been exposed
 
 | Secret | Consequence |
 | --- | --- |
@@ -34,9 +54,23 @@ Personal data categories: account names and emails, organisation details,
 compliance records (which may themselves describe data subjects and special
 category data), billing records, and stored card authorisations.
 
-## Containment checklist
+## Precautionary rotation
 
-Preserve evidence before destroying anything.
+Done because Railway asked every customer to rotate, not because anything
+leaked. No sign-outs and no card deactivation.
+
+- [ ] Roll `PAYSTACK_SECRET_KEY`; confirm webhook and callback URLs are unchanged.
+- [ ] Generate a new `CRON_SECRET`; set it in Railway and in GitHub → Settings → Secrets → `CRON_SECRET`.
+- [ ] Rotate SMTP credentials.
+- [ ] `ALTER ROLE <app_user> WITH PASSWORD '<new>'`; update the password variable on the Postgres service so `db.env.DATABASE_URL` re-renders; `railway config apply` if needed.
+- [ ] Redeploy and confirm `GET /api/health` returns `{"ok":true}`.
+- [ ] `railway login` again (old tokens were invalidated) and reconnect the Railway GitHub integration if needed.
+- [ ] Update the local `.env` to the new secrets; never commit it.
+
+## Containment checklist (not used)
+
+For a provider disclosure that does reach us. Preserve evidence before
+destroying anything.
 
 - [ ] Export Railway deploy and runtime logs for the project, 2026-10-14 onward.
 - [ ] Export Postgres logs and connection history for the same period.
@@ -71,7 +105,10 @@ Look for: new or elevated users, activity by accounts that should not have it,
 charges or refunds we did not initiate, changed webhook URLs, and bulk reads or
 deletions.
 
-## Notification
+## Notification (not required)
+
+We were not affected, so none of the drafts below were sent. They are kept for
+reuse.
 
 As a **processor**, tell each customer organisation without undue delay, per the
 DPA and our contracts. As a **controller** for our own account data, section 43
