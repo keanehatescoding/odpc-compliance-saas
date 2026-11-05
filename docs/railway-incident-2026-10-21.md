@@ -1,9 +1,34 @@
 # Incident: Railway environment variables disclosure (21 October 2026)
 
-Status: **open — containment in progress**
-Owner: _[name]_
+Status: **closed — not affected**
+Owner: Keane Lakwey Mbae
 Opened: 2026-10-23
-Last updated: 2026-11-04
+Closed: 2026-11-05
+Last updated: 2026-11-05
+
+## Outcome
+
+Keane Lakwey Mbae assessed on 2026-11-05 that the `kinga` project was not
+among the subset of customers whose variables Railway found were accessed.
+Railway has still not published which projects were affected. Its
+[preliminary report](https://blog.railway.com/p/preliminary-report-october-security-incident)
+gives only an upper bound (at most 1.85% of workspaces), says it is contacting
+the workspaces with definite impact and those it judges high risk, and does
+not say that workspaces it has not contacted are safe. So this rests on that
+assessment, not on a published list. If Railway later says the project was
+in scope, or evidence of access turns up, reopen this incident and work through
+the containment checklist below. The notification clocks then run from that
+day.
+
+On that assessment no personal data breach is recorded, so nothing was
+notified to the ODPC, customers or data subjects, and nothing goes in the
+breach register. Saved cards were left in place and no one was signed out.
+Railway advised every customer to rotate their secrets; that precautionary
+rotation is still pending (below), and each step is ticked only once it is
+confirmed done.
+
+The rest of this document is kept as the plan we would have followed. Use it
+as the starting point for the next provider disclosure.
 
 ## What happened
 
@@ -14,10 +39,11 @@ values. Railway invalidated API tokens and revoked some GitHub credentials. It
 has not said publicly which projects were affected, when access began, or how
 many customers were involved.
 
-We therefore treat **every variable stored on the `kinga` Railway project as
-read by an attacker**, including the production database password.
+Until we knew otherwise, we treated **every variable stored on the `kinga`
+Railway project as read by an attacker**, including the production database
+password.
 
-## What is exposed
+## What would have been exposed
 
 | Secret | Consequence |
 | --- | --- |
@@ -34,20 +60,40 @@ Personal data categories: account names and emails, organisation details,
 compliance records (which may themselves describe data subjects and special
 category data), billing records, and stored card authorisations.
 
-## Containment checklist
+## Precautionary rotation
 
-Preserve evidence before destroying anything.
+Status: **pending.** Railway asked every customer to rotate; this isn't
+because anything leaked. No sign-outs and no card deactivation. Tick each step
+only once it is confirmed done.
+
+- [ ] Roll `PAYSTACK_SECRET_KEY`; set the new key in Railway; confirm webhook and callback URLs are unchanged.
+- [ ] Generate a new `CRON_SECRET`; set it in Railway and in GitHub → Settings → Secrets → `CRON_SECRET`.
+- [ ] Rotate SMTP credentials; set the new `SMTP_URL` in Railway.
+- [ ] Run `ALTER ROLE <app_user> WITH PASSWORD '<new>'`, then straight after in the same session `select clock_timestamp();` and note the result as `<password change time>` (taken after the change commits, so it is later than every session that logged in with the old password); update the password variable on the Postgres service so `db.env.DATABASE_URL` re-renders; `railway config apply` if needed. Do this and the redeploy below back to back: once the password changes, the running app's open connections keep working but every new one fails until it restarts, so `/api/health` may fail or still pass on a pooled connection in between.
+- [ ] Redeploy and confirm `GET /api/health` returns `{"ok":true}`.
+- [ ] Once the redeploy is live, terminate the sessions still open with the old password: `select pg_terminate_backend(pid) from pg_stat_activity where usename = '<app_user>' and pid <> pg_backend_pid() and backend_start < '<password change time>';`. Use the password change time, not the redeploy time: the new deployment opens connections during its health check, before it goes live.
+- [ ] Once the redeploy is live, run the "Hourly reminders" workflow by hand (Actions → Run workflow) and confirm it succeeds. It runs the real jobs, including automatic renewals and mail. Passing proves `CRON_SECRET`, but not SMTP or Paystack: with nothing due it sends no mail and makes no Paystack call. So also:
+- [ ] Check the Paystack key Railway holds: `railway run --no-local -- sh -c 'curl -fsS https://api.paystack.co/balance -H "Authorization: Bearer $PAYSTACK_SECRET_KEY"'` (CLI logged in, app service linked) returns `"status":true`. It only reads the balance.
+- [ ] Check `SMTP_URL`: request a password reset for your own account on the live site and confirm the email arrives. A failed send shows only in the runtime logs ("Failed to send password reset email"); the page says the link was sent either way.
+- [ ] `railway login` again (old tokens were invalidated) and reconnect the Railway GitHub integration if needed.
+- [ ] Update the local `.env` to the new secrets; never commit it.
+
+## Containment checklist (not used)
+
+For a provider disclosure that does reach us. Preserve evidence before
+destroying anything.
 
 - [ ] Export Railway deploy and runtime logs for the project, 2026-10-14 onward.
 - [ ] Export Postgres logs and connection history for the same period.
 - [ ] Export Paystack API, transaction, refund and transfer logs.
-- [ ] Roll `PAYSTACK_SECRET_KEY`; confirm webhook and callback URLs are unchanged.
+- [ ] Roll `PAYSTACK_SECRET_KEY`; set the new key in Railway; confirm webhook and callback URLs are unchanged.
 - [ ] Deactivate every stored card authorisation: `npm run cards:deauthorize -- --yes`, with the new key in `PAYSTACK_SECRET_KEY`. Rotating the key does **not** invalidate them. Owners are emailed that automatic renewal has stopped, so check SMTP first; it reports any card Paystack refuses, which a later run retries, or `--force` forgets here once Paystack support has bulk-revoked it.
-- [ ] Rotate SMTP credentials; review the provider's sent-mail log.
+- [ ] Rotate SMTP credentials and set the new `SMTP_URL` in Railway; review the provider's sent-mail log.
 - [ ] Generate a new `CRON_SECRET`; set it in Railway and in GitHub → Settings → Secrets → `CRON_SECRET`.
-- [ ] `ALTER ROLE <app_user> WITH PASSWORD '<new>'`; update the password variable on the Postgres service so `db.env.DATABASE_URL` re-renders; `railway config apply` if needed.
-- [ ] Terminate existing DB connections: `select pg_terminate_backend(pid) from pg_stat_activity where usename = '<app_user>' and pid <> pg_backend_pid();`
+- [ ] `ALTER ROLE <app_user> WITH PASSWORD '<new>'`; update the password variable on the Postgres service so `db.env.DATABASE_URL` re-renders; `railway config apply` if needed, then redeploy straight away (new connections fail with the old password until the app restarts). Note `select clock_timestamp();` straight after the `ALTER ROLE` commits as `<password change time>`.
 - [ ] Redeploy and confirm `GET /api/health` returns `{"ok":true}`.
+- [ ] Then terminate the remaining connections made with the old password: `select pg_terminate_backend(pid) from pg_stat_activity where usename = '<app_user>' and pid <> pg_backend_pid() and backend_start < '<password change time>';`. Before the redeploy this would only push the running app onto the old password; the redeploy time would also catch the new deployment's health-check connections.
+- [ ] Run the "Hourly reminders" workflow by hand and confirm it succeeds, then check the Paystack key and `SMTP_URL` directly as in the precautionary rotation above.
 - [ ] `railway login` again (old tokens were invalidated); review members, tokens, domains, services and deploy history.
 - [ ] Review GitHub deploy keys, Actions secrets, and commits/PRs since 2026-10-20. Reconnect the Railway GitHub integration if needed.
 - [ ] Sign everyone out: `npm run sessions:revoke -- --all --yes`.
@@ -71,7 +117,13 @@ Look for: new or elevated users, activity by accounts that should not have it,
 charges or refunds we did not initiate, changed webhook URLs, and bulk reads or
 deletions.
 
-## Notification
+## Notification (not required)
+
+On the assessment above, none of the drafts below were sent. They are kept for
+reuse. Before sending one for another incident, check and rewrite every fact
+outside the brackets too: the dates, which credentials were read, and the
+measures said to have been taken (sessions revoked, cards deactivated, the
+ODPC told). Only say a measure was taken once it has been.
 
 As a **processor**, tell each customer organisation without undue delay, per the
 DPA and our contracts. As a **controller** for our own account data, section 43
