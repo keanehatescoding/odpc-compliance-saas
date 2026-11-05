@@ -494,6 +494,206 @@ export async function removeSavedCard(
   return { ok: true };
 }
 
+/** What `deauthorizeSavedCards` did, for whoever is running it. */
+export interface CardDeauthorizeResult {
+  removed: { orgId: string; orgName: string; card: string }[];
+  /** Cards still saved here: Paystack wouldn't deactivate them, they couldn't be deleted, or they were saved while it ran. */
+  failed: { orgId: string; orgName: string; card: string; error: string }[];
+  /** Cards removed whose owners couldn't be emailed. A later run won't retry, as the card is gone. */
+  unnotified: { orgId: string; orgName: string; card: string; error: string }[];
+}
+
+/**
+ * How many times `deauthorizeSavedCards` reads the table again, for cards
+ * saved by a checkout that credits while it runs. Each pass but the last
+ * removes or reports every card it finds, so the cap is only reached if
+ * checkouts keep crediting throughout; those cards are then reported instead,
+ * because the run can't say it left none chargeable.
+ */
+const DEAUTHORIZE_PASSES = 10;
+
+/**
+ * Forgets every saved card, here and on Paystack, turning automatic renewal
+ * off with them. Written for the 21 October 2026 Railway incident
+ * (docs/railway-incident-2026-10-21.md): the authorisation codes in
+ * `saved_cards` sat in a database whose password may have been read, and
+ * rotating the Paystack key doesn't stop a code being charged with the new one.
+ *
+ * One organisation at a time, in three steps. Renewal goes off first, under
+ * the organisation's lock, so a charge already claimed is dropped and no
+ * further one is claimed (`chargeClaimed` looks again under the same lock).
+ * Then the code is deactivated on Paystack. Only then is the card deleted
+ * here, so a code Paystack refuses isn't lost while the card is still
+ * chargeable: that card is left saved and reported, and a later run tries it
+ * again. `force` deletes it anyway, for when Paystack has revoked the codes
+ * out of band instead.
+ *
+ * The table is read again until nothing is left but the cards already
+ * reported, because crediting a checkout saves a card and turns renewal back
+ * on (`recordPayment`), and one that credits mid-run would otherwise be left
+ * chargeable by a run that reported success. Such a checkout can also replace
+ * the code on a row already being dealt with, so a row is only deleted while
+ * it still holds the code that was deactivated, and cards are told apart by
+ * code as well as row.
+ *
+ * `reason` is a phrase for the owners and the activity log, such as "a
+ * security incident at our hosting provider". Owners are told renewal has
+ * stopped, since the next payment is now theirs to make.
+ */
+export async function deauthorizeSavedCards(
+  db: Db,
+  paystack: Paystack,
+  sendEmail: SendEmail,
+  opts: { reason: string; force?: boolean; now?: Date; appUrl?: string },
+): Promise<CardDeauthorizeResult> {
+  const now = opts.now ?? new Date();
+  const appUrl = opts.appUrl ?? process.env.APP_URL ?? "http://localhost:3000";
+  const result: CardDeauthorizeResult = { removed: [], failed: [], unnotified: [] };
+
+  /** Takes the organisation's lock and turns renewal off, leaving the card to be dealt with. */
+  const stopRenewal = (orgId: string) =>
+    db.transaction(async (tx) => {
+      const [org] = await tx.select().from(organizations).where(eq(organizations.id, orgId)).for("update");
+      const [card] = await tx.select().from(savedCards).where(eq(savedCards.orgId, orgId));
+      if (!org || !card) return null;
+      if (org.autoRenewInterval) {
+        await tx.update(organizations).set({ autoRenewInterval: null }).where(eq(organizations.id, orgId));
+        // Logged here, with the change, as the card may yet be kept (Paystack refusing it).
+        await recordActivity(
+          tx,
+          { orgId, actorId: null, area: "billing", summary: `turned automatic renewal off after ${opts.reason}` },
+          now,
+        );
+      }
+      return { org, card };
+    });
+
+  // Cards already reported, by row and code, which a later pass leaves alone,
+  // so each pass but the last deals with every card it finds and the passes
+  // run out. A checkout replacing a reported card's code makes a new card.
+  const reported = new Set<string>();
+  const key = (card: { id: string; authorizationCode: string }) => `${card.id}:${card.authorizationCode}`;
+
+  /**
+   * `stopRenewal`, but a failure (a dropped connection, say) is reported
+   * against the card instead of ending the run with the other cards still
+   * chargeable. Renewal may still be on for that one, so it's left untouched.
+   * Null when there's nothing more to do with the card.
+   */
+  const stopOrReport = async (listed: SavedCard, orgName: string) => {
+    try {
+      return await stopRenewal(listed.orgId);
+    } catch (err) {
+      reported.add(key(listed));
+      result.failed.push({
+        orgId: listed.orgId,
+        orgName,
+        card: cardLabel(listed),
+        error: `couldn't turn automatic renewal off: ${err instanceof Error ? err.message : String(err)}`,
+      });
+      return null;
+    }
+  };
+  for (let pass = 1; ; pass++) {
+    const saved = (
+      await db
+        .select({ card: savedCards, orgName: organizations.name })
+        .from(savedCards)
+        .innerJoin(organizations, eq(organizations.id, savedCards.orgId))
+        .orderBy(savedCards.createdAt)
+    ).filter((row) => !reported.has(key(row.card)));
+    if (saved.length === 0) break;
+
+    if (pass > DEAUTHORIZE_PASSES) {
+      // Saved while this ran, and still arriving. Renewal goes off so they
+      // aren't charged, and they're reported for another run.
+      for (const { card: listed, orgName } of saved) {
+        const stopped = await stopOrReport(listed, orgName);
+        // Removed since the list was read, or reported.
+        if (!stopped) continue;
+        result.failed.push({
+          orgId: listed.orgId,
+          orgName: stopped.org.name,
+          card: cardLabel(stopped.card),
+          error: "saved while this was running; run it again",
+        });
+      }
+      break;
+    }
+
+    for (const { card: listed, orgName } of saved) {
+      const orgId = listed.orgId;
+      const stopped = await stopOrReport(listed, orgName);
+      // Removed since the list was read, or reported.
+      if (!stopped) continue;
+      const { org, card } = stopped;
+      const label = cardLabel(card);
+
+      let refused: string | null = null;
+      try {
+        await paystack.deactivateAuthorization(card.authorizationCode);
+      } catch (err) {
+        refused = err instanceof Error ? err.message : String(err);
+      }
+      if (refused && !opts.force) {
+        reported.add(key(card));
+        result.failed.push({ orgId, orgName: org.name, card: label, error: refused });
+        continue;
+      }
+
+      let gone: "deleted" | "replaced" | "missing";
+      try {
+        gone = await db.transaction(async (tx) => {
+          await tx.select({ id: organizations.id }).from(organizations).where(eq(organizations.id, orgId)).for("update");
+          // Only the code just deactivated: a checkout may have replaced it on
+          // this row since, and the replacement is dealt with on the next pass.
+          const [deleted] = await tx
+            .delete(savedCards)
+            .where(and(eq(savedCards.id, card.id), eq(savedCards.authorizationCode, card.authorizationCode)))
+            .returning({ id: savedCards.id });
+          if (!deleted) {
+            const [still] = await tx.select({ id: savedCards.id }).from(savedCards).where(eq(savedCards.id, card.id));
+            return still ? "replaced" : "missing";
+          }
+          // An owner may have turned renewal back on since it went off, while the card was still here.
+          await tx.update(organizations).set({ autoRenewInterval: null }).where(eq(organizations.id, orgId));
+          await recordActivity(
+            tx,
+            { orgId, actorId: null, area: "billing", summary: `removed the saved ${label} after ${opts.reason}` },
+            now,
+          );
+          return "deleted";
+        });
+      } catch (err) {
+        // The code is deactivated and renewal is off, so carry on with the
+        // other cards; this one stays saved for the next run.
+        reported.add(key(card));
+        result.failed.push({ orgId, orgName: org.name, card: label, error: err instanceof Error ? err.message : String(err) });
+        continue;
+      }
+      if (gone === "missing") continue;
+      if (gone === "replaced") {
+        // Deactivated, and no longer saved; its replacement gets its own email.
+        result.removed.push({ orgId, orgName: org.name, card: label });
+        continue;
+      }
+      const unsent = await notifyRenewalStopped(
+        db,
+        sendEmail,
+        org,
+        `We've removed the saved ${label} after ${opts.reason}, and asked our payment provider to deactivate it.` +
+          (org.autoRenewInterval ? " That turns automatic renewal off." : ""),
+        now,
+        appUrl,
+      );
+      result.removed.push({ orgId, orgName: org.name, card: label });
+      if (unsent) result.unnotified.push({ orgId, orgName: org.name, card: label, error: unsent });
+    }
+  }
+  return result;
+}
+
+/** Emails the owners that renewal has stopped. Returns why it couldn't, or null once sent (or with no owner to send to). */
 async function notifyRenewalStopped(
   db: Db,
   sendEmail: SendEmail,
@@ -501,9 +701,9 @@ async function notifyRenewalStopped(
   what: string,
   now: Date,
   appUrl: string,
-): Promise<void> {
+): Promise<string | null> {
   const to = await ownerEmails(db, org.id);
-  if (to.length === 0) return;
+  if (to.length === 0) return null;
   const access = accessFor(org, now);
   const ends = formatDate(todayInKenya(access.endsAt));
   try {
@@ -524,8 +724,10 @@ async function notifyRenewalStopped(
         `${appUrl}/billing`,
       ].join("\n"),
     });
+    return null;
   } catch (err) {
     console.error("Failed to send renewal change email", org.id, err);
+    return err instanceof Error ? err.message : String(err);
   }
 }
 

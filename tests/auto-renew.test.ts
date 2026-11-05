@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "@/db";
 import * as schema from "@/db/schema";
 import { deleteOrganization } from "@/lib/account";
-import { removeSavedCard, renewalReference, runAutoRenewals, setAutoRenew } from "@/lib/auto-renew";
+import { deauthorizeSavedCards, removeSavedCard, renewalReference, runAutoRenewals, setAutoRenew } from "@/lib/auto-renew";
 import { dueBillingAlert, recordPayment, runBillingAlerts, startCheckout } from "@/lib/billing";
 import type { EmailMessage } from "@/lib/email";
 import { createPaystack, PaystackError, type Paystack, type PaystackTransaction } from "@/lib/paystack";
@@ -502,6 +502,302 @@ describe("changing renewal", () => {
     expect((await org()).autoRenewInterval).toBeNull();
     expect(sent[0].text).toContain("removed the saved Visa ending 4242, which turns automatic renewal off");
     expect(await removeSavedCard(db, paystack, send, orgId, by)).toMatchObject({ error: expect.any(String) });
+  });
+});
+
+describe("forgetting every saved card after a leak", () => {
+  const reason = "a security incident at our hosting provider";
+
+  /** A second organisation with a card, so one card's failure can be seen not to stop the other. */
+  async function secondOrg() {
+    const [o] = await db
+      .insert(organizations)
+      .values({ name: "Mwangi Clinic", sector: "health", size: "micro_small", trialEndsAt: trialEnd, autoRenewInterval: "year" })
+      .returning({ id: organizations.id });
+    const [u] = await db
+      .insert(users)
+      .values({ email: "owner@mwangi.ke", name: "Otieno", passwordHash: "x", emailVerifiedAt: t0 })
+      .returning({ id: users.id });
+    await db.insert(memberships).values({ orgId: o.id, userId: u.id, role: "owner" });
+    await db
+      .insert(savedCards)
+      .values({ orgId: o.id, authorizationCode: "AUTH_clinic", email: "owner@mwangi.ke", brand: "mastercard", last4: "1111" });
+    return o.id;
+  }
+
+  /** An organisation whose checkout credits while the run is going, saving a card and turning renewal on. */
+  async function creditedOrg(n: number) {
+    const [o] = await db
+      .insert(organizations)
+      .values({ name: `Late Checkout ${n}`, sector: "retail", size: "micro_small", trialEndsAt: trialEnd, autoRenewInterval: "month" })
+      .returning({ id: organizations.id });
+    const [u] = await db
+      .insert(users)
+      .values({ email: `owner${n}@late.ke`, name: "Njeri", passwordHash: "x", emailVerifiedAt: t0 })
+      .returning({ id: users.id });
+    await db.insert(memberships).values({ orgId: o.id, userId: u.id, role: "owner" });
+    await db
+      .insert(savedCards)
+      .values({ orgId: o.id, authorizationCode: `AUTH_late${n}`, email: `owner${n}@late.ke`, brand: "visa", last4: String(1000 + n) });
+    return o.id;
+  }
+
+  it("deactivates each card, forgets it, turns renewal off and tells the owners", async () => {
+    await pay();
+    const otherId = await secondOrg();
+    const { paystack, deactivated } = fakePaystack();
+    const { sent, send } = inbox();
+
+    const result = await deauthorizeSavedCards(db, paystack, send, { reason, now: t0 });
+
+    expect(deactivated).toEqual(["AUTH_abc123", "AUTH_clinic"]);
+    expect(result.failed).toEqual([]);
+    expect(result.removed).toEqual([
+      { orgId, orgName: "Sunrise Academy", card: "Visa ending 4242" },
+      { orgId: otherId, orgName: "Mwangi Clinic", card: "Mastercard ending 1111" },
+    ]);
+    expect(await db.select().from(savedCards)).toEqual([]);
+    expect((await org()).autoRenewInterval).toBeNull();
+    expect(await db.select({ actorId: activityLog.actorId, actorName: activityLog.actorName, summary: activityLog.summary }).from(activityLog)).toEqual([
+      { actorId: null, actorName: "Kinga", summary: `turned automatic renewal off after ${reason}` },
+      { actorId: null, actorName: "Kinga", summary: `removed the saved Visa ending 4242 after ${reason}` },
+      { actorId: null, actorName: "Kinga", summary: `turned automatic renewal off after ${reason}` },
+      { actorId: null, actorName: "Kinga", summary: `removed the saved Mastercard ending 1111 after ${reason}` },
+    ]);
+    expect(sent.map((m) => m.to)).toEqual([["owner@sunrise.ke"], ["owner@mwangi.ke"]]);
+    expect(sent[0].text).toContain(`We've removed the saved Visa ending 4242 after ${reason}`);
+    expect(sent[0].text).toContain("That turns automatic renewal off.");
+
+    // Nothing left to do on a second run.
+    expect(await deauthorizeSavedCards(db, paystack, send, { reason, now: t0 })).toEqual({ removed: [], failed: [], unnotified: [] });
+  });
+
+  it("leaves a card Paystack refuses, with renewal already off, and forgets it when forced", async () => {
+    await pay();
+    const otherId = await secondOrg();
+    const { paystack, deactivated } = fakePaystack();
+    const refusing: Paystack = {
+      ...paystack,
+      async deactivateAuthorization(code) {
+        // The message the real client builds, which is what the operator sees.
+        if (code === "AUTH_abc123") {
+          throw new PaystackError("Paystack /customer/deactivate_authorization failed (400): Authorization code not found", 400, "Authorization code not found");
+        }
+        return paystack.deactivateAuthorization(code);
+      },
+    };
+    const { sent, send } = inbox();
+
+    const result = await deauthorizeSavedCards(db, refusing, send, { reason, now: t0 });
+
+    // The other organisation's card still went.
+    expect(result.removed).toEqual([{ orgId: otherId, orgName: "Mwangi Clinic", card: "Mastercard ending 1111" }]);
+    expect(result.failed).toEqual([
+      { orgId, orgName: "Sunrise Academy", card: "Visa ending 4242", error: expect.stringContaining("Authorization code not found") },
+    ]);
+    // Kept, so the code isn't lost while the card is still chargeable — but no longer renewing.
+    expect(await db.select({ code: savedCards.authorizationCode }).from(savedCards)).toEqual([{ code: "AUTH_abc123" }]);
+    expect((await org()).autoRenewInterval).toBeNull();
+    // The history shows renewal went off, though the card stayed.
+    expect(
+      await db.select({ summary: activityLog.summary }).from(activityLog).where(eq(activityLog.orgId, orgId)),
+    ).toEqual([{ summary: `turned automatic renewal off after ${reason}` }]);
+    expect(sent.map((m) => m.to)).toEqual([["owner@mwangi.ke"]]);
+
+    const forced = await deauthorizeSavedCards(db, refusing, send, { reason, force: true, now: t0 });
+    expect(forced.removed).toEqual([{ orgId, orgName: "Sunrise Academy", card: "Visa ending 4242" }]);
+    expect(await db.select().from(savedCards)).toEqual([]);
+    expect(deactivated).toEqual(["AUTH_clinic"]);
+  });
+
+  it("comes back for a card saved while it was running", async () => {
+    await pay();
+    const { paystack, deactivated } = fakePaystack();
+    let lateId = "";
+    const crediting: Paystack = {
+      ...paystack,
+      async deactivateAuthorization(code) {
+        if (code === "AUTH_abc123") lateId = await creditedOrg(1);
+        return paystack.deactivateAuthorization(code);
+      },
+    };
+    const { sent, send } = inbox();
+
+    const result = await deauthorizeSavedCards(db, crediting, send, { reason, now: t0 });
+
+    expect(deactivated).toEqual(["AUTH_abc123", "AUTH_late1"]);
+    expect(result.failed).toEqual([]);
+    expect(result.removed).toEqual([
+      { orgId, orgName: "Sunrise Academy", card: "Visa ending 4242" },
+      { orgId: lateId, orgName: "Late Checkout 1", card: "Visa ending 1001" },
+    ]);
+    expect(await db.select().from(savedCards)).toEqual([]);
+    expect(sent.map((m) => m.to)).toEqual([["owner@sunrise.ke"], ["owner1@late.ke"]]);
+  });
+
+  it("deactivates a card a checkout puts in place of the one it is forgetting", async () => {
+    await pay();
+    const { paystack, deactivated } = fakePaystack();
+    const replacing: Paystack = {
+      ...paystack,
+      async deactivateAuthorization(code) {
+        // The same row, with a new code, and renewal back on.
+        if (code === "AUTH_abc123") await pay({ authorization: { ...card, code: "AUTH_new", last4: "5555" } });
+        return paystack.deactivateAuthorization(code);
+      },
+    };
+    const { sent, send } = inbox();
+
+    const result = await deauthorizeSavedCards(db, replacing, send, { reason, now: t0 });
+
+    expect(deactivated).toEqual(["AUTH_abc123", "AUTH_new"]);
+    expect(result.failed).toEqual([]);
+    expect(result.removed).toEqual([
+      { orgId, orgName: "Sunrise Academy", card: "Visa ending 4242" },
+      { orgId, orgName: "Sunrise Academy", card: "Visa ending 5555" },
+    ]);
+    expect(await db.select().from(savedCards)).toEqual([]);
+    expect((await org()).autoRenewInterval).toBeNull();
+    expect(sent).toHaveLength(1);
+    expect(sent[0].text).toContain("Visa ending 5555");
+  });
+
+  it("keeps renewal off if an owner turns it back on before the card goes", async () => {
+    await pay();
+    const { paystack } = fakePaystack();
+    const { send } = inbox();
+    const owner = { id: ownerId, name: "Wanjiku", email: "owner@sunrise.ke" };
+    // Between turning renewal off and deleting the card, while the card is still there to renew with.
+    const racing = beforeTransaction(2, async () => {
+      expect(await setAutoRenew(db, send, orgId, "month", owner, { now: t0 })).toEqual({ ok: true });
+    });
+
+    await deauthorizeSavedCards(racing, paystack, send, { reason, now: t0 });
+
+    expect(await db.select().from(savedCards)).toEqual([]);
+    expect((await org()).autoRenewInterval).toBeNull();
+  });
+
+  it("reports owners it couldn't email, as a later run won't", async () => {
+    await pay();
+    const otherId = await secondOrg();
+    const { paystack } = fakePaystack();
+    const { sent, send } = inbox();
+    const flaky = async (m: EmailMessage) => {
+      if (m.to.includes("owner@sunrise.ke")) throw new Error("SMTP connection refused");
+      return send(m);
+    };
+
+    const result = await deauthorizeSavedCards(db, paystack, flaky, { reason, now: t0 });
+
+    expect(result.removed.map((r) => r.orgId)).toEqual([orgId, otherId]);
+    expect(result.failed).toEqual([]);
+    expect(result.unnotified).toEqual([
+      { orgId, orgName: "Sunrise Academy", card: "Visa ending 4242", error: "SMTP connection refused" },
+    ]);
+    expect(sent.map((m) => m.to)).toEqual([["owner@mwangi.ke"]]);
+  });
+
+  it("carries on with the other cards when one can't be deleted here", async () => {
+    await pay();
+    const otherId = await secondOrg();
+    const { paystack, deactivated } = fakePaystack();
+    const { send } = inbox();
+    // The second transaction is the one deleting the first card, after Paystack has deactivated it.
+    let count = 0;
+    const failing = new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop !== "transaction") return Reflect.get(target, prop, receiver);
+        return async (...args: Parameters<Db["transaction"]>) => {
+          if (++count === 2) throw new Error("connection reset");
+          return target.transaction(...args);
+        };
+      },
+    });
+
+    const result = await deauthorizeSavedCards(failing, paystack, send, { reason, now: t0 });
+
+    expect(deactivated).toEqual(["AUTH_abc123", "AUTH_clinic"]);
+    expect(result.removed).toEqual([{ orgId: otherId, orgName: "Mwangi Clinic", card: "Mastercard ending 1111" }]);
+    expect(result.failed).toEqual([{ orgId, orgName: "Sunrise Academy", card: "Visa ending 4242", error: "connection reset" }]);
+    expect(await db.select({ code: savedCards.authorizationCode }).from(savedCards)).toEqual([{ code: "AUTH_abc123" }]);
+    expect((await org()).autoRenewInterval).toBeNull();
+  });
+
+  it("carries on with the other cards when renewal can't be turned off for one", async () => {
+    await pay();
+    const otherId = await secondOrg();
+    const { paystack, deactivated } = fakePaystack();
+    const { send } = inbox();
+    // The first transaction is the one turning the first organisation's renewal off.
+    let count = 0;
+    const failing = new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop !== "transaction") return Reflect.get(target, prop, receiver);
+        return async (...args: Parameters<Db["transaction"]>) => {
+          if (++count === 1) throw new Error("connection reset");
+          return target.transaction(...args);
+        };
+      },
+    });
+
+    const result = await deauthorizeSavedCards(failing, paystack, send, { reason, now: t0 });
+
+    // Left alone, renewal and all, rather than deactivated with a charge maybe in flight.
+    expect(deactivated).toEqual(["AUTH_clinic"]);
+    expect(result.removed).toEqual([{ orgId: otherId, orgName: "Mwangi Clinic", card: "Mastercard ending 1111" }]);
+    expect(result.failed).toEqual([
+      { orgId, orgName: "Sunrise Academy", card: "Visa ending 4242", error: "couldn't turn automatic renewal off: connection reset" },
+    ]);
+    expect(await db.select({ code: savedCards.authorizationCode }).from(savedCards)).toEqual([{ code: "AUTH_abc123" }]);
+    expect((await org()).autoRenewInterval).toBe("month");
+  });
+
+  it("stops and reports the card left if checkouts keep saving them", async () => {
+    await pay();
+    const { paystack } = fakePaystack();
+    let n = 0;
+    // A checkout credits during every single deactivation, so there is always one more card.
+    const endless: Paystack = {
+      ...paystack,
+      async deactivateAuthorization(code) {
+        await creditedOrg(++n);
+        return paystack.deactivateAuthorization(code);
+      },
+    };
+    const { send } = inbox();
+
+    const result = await deauthorizeSavedCards(db, endless, send, { reason, now: t0 });
+
+    // Ten passes, each catching the card the one before it saved, and then it gives up.
+    expect(result.removed).toHaveLength(10);
+    expect(result.removed.at(-1)).toMatchObject({ orgName: "Late Checkout 9", card: "Visa ending 1009" });
+    expect(result.failed).toEqual([
+      {
+        orgId: expect.any(String),
+        orgName: "Late Checkout 10",
+        card: "Visa ending 1010",
+        error: "saved while this was running; run it again",
+      },
+    ]);
+    // The one left over isn't chargeable: renewal went off before it was reported.
+    const left = await db.select().from(savedCards);
+    expect(left.map((c) => c.authorizationCode)).toEqual(["AUTH_late10"]);
+    const [leftOrg] = await db.select().from(organizations).where(eq(organizations.id, left[0].orgId));
+    expect(leftOrg.autoRenewInterval).toBeNull();
+  });
+
+  it("doesn't charge a card it is in the middle of forgetting", async () => {
+    await pay();
+    const { paystack, charges } = fakePaystack();
+    const { send } = inbox();
+    // Renewal is turned off before the card goes, so the claimed charge is dropped.
+    const racing = beforeTransaction(2, () => deauthorizeSavedCards(db, paystack, send, { reason, now: at(-HOUR) }));
+    await runAutoRenewals(racing, paystack, send, { now: at(-HOUR) });
+    expect(charges).toEqual([]);
+    expect(await db.select().from(savedCards)).toEqual([]);
+    expect(await db.select().from(renewalAttempts)).toEqual([]);
+    expect(await db.select().from(payments).where(eq(payments.status, "pending"))).toEqual([]);
   });
 });
 

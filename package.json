@@ -18,6 +18,7 @@
     "legal-notice": "tsx --env-file-if-exists=.env scripts/legal-notice.ts",
     "refunds": "tsx --env-file-if-exists=.env scripts/refunds.ts",
     "sessions:revoke": "tsx --env-file-if-exists=.env scripts/revoke-sessions.ts",
+    "cards:deauthorize": "tsx --env-file-if-exists=.env scripts/deauthorize-cards.ts",
     "etims:init": "tsx --env-file-if-exists=.env scripts/etims-init.ts",
     "etims:items": "tsx --env-file-if-exists=.env scripts/etims-items.ts",
     "test": "vitest run",
