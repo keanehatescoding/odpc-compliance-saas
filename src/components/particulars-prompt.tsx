@@ -15,7 +15,7 @@ export function ParticularsPrompt({ change }: { change: SuggestedChange }) {
         in writing (regulation 15 of the Registration Regulations, 2021).
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-3">
-        <Link href={logChangeHref(change)} className={buttonClass.primary}>
+        <Link href={logChangeHref(change, change.changedOn)} className={buttonClass.primary}>
           Log the change
         </Link>
         <span className="text-stone-600">or ignore this if your registration doesn&apos;t cover it.</span>

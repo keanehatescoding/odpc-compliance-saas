@@ -266,7 +266,7 @@ export default async function DashboardPage() {
           ) : (
             <ol className="mt-4 space-y-3">
               {todos.map((t) => (
-                <li key={t.text} className="flex gap-2 text-sm">
+                <li key={`${t.href} ${t.text}`} className="flex gap-2 text-sm">
                   <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-brand-600" aria-hidden />
                   <Link href={t.href} className="hover:underline">
                     {t.text}

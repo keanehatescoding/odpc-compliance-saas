@@ -43,6 +43,9 @@ export async function saveParticularChange(_prev: FormState, formData: FormData)
       .where(and(eq(particularChanges.id, id), eq(particularChanges.orgId, org.id)))
       .for("update");
     if (!before) return null;
+    // A form opened before someone else saved would put back what they changed,
+    // such as erasing the date they recorded notifying the ODPC.
+    if (formData.get("updatedAt") !== before.updatedAt.toISOString()) return "stale" as const;
     await tx
       .update(particularChanges)
       .set(data)
@@ -63,6 +66,12 @@ export async function saveParticularChange(_prev: FormState, formData: FormData)
     return id;
   });
   if (!changeId) return { message: "Change not found." };
+  if (changeId === "stale") {
+    return {
+      message: "Someone else changed this since you opened it. Reload the page to see their changes, then make yours again.",
+      values: formValues(formData),
+    };
+  }
 
   // One logged close to its deadline alerts the team now, not at the next scheduled run.
   after(() => runParticularChangeAlerts(db, createEmailSender(), { changeId }).catch((err) => console.error(err)));

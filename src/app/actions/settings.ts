@@ -6,9 +6,10 @@ import { z } from "zod";
 import { db } from "@/db";
 import { organizations, registrations } from "@/db/schema";
 import { changedFields, editSummary, FIELD_LABELS, recordActivity } from "@/lib/activity";
+import { todayInKenya } from "@/lib/dates";
 import { ORG_SIZE_KEYS, SECTOR_KEYS, type OrgSize, type Sector } from "@/lib/dpa";
 import { fieldErrors, formValues, type FormState } from "@/lib/forms";
-import { affectsRegistration, organizationParticularChange, type SuggestedChange } from "@/lib/particulars";
+import { organizationParticularChange, suggestionFor, type SuggestedChange } from "@/lib/particulars";
 import { requireOrgContext } from "@/lib/session";
 
 const optionalText = (max: number) =>
@@ -74,7 +75,8 @@ export async function updateOrganization(_prev: SettingsState, formData: FormDat
     const change = organizationParticularChange(before, parsed.data);
     if (!change) return undefined;
     const regs = await tx.select({ role: registrations.role, issuedOn: registrations.issuedOn }).from(registrations).where(eq(registrations.orgId, org.id));
-    return affectsRegistration(change.role, regs) ? change : undefined;
+    const suggestion = suggestionFor(change, regs);
+    return suggestion ? { ...suggestion, changedOn: todayInKenya() } : undefined;
   });
   revalidatePath("/", "layout");
   return { message: "Saved.", values, particulars };

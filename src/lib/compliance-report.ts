@@ -41,7 +41,7 @@ import {
   type TransferBasis,
   type TransferLike,
 } from "./transfer";
-import { notifiedLate as particularsNotifiedLate, notifyBy, type ParticularChangeLike } from "./particulars";
+import { notifiedLate as particularsNotifiedLate, notifyBy, roleLabel, type ParticularChangeLike, type RegisteredRole } from "./particulars";
 import { daysUntilExpiry, registrationStatus, STATUS_LABEL, type RegistrationLike } from "./registration";
 import { dpiaRecommended, type ActivityInput } from "./ropa";
 import {
@@ -93,7 +93,7 @@ export interface ReportRegistration extends RegistrationLike {
 }
 
 export interface ReportParticularChange extends ParticularChangeLike {
-  role: string | null;
+  role: RegisteredRole | null;
   description: string;
 }
 
@@ -275,7 +275,8 @@ function registrationSection(input: ReportInput, today: string): ReportSection {
   }
   for (const c of [...changes].filter((c) => !c.notifiedOn).sort((a, b) => a.changedOn.localeCompare(b.changedOn))) {
     const due = notifyBy(c);
-    const what = `The change to the registered particulars on ${formatDate(c.changedOn)} (${c.description.trim().replace(/[.\s]+$/, "")})`;
+    // Named by registration and date. The free-text description stays out, since it may name people.
+    const what = `The change on ${formatDate(c.changedOn)} to the particulars of ${roleLabel(c.role)}`;
     open.push(
       due < today
         ? `${what} hasn't been notified to the ODPC. It was due by ${formatDate(due)}.`

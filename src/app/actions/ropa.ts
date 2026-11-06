@@ -6,8 +6,9 @@ import { redirect } from "next/navigation";
 import { db } from "@/db";
 import { processingActivities, registrations } from "@/db/schema";
 import { changedFields, describe, editSummary, FIELD_LABELS, recordActivity } from "@/lib/activity";
+import { todayInKenya } from "@/lib/dates";
 import { fieldErrors, formValues, type FormState } from "@/lib/forms";
-import { addedActivitiesChange, affectsRegistration, ropaHref, ropaParticularChange, type SuggestedChange } from "@/lib/particulars";
+import { addedActivitiesChange, ropaHref, ropaParticularChange, suggestionFor, type SuggestedChange } from "@/lib/particulars";
 import { ACTIVITY_TEMPLATES, parseActivityForm } from "@/lib/ropa";
 import { requireActiveOrg } from "@/lib/session";
 import { isUuid } from "@/lib/uuid";
@@ -24,7 +25,8 @@ async function afterRopaChange(tx: Tx, orgId: string, change: SuggestedChange | 
     .select({ role: registrations.role, issuedOn: registrations.issuedOn })
     .from(registrations)
     .where(eq(registrations.orgId, orgId));
-  return ropaHref(affectsRegistration(change.role, regs) ? change : null);
+  const suggestion = suggestionFor(change, regs);
+  return ropaHref(suggestion && { ...suggestion, changedOn: todayInKenya() });
 }
 
 /** Creates or updates a RoPA entry. Edits carry the activity id in a hidden `id` field. */

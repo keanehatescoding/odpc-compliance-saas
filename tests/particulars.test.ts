@@ -18,6 +18,7 @@ import {
   particularChangeStatus,
   ropaHref,
   ropaParticularChange,
+  suggestionFor,
   suggestionFromQuery,
   type ActivityLike,
 } from "@/lib/particulars";
@@ -76,6 +77,7 @@ describe("spotting changes", () => {
     recipients: "Bank",
     crossBorder: false,
     transferCountries: "",
+    transferSafeguards: "",
     securityMeasures: "Access control",
     retention: "7 years",
     ...over,
@@ -100,6 +102,9 @@ describe("spotting changes", () => {
       role: "controller",
       description: "Changed the recipients, transfers outside Kenya, transfer countries of the processing activity “Fee payments”",
     });
+    expect(ropaParticularChange(activity(), activity({ transferSafeguards: "Standard contractual clauses" }))?.description).toBe(
+      "Changed the transfer safeguards of the processing activity “Fee payments”",
+    );
   });
 
   it("covers both registrations when the role changes", () => {
@@ -136,12 +141,33 @@ describe("spotting changes", () => {
     expect(affectsRegistration(null, [{ role: "processor", issuedOn: null }])).toBe(false);
   });
 
+  it("narrows a change to both registrations to the only certificate held", () => {
+    const change = { role: null, description: "Changed the organisation's address" };
+    const controllerOnly = [
+      { role: "controller", issuedOn: "2025-01-10" },
+      { role: "processor", issuedOn: null },
+    ];
+    const both = [
+      { role: "controller", issuedOn: "2025-01-10" },
+      { role: "processor", issuedOn: "2025-03-01" },
+    ];
+    expect(suggestionFor(change, controllerOnly)).toEqual({ ...change, role: "controller" });
+    expect(suggestionFor(change, both)).toEqual(change);
+    expect(suggestionFor({ ...change, role: "processor" }, controllerOnly)).toBeNull();
+    expect(suggestionFor(change, [])).toBeNull();
+    expect(suggestionFor(null, both)).toBeNull();
+  });
+
   it("carries a suggestion through the address and back", () => {
     expect(ropaHref(null)).toBe("/ropa");
     const change = { role: null, description: "Stopped the processing activity “CCTV”" };
     const href = ropaHref(change);
     const query = Object.fromEntries(new URL(href, "http://x").searchParams);
     expect(suggestionFromQuery(query)).toEqual(change);
+    // The day of the edit comes back too, so a prompt reopened later dates the change right.
+    const dated = { ...change, changedOn: "2026-10-01" };
+    expect(suggestionFromQuery(Object.fromEntries(new URL(ropaHref(dated), "http://x").searchParams))).toEqual(dated);
+    expect(suggestionFromQuery({ changed: "both", what: "x", on: "yesterday" })).toEqual({ role: null, description: "x" });
     expect(suggestionFromQuery({ changed: "admin", what: "x" })).toBeNull();
     expect(suggestionFromQuery({ changed: "controller", what: "  " })).toBeNull();
     expect(suggestionFromQuery({ changed: "controller", what: ["a", "b"] })).toBeNull();
@@ -254,6 +280,38 @@ describe("runParticularChangeAlerts", () => {
     const r = await runParticularChangeAlerts(db, send, { now: on("2026-10-16") });
     expect(r.checked).toBe(0);
     expect(outbox).toHaveLength(0);
+  });
+
+  it("passes over changes with nothing left to send", async () => {
+    await setup({ changedOn: "2026-10-05" });
+    // Not due soon until 10 Oct.
+    expect((await runParticularChangeAlerts(db, send, { now: on("2026-10-09") })).checked).toBe(0);
+    await runParticularChangeAlerts(db, send, { now: on("2026-10-20") });
+    expect(outbox).toHaveLength(1);
+    // The overdue alert is the last one.
+    expect((await runParticularChangeAlerts(db, send, { now: on("2026-10-21") })).checked).toBe(0);
+  });
+
+  it("sends once when two runs overlap", async () => {
+    await setup();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let entered!: () => void;
+    const sending = new Promise<void>((resolve) => (entered = resolve));
+    const slow = async (m: EmailMessage) => {
+      entered();
+      await gate;
+      outbox.push(m);
+    };
+    // The first run holds its claim while the second runs through.
+    const first = runParticularChangeAlerts(db, slow, { now: on("2026-10-10") });
+    await sending;
+    const second = await runParticularChangeAlerts(db, send, { now: on("2026-10-10") });
+    release();
+    const r = await first;
+    expect(second.sent).toHaveLength(0);
+    expect(r.sent).toHaveLength(1);
+    expect(outbox).toHaveLength(1);
   });
 
   it("checks only the one asked for", async () => {

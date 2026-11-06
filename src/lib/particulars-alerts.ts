@@ -1,10 +1,11 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, lte, notExists } from "drizzle-orm";
 import type { Db } from "@/db";
 import { organizations, particularChangeAlertLog, particularChanges, type ParticularChange } from "@/db/schema";
-import { formatDate, todayInKenya } from "./dates";
+import { addDays, formatDate, todayInKenya } from "./dates";
 import type { SendEmail } from "./email";
 import {
   daysToNotify,
+  DUE_SOON_DAYS,
   dueParticularChangeAlert,
   formatDaysLeft,
   notifyBy,
@@ -37,11 +38,26 @@ export async function runParticularChangeAlerts(
   const result: ParticularChangeAlertRunResult = { checked: 0, sent: [], failed: [] };
 
   const awaiting = isNull(particularChanges.notifiedOn);
+  // Only changes already due soon, and not those whose overdue alert, the
+  // last one, has gone out. The rest have nothing to send, and an unnotified
+  // change stays in the table until someone records the notice.
+  const dueSoonFrom = addDays(today, DUE_SOON_DAYS - NOTIFY_DAYS);
+  const overdueSent = db
+    .select({ id: particularChangeAlertLog.id })
+    .from(particularChangeAlertLog)
+    .where(and(eq(particularChangeAlertLog.changeId, particularChanges.id), eq(particularChangeAlertLog.kind, "overdue")));
   const rows = await db
     .select({ change: particularChanges, org: organizations })
     .from(particularChanges)
     .innerJoin(organizations, eq(organizations.id, particularChanges.orgId))
-    .where(and(awaiting, opts.changeId ? eq(particularChanges.id, opts.changeId) : undefined));
+    .where(
+      and(
+        awaiting,
+        lte(particularChanges.changedOn, dueSoonFrom),
+        notExists(overdueSent),
+        opts.changeId ? eq(particularChanges.id, opts.changeId) : undefined,
+      ),
+    );
 
   for (const { change: listed, org } of rows) {
     result.checked++;

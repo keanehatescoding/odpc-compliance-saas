@@ -29,6 +29,7 @@ const {
   processors,
   subjectRequests,
   complaints,
+  particularChangeAlertLog,
   particularChanges,
   trainingSessions,
   consentRecords,
@@ -108,7 +109,11 @@ beforeEach(async () => {
   await db.insert(dpiaRisks).values({ dpiaId: dpia.id, position: 0, description: "Over-collection", likelihood: "possible", severity: "significant", residualLikelihood: "remote", residualSeverity: "minimal" });
   await db.insert(subjectRequests).values({ orgId, kind: "access", receivedOn: "2026-10-01", requesterName: "Wanjiku", details: "All my data" });
   await db.insert(complaints).values({ orgId, kind: "complaint", receivedOn: "2026-10-01", dueOn: "2026-10-22", summary: "Shared a phone number" });
-  await db.insert(particularChanges).values({ orgId, role: "controller", changedOn: "2026-10-01", description: "Moved offices", loggedBy: owner });
+  const [change] = await db
+    .insert(particularChanges)
+    .values({ orgId, role: "controller", changedOn: "2026-10-01", description: "Moved offices", loggedBy: owner })
+    .returning({ id: particularChanges.id });
+  await db.insert(particularChangeAlertLog).values({ changeId: change.id, kind: "due_soon", recipients: ["owner@sunrise.ke"], sentAt: t0 });
   const [processor] = await db.insert(processors).values({ orgId, name: "Elimu Systems", service: "Hosts the school system" }).returning({ id: processors.id });
   await db.insert(processorActivities).values({ processorId: processor.id, activityId: activity.id });
   const [induction] = await db
@@ -146,7 +151,9 @@ describe("exportOrganization", () => {
     expect(data!.breaches[0].affectedActivityIds).toEqual([data!.processingActivities[0].id]);
     expect(data!.impactAssessments[0].risks).toEqual([expect.objectContaining({ description: "Over-collection" })]);
     expect(data!.subjectRequests).toEqual([expect.objectContaining({ requesterName: "Wanjiku", alertsSent: [] })]);
-    expect(data!.particularChanges).toEqual([expect.objectContaining({ description: "Moved offices", notifiedOn: null, alertsSent: [] })]);
+    expect(data!.particularChanges).toEqual([
+      expect.objectContaining({ description: "Moved offices", notifiedOn: null, alertsSent: [{ kind: "due_soon", recipients: ["owner@sunrise.ke"], sentAt: t0 }] }),
+    ]);
     expect(data!.complaints).toEqual([expect.objectContaining({ kind: "complaint", dueOn: "2026-10-22", alertsSent: [] })]);
     expect(data!.processors).toEqual([expect.objectContaining({ name: "Elimu Systems", activityIds: [data!.processingActivities[0].id] })]);
     expect(data!.trainingSessions).toEqual([

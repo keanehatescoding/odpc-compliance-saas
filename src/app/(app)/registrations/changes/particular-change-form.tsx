@@ -28,6 +28,7 @@ export function ParticularChangeForm({
   return (
     <form action={action} className="max-w-3xl space-y-6">
       {change && <input type="hidden" name="id" value={change.id} />}
+      {change && <input type="hidden" name="updatedAt" value={change.updatedAt.toISOString()} />}
       <FormMessage message={state?.message} />
       {state?.errors && <FormMessage message="Some fields need attention. See the messages below." />}
 

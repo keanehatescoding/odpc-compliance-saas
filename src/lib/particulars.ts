@@ -1,4 +1,4 @@
-import { addDays, daysBetween } from "./dates";
+import { addDays, daysBetween, isIsoDate } from "./dates";
 import { formatDaysLeft } from "./subject-request";
 
 // Changes to the particulars an organisation registered with the ODPC.
@@ -103,6 +103,7 @@ export const ROPA_PARTICULARS = {
   recipients: "recipients",
   crossBorder: "transfers outside Kenya",
   transferCountries: "transfer countries",
+  transferSafeguards: "transfer safeguards",
   securityMeasures: "security measures",
 } as const;
 
@@ -146,6 +147,8 @@ export interface SuggestedChange {
   /** Null when it may touch both registrations. */
   role: RegisteredRole | null;
   description: string;
+  /** The day of the edit, so a prompt reopened later still dates the change correctly. */
+  changedOn?: string;
 }
 
 /**
@@ -183,15 +186,18 @@ export function addedActivitiesChange(added: readonly ActivityLike[]): Suggested
 export function ropaHref(change: SuggestedChange | null): string {
   if (!change) return "/ropa";
   const params = new URLSearchParams({ changed: change.role ?? "both", what: change.description.slice(0, 500) });
+  if (change.changedOn) params.set("on", change.changedOn);
   return `/ropa?${params}`;
 }
 
 /** Reads the suggestion `ropaHref` put in the address back out, or null. */
 export function suggestionFromQuery(query: Record<string, string | string[] | undefined>): SuggestedChange | null {
-  const { changed, what } = query;
+  const { changed, what, on } = query;
   if (typeof what !== "string" || !what.trim() || typeof changed !== "string") return null;
   if (changed !== "controller" && changed !== "processor" && changed !== "both") return null;
-  return { role: changed === "both" ? null : changed, description: what.trim().slice(0, 500) };
+  const suggestion: SuggestedChange = { role: changed === "both" ? null : changed, description: what.trim().slice(0, 500) };
+  if (typeof on === "string" && isIsoDate(on)) suggestion.changedOn = on;
+  return suggestion;
 }
 
 /** What to suggest logging after the organisation's details change, or null. */
@@ -210,6 +216,23 @@ export function affectsRegistration(
   registrations: readonly { role: string; issuedOn: string | null }[],
 ): boolean {
   return registrations.some((r) => r.issuedOn && (role === null || r.role === role));
+}
+
+/**
+ * The suggestion to show for the registrations held, or null when it touches
+ * none of them. One that may touch both is narrowed to the only certificate
+ * issued, so it isn't logged as a change to "both registrations".
+ */
+export function suggestionFor(
+  change: SuggestedChange | null,
+  registrations: readonly { role: string; issuedOn: string | null }[],
+): SuggestedChange | null {
+  if (!change || !affectsRegistration(change.role, registrations)) return null;
+  if (change.role) return change;
+  const issued = new Set(registrations.filter((r) => r.issuedOn).map((r) => r.role));
+  if (issued.size !== 1) return change;
+  const [role] = issued;
+  return role === "controller" || role === "processor" ? { ...change, role } : change;
 }
 
 /**

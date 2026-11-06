@@ -249,7 +249,7 @@ describe("registration", () => {
 
   it("lists changes of particulars the ODPC hasn't been told of, and counts late notices", () => {
     const change = (over: Partial<ReportInput["particularChanges"][number]>) => ({
-      role: "controller",
+      role: "controller" as const,
       changedOn: "2026-10-01",
       description: "Moved to Lanet.",
       notifiedOn: null,
@@ -258,7 +258,7 @@ describe("registration", () => {
     const s = section(
       {
         particularChanges: [
-          change({ changedOn: "2026-10-05", description: "New contact email" }),
+          change({ changedOn: "2026-10-05", role: null, description: "New contact email for Wanjiku Kamau" }),
           change({}),
           change({ changedOn: "2026-08-01", notifiedOn: "2026-08-20" }),
           change({ changedOn: "2026-06-01", notifiedOn: "2026-06-10" }),
@@ -266,14 +266,19 @@ describe("registration", () => {
       },
       "registration",
     );
+    // Named by registration and date: the description may name people.
     expect(s.open).toEqual([
-      "The change to the registered particulars on 1 Oct 2026 (Moved to Lanet) must be notified to the ODPC by 15 Oct 2026.",
-      "The change to the registered particulars on 5 Oct 2026 (New contact email) must be notified to the ODPC by 19 Oct 2026.",
+      "The change on 1 Oct 2026 to the particulars of the controller registration must be notified to the ODPC by 15 Oct 2026.",
+      "The change on 5 Oct 2026 to the particulars of both registrations must be notified to the ODPC by 19 Oct 2026.",
     ]);
     expect(fact(s, "Changes to registered particulars logged")).toBe("4, 1 notified to the ODPC after the 14 days");
 
     const overdue = section({ particularChanges: [change({ changedOn: "2026-09-20" })] }, "registration");
-    expect(overdue.open).toEqual(["The change to the registered particulars on 20 Sept 2026 (Moved to Lanet) hasn't been notified to the ODPC. It was due by 4 Oct 2026."]);
+    expect(overdue.open).toEqual(["The change on 20 Sept 2026 to the particulars of the controller registration hasn't been notified to the ODPC. It was due by 4 Oct 2026."]);
+
+    // Due on the day of the report: still in time.
+    const dueToday = section({ particularChanges: [change({ changedOn: "2026-09-26" })] }, "registration");
+    expect(dueToday.open).toEqual(["The change on 26 Sept 2026 to the particulars of the controller registration must be notified to the ODPC by 10 Oct 2026."]);
   });
 });
 
