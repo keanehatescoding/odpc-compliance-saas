@@ -273,13 +273,25 @@ function registrationSection(input: ReportInput, today: string): ReportSection {
       value: `${count(changes.length)}${late > 0 ? `, ${late} notified to the ODPC after the 14 days` : ""}`,
     });
   }
-  for (const c of [...changes].filter((c) => !c.notifiedOn).sort((a, b) => a.changedOn.localeCompare(b.changedOn))) {
+  // Named by registration and date. The free-text description stays out, since it may name people.
+  // Changes to the same registration on the same day share a deadline, so they're one item, counted,
+  // rather than identical lines the reader can't tell apart.
+  const unnotified = new Map<string, { c: ReportParticularChange; n: number }>();
+  for (const c of changes.filter((c) => !c.notifiedOn)) {
+    const key = `${c.changedOn} ${c.role}`;
+    const same = unnotified.get(key);
+    if (same) same.n++;
+    else unnotified.set(key, { c, n: 1 });
+  }
+  const byDate = [...unnotified.values()].sort(
+    (a, b) => a.c.changedOn.localeCompare(b.c.changedOn) || (a.c.role ?? "").localeCompare(b.c.role ?? ""),
+  );
+  for (const { c, n } of byDate) {
     const due = notifyBy(c);
-    // Named by registration and date. The free-text description stays out, since it may name people.
-    const what = `The change on ${formatDate(c.changedOn)} to the particulars of ${roleLabel(c.role)}`;
+    const what = `The ${n === 1 ? "change" : `${n} changes`} on ${formatDate(c.changedOn)} to the particulars of ${roleLabel(c.role)}`;
     open.push(
       due < today
-        ? `${what} hasn't been notified to the ODPC. It was due by ${formatDate(due)}.`
+        ? `${what} ${n === 1 ? "hasn't" : "haven't"} been notified to the ODPC. ${n === 1 ? "It was" : "They were"} due by ${formatDate(due)}.`
         : `${what} must be notified to the ODPC by ${formatDate(due)}.`,
     );
   }

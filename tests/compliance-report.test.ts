@@ -279,6 +279,25 @@ describe("registration", () => {
     // Due on the day of the report: still in time.
     const dueToday = section({ particularChanges: [change({ changedOn: "2026-09-26" })] }, "registration");
     expect(dueToday.open).toEqual(["The change on 26 Sept 2026 to the particulars of the controller registration must be notified to the ODPC by 10 Oct 2026."]);
+
+    // Changes to the same registration on the same day are one item, counted, not identical lines.
+    const sameDay = section(
+      {
+        particularChanges: [
+          change({ description: "Moved to Lanet." }),
+          change({ description: "New phone number" }),
+          change({ role: "processor", description: "New director" }),
+          change({ changedOn: "2026-09-20", description: "A" }),
+          change({ changedOn: "2026-09-20", description: "B" }),
+        ],
+      },
+      "registration",
+    );
+    expect(sameDay.open).toEqual([
+      "The 2 changes on 20 Sept 2026 to the particulars of the controller registration haven't been notified to the ODPC. They were due by 4 Oct 2026.",
+      "The 2 changes on 1 Oct 2026 to the particulars of the controller registration must be notified to the ODPC by 15 Oct 2026.",
+      "The change on 1 Oct 2026 to the particulars of the processor registration must be notified to the ODPC by 15 Oct 2026.",
+    ]);
   });
 });
 
