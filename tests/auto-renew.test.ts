@@ -289,7 +289,8 @@ describe("charging the saved card", () => {
     const failed = await db.select().from(payments).where(eq(payments.status, "failed"));
     expect(failed).toHaveLength(3);
 
-    // The last failure email stood in for the "ended" one.
+    // The last failure email stood in for the "ended" one, so that's logged as sent, not as a claim to take over.
+    expect(await db.select().from(billingAlertLog)).toContainEqual(expect.objectContaining({ kind: "ended", sentAt: expect.any(Date) }));
     const before = sent.length;
     await runBillingAlerts(db, send, { now: at(4 * DAY) });
     expect(sent).toHaveLength(before);

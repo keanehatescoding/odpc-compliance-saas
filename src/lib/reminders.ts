@@ -1,6 +1,7 @@
 import { and, eq, isNotNull } from "drizzle-orm";
 import type { Db } from "@/db";
 import { memberships, organizations, registrations, reminderLog, users } from "@/db/schema";
+import { abandoned, deliverClaimed, ownClaim, sentOrClaimed } from "./alert-delivery";
 import { daysBetween, formatDate, todayInKenya } from "./dates";
 import { ODPC_FEES, formatKsh, type OrgSize } from "./dpa";
 import type { SendEmail } from "./email";
@@ -16,14 +17,15 @@ export interface ReminderRunResult {
  * Sends any renewal reminders due today. Safe to run as often as you like: a
  * reminder is claimed in reminder_log before the email goes out, so
  * overlapping runs cannot double-send. If sending fails the claim is released
- * so the next run retries.
+ * so the next run retries (see alert-delivery.ts).
  */
 export async function runReminders(
   db: Db,
   sendEmail: SendEmail,
-  opts: { today?: string; appUrl?: string } = {},
+  opts: { now?: Date; today?: string; appUrl?: string } = {},
 ): Promise<ReminderRunResult> {
-  const today = opts.today ?? todayInKenya();
+  const now = opts.now ?? new Date();
+  const today = opts.today ?? todayInKenya(now);
   const appUrl = opts.appUrl ?? process.env.APP_URL ?? "http://localhost:3000";
   const result: ReminderRunResult = { checked: 0, sent: [], failed: [] };
 
@@ -41,7 +43,7 @@ export async function runReminders(
     const sentRows = await db
       .select({ t: reminderLog.thresholdDays })
       .from(reminderLog)
-      .where(and(eq(reminderLog.registrationId, reg.id), eq(reminderLog.expiresOn, expiresOn)));
+      .where(and(eq(reminderLog.registrationId, reg.id), eq(reminderLog.expiresOn, expiresOn), sentOrClaimed(reminderLog, now)));
     const threshold = dueReminderThreshold(expiresOn, today, new Set(sentRows.map((r) => r.t)));
     if (threshold === null) continue;
 
@@ -50,15 +52,22 @@ export async function runReminders(
 
     const claimed = await db
       .insert(reminderLog)
-      .values({ registrationId: reg.id, expiresOn, thresholdDays: threshold, recipients: to })
-      .onConflictDoNothing()
+      .values({ registrationId: reg.id, expiresOn, thresholdDays: threshold, recipients: to, claimedAt: now })
+      // A claim left by a run that died before sending is taken over.
+      .onConflictDoUpdate({
+        target: [reminderLog.registrationId, reminderLog.expiresOn, reminderLog.thresholdDays],
+        set: { recipients: to, claimedAt: now },
+        setWhere: abandoned(reminderLog, now),
+      })
       .returning({ id: reminderLog.id });
     if (claimed.length === 0) continue; // another run got there first
 
     const daysLeft = daysBetween(today, expiresOn);
     const role = reg.role; // "controller" | "processor"
-    try {
-      await sendEmail({
+    const mine = ownClaim(reminderLog, eq(reminderLog.id, claimed[0].id), now);
+    const delivery = await deliverClaimed(
+      sendEmail,
+      {
         to,
         subject: reminderSubject(org.name, role, daysLeft),
         text: reminderBody({
@@ -70,12 +79,15 @@ export async function runReminders(
           renewalFee: ODPC_FEES[org.size as OrgSize].renewal,
           link: `${appUrl}/registrations`,
         }),
-      });
-      result.sent.push({ registrationId: reg.id, threshold, to });
-    } catch (err) {
-      await db.delete(reminderLog).where(eq(reminderLog.id, claimed[0].id));
-      result.failed.push({ registrationId: reg.id, error: err instanceof Error ? err.message : String(err) });
-    }
+      },
+      {
+        label: "renewal reminder",
+        markSent: (recipients) => db.update(reminderLog).set({ sentAt: now, recipients }).where(mine),
+        release: () => db.delete(reminderLog).where(mine),
+      },
+    );
+    if (delivery.sent) result.sent.push({ registrationId: reg.id, threshold, to: delivery.sent });
+    if (delivery.error) result.failed.push({ registrationId: reg.id, error: delivery.error });
   }
   return result;
 }

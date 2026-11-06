@@ -1,6 +1,7 @@
 import { and, eq, isNull } from "drizzle-orm";
 import type { Db } from "@/db";
 import { breachAlertLog, breaches, organizations, type Breach } from "@/db/schema";
+import { abandoned, deliverClaimed, ownClaim, sentOrClaimed } from "./alert-delivery";
 import { formatDateTime } from "./dates";
 import {
   dueBreachAlert,
@@ -49,7 +50,7 @@ export async function runBreachAlerts(
     const sentRows = await db
       .select({ kind: breachAlertLog.kind })
       .from(breachAlertLog)
-      .where(eq(breachAlertLog.breachId, breach.id));
+      .where(and(eq(breachAlertLog.breachId, breach.id), sentOrClaimed(breachAlertLog, now)));
     const kind = dueBreachAlert(breach, now, new Set(sentRows.map((r) => r.kind)));
     if (!kind) continue;
 
@@ -58,26 +59,32 @@ export async function runBreachAlerts(
 
     const claimed = await db
       .insert(breachAlertLog)
-      .values({ breachId: breach.id, kind, recipients: to })
-      .onConflictDoNothing()
+      .values({ breachId: breach.id, kind, recipients: to, claimedAt: now })
+      // A claim left by a run that died before sending is taken over.
+      .onConflictDoUpdate({
+        target: [breachAlertLog.breachId, breachAlertLog.kind],
+        set: { recipients: to, claimedAt: now },
+        setWhere: abandoned(breachAlertLog, now),
+      })
       .returning({ id: breachAlertLog.id });
     if (claimed.length === 0) continue;
 
-    try {
-      await sendEmail({
+    const mine = ownClaim(breachAlertLog, eq(breachAlertLog.id, claimed[0].id), now);
+    const delivery = await deliverClaimed(
+      sendEmail,
+      {
         to,
         subject: alertSubject(org.name, breach, kind, now),
         text: alertBody(org.name, breach, now, `${appUrl}/breaches/${breach.id}`),
-      });
-      result.sent.push({ breachId: breach.id, kind, to });
-    } catch (err) {
-      result.failed.push({ breachId: breach.id, error: err instanceof Error ? err.message : String(err) });
-      // Release the claim so the next run retries. If that fails too, keep going with the other breaches.
-      await db
-        .delete(breachAlertLog)
-        .where(eq(breachAlertLog.id, claimed[0].id))
-        .catch((releaseErr) => console.error("Failed to release breach alert claim", releaseErr));
-    }
+      },
+      {
+        label: "breach alert",
+        markSent: (recipients) => db.update(breachAlertLog).set({ sentAt: now, recipients }).where(mine),
+        release: () => db.delete(breachAlertLog).where(mine),
+      },
+    );
+    if (delivery.sent) result.sent.push({ breachId: breach.id, kind, to: delivery.sent });
+    if (delivery.error) result.failed.push({ breachId: breach.id, error: delivery.error });
   }
   return result;
 }

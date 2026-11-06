@@ -3,13 +3,12 @@ import type { Db } from "@/db";
 import { legalNoticeLog, legalNotices, memberships, organizations, users } from "@/db/schema";
 import { sellerFromEnv, type Seller } from "./billing";
 import { addDays, formatDate, isIsoDate, todayInKenya } from "./dates";
+import { CLAIM_LEASE_MS } from "./alert-delivery";
 import type { SendEmail } from "./email";
 import { LEGAL_NOTICE_DAYS } from "./legal";
 
 export type LegalNotice = typeof legalNotices.$inferSelect;
 
-/** How long a run's claim on an email holds before another run may take it over, say after the first died mid-send. */
-const CLAIM_LEASE_MS = 30 * 60 * 1000;
 
 /** Why a notice can't be sent, or null. The Terms and DPA promise owners LEGAL_NOTICE_DAYS' warning. */
 export function legalNoticeError(effectiveOn: string, summary: string, now: Date = new Date()): string | null {

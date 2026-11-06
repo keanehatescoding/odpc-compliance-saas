@@ -347,7 +347,7 @@ async function declineRenewal(
       if (to.length > 0) {
         await tx
           .insert(billingAlertLog)
-          .values({ orgId: claim.orgId, kind: "ended", endsAt: claim.endsAt, recipients: to })
+          .values({ orgId: claim.orgId, kind: "ended", endsAt: claim.endsAt, recipients: to, sentAt: new Date() })
           .onConflictDoNothing();
       }
     }
