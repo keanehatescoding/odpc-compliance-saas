@@ -411,6 +411,8 @@ export async function runBillingAlerts(
   opts: { now?: Date; appUrl?: string } = {},
 ): Promise<BillingAlertRunResult> {
   const now = opts.now ?? new Date();
+  // Claims and sends are stamped when they happen: a run may reach an alert long after it began.
+  const clock = () => opts.now ?? new Date();
   const appUrl = opts.appUrl ?? process.env.APP_URL ?? "http://localhost:3000";
   const result: BillingAlertRunResult = { checked: 0, sent: [], failed: [] };
 
@@ -437,27 +439,28 @@ export async function runBillingAlerts(
       const access = accessFor(org, now);
       const kind = dueBillingAlert(org, now, willAutoRenew(org, card ?? null, access.endsAt));
       if (!kind) return null;
+      const claimedAt = clock();
       const [claimed] = await tx
         .insert(billingAlertLog)
-        .values({ orgId: org.id, kind, endsAt: access.endsAt, recipients: to, claimedAt: now })
+        .values({ orgId: org.id, kind, endsAt: access.endsAt, recipients: to, claimedAt, sentAt: null })
         // A claim left by a run that died before sending is taken over.
         .onConflictDoUpdate({
           target: [billingAlertLog.orgId, billingAlertLog.kind, billingAlertLog.endsAt],
-          set: { recipients: to, claimedAt: now },
-          setWhere: abandoned(billingAlertLog, now),
+          set: { recipients: to, claimedAt },
+          setWhere: abandoned(billingAlertLog, claimedAt),
         })
         .returning({ id: billingAlertLog.id });
-      return claimed ? { id: claimed.id, org, card: card ?? null, kind, access } : null;
+      return claimed ? { id: claimed.id, org, card: card ?? null, kind, access, claimedAt } : null;
     });
     if (!claim) continue;
 
-    const mine = ownClaim(billingAlertLog, eq(billingAlertLog.id, claim.id), now);
+    const mine = ownClaim(billingAlertLog, eq(billingAlertLog.id, claim.id), claim.claimedAt);
     const delivery = await deliverClaimed(
       sendEmail,
       billingEmail(to, claim.org, claim.kind, claim.access.endsAt, claim.org.paidUntil !== null, `${appUrl}/billing`, claim.card),
       {
         label: "billing alert",
-        markSent: (recipients) => db.update(billingAlertLog).set({ sentAt: now, recipients }).where(mine),
+        markSent: (recipients) => db.update(billingAlertLog).set({ sentAt: clock(), recipients }).where(mine),
         release: () => db.delete(billingAlertLog).where(mine),
       },
     );

@@ -34,6 +34,8 @@ export async function runBreachAlerts(
   opts: { now?: Date; appUrl?: string; breachId?: string } = {},
 ): Promise<BreachAlertRunResult> {
   const now = opts.now ?? new Date();
+  // Claims and sends are stamped when they happen: a run may reach an alert long after it began.
+  const clock = () => opts.now ?? new Date();
   const appUrl = opts.appUrl ?? process.env.APP_URL ?? "http://localhost:3000";
   const result: BreachAlertRunResult = { checked: 0, sent: [], failed: [] };
 
@@ -57,19 +59,20 @@ export async function runBreachAlerts(
     const to = await reminderRecipients(db, org);
     if (to.length === 0) continue;
 
+    const claimedAt = clock();
     const claimed = await db
       .insert(breachAlertLog)
-      .values({ breachId: breach.id, kind, recipients: to, claimedAt: now })
+      .values({ breachId: breach.id, kind, recipients: to, claimedAt, sentAt: null })
       // A claim left by a run that died before sending is taken over.
       .onConflictDoUpdate({
         target: [breachAlertLog.breachId, breachAlertLog.kind],
-        set: { recipients: to, claimedAt: now },
-        setWhere: abandoned(breachAlertLog, now),
+        set: { recipients: to, claimedAt },
+        setWhere: abandoned(breachAlertLog, claimedAt),
       })
       .returning({ id: breachAlertLog.id });
     if (claimed.length === 0) continue;
 
-    const mine = ownClaim(breachAlertLog, eq(breachAlertLog.id, claimed[0].id), now);
+    const mine = ownClaim(breachAlertLog, eq(breachAlertLog.id, claimed[0].id), claimedAt);
     const delivery = await deliverClaimed(
       sendEmail,
       {
@@ -79,7 +82,7 @@ export async function runBreachAlerts(
       },
       {
         label: "breach alert",
-        markSent: (recipients) => db.update(breachAlertLog).set({ sentAt: now, recipients }).where(mine),
+        markSent: (recipients) => db.update(breachAlertLog).set({ sentAt: clock(), recipients }).where(mine),
         release: () => db.delete(breachAlertLog).where(mine),
       },
     );

@@ -25,6 +25,8 @@ export async function runReminders(
   opts: { now?: Date; today?: string; appUrl?: string } = {},
 ): Promise<ReminderRunResult> {
   const now = opts.now ?? new Date();
+  // Claims and sends are stamped when they happen: a run may reach an alert long after it began.
+  const clock = () => opts.now ?? new Date();
   const today = opts.today ?? todayInKenya(now);
   const appUrl = opts.appUrl ?? process.env.APP_URL ?? "http://localhost:3000";
   const result: ReminderRunResult = { checked: 0, sent: [], failed: [] };
@@ -50,21 +52,22 @@ export async function runReminders(
     const to = await reminderRecipients(db, org);
     if (to.length === 0) continue;
 
+    const claimedAt = clock();
     const claimed = await db
       .insert(reminderLog)
-      .values({ registrationId: reg.id, expiresOn, thresholdDays: threshold, recipients: to, claimedAt: now })
+      .values({ registrationId: reg.id, expiresOn, thresholdDays: threshold, recipients: to, claimedAt, sentAt: null })
       // A claim left by a run that died before sending is taken over.
       .onConflictDoUpdate({
         target: [reminderLog.registrationId, reminderLog.expiresOn, reminderLog.thresholdDays],
-        set: { recipients: to, claimedAt: now },
-        setWhere: abandoned(reminderLog, now),
+        set: { recipients: to, claimedAt },
+        setWhere: abandoned(reminderLog, claimedAt),
       })
       .returning({ id: reminderLog.id });
     if (claimed.length === 0) continue; // another run got there first
 
     const daysLeft = daysBetween(today, expiresOn);
     const role = reg.role; // "controller" | "processor"
-    const mine = ownClaim(reminderLog, eq(reminderLog.id, claimed[0].id), now);
+    const mine = ownClaim(reminderLog, eq(reminderLog.id, claimed[0].id), claimedAt);
     const delivery = await deliverClaimed(
       sendEmail,
       {
@@ -82,7 +85,7 @@ export async function runReminders(
       },
       {
         label: "renewal reminder",
-        markSent: (recipients) => db.update(reminderLog).set({ sentAt: now, recipients }).where(mine),
+        markSent: (recipients) => db.update(reminderLog).set({ sentAt: clock(), recipients }).where(mine),
         release: () => db.delete(reminderLog).where(mine),
       },
     );

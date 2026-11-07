@@ -31,6 +31,8 @@ export async function runSubjectRequestAlerts(
   opts: { now?: Date; appUrl?: string; requestId?: string } = {},
 ): Promise<RequestAlertRunResult> {
   const now = opts.now ?? new Date();
+  // Claims and sends are stamped when they happen: a run may reach an alert long after it began.
+  const clock = () => opts.now ?? new Date();
   const today = todayInKenya(now);
   const appUrl = opts.appUrl ?? process.env.APP_URL ?? "http://localhost:3000";
   const result: RequestAlertRunResult = { checked: 0, sent: [], failed: [] };
@@ -60,22 +62,23 @@ export async function runSubjectRequestAlerts(
       if (!request) return null;
       const kind = dueRequestAlert(request, today, await sentKinds(tx, request.id, now));
       if (!kind) return null;
+      const claimedAt = clock();
       const [claimed] = await tx
         .insert(subjectRequestAlertLog)
-        .values({ requestId: request.id, kind, recipients: to, claimedAt: now })
+        .values({ requestId: request.id, kind, recipients: to, claimedAt, sentAt: null })
         // A claim left by a run that died before sending is taken over.
         .onConflictDoUpdate({
           target: [subjectRequestAlertLog.requestId, subjectRequestAlertLog.kind],
-          set: { recipients: to, claimedAt: now },
-          setWhere: abandoned(subjectRequestAlertLog, now),
+          set: { recipients: to, claimedAt },
+          setWhere: abandoned(subjectRequestAlertLog, claimedAt),
         })
         .returning({ id: subjectRequestAlertLog.id });
-      return claimed ? { id: claimed.id, request, kind } : null;
+      return claimed ? { id: claimed.id, request, kind, claimedAt } : null;
     });
     if (!claim) continue;
     const { request, kind } = claim;
 
-    const mine = ownClaim(subjectRequestAlertLog, eq(subjectRequestAlertLog.id, claim.id), now);
+    const mine = ownClaim(subjectRequestAlertLog, eq(subjectRequestAlertLog.id, claim.id), claim.claimedAt);
     const delivery = await deliverClaimed(
       sendEmail,
       {
@@ -85,7 +88,7 @@ export async function runSubjectRequestAlerts(
       },
       {
         label: "subject request alert",
-        markSent: (recipients) => db.update(subjectRequestAlertLog).set({ sentAt: now, recipients }).where(mine),
+        markSent: (recipients) => db.update(subjectRequestAlertLog).set({ sentAt: clock(), recipients }).where(mine),
         release: () => db.delete(subjectRequestAlertLog).where(mine),
       },
     );

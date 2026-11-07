@@ -8,7 +8,7 @@ import * as schema from "@/db/schema";
 import { deleteOrganization } from "@/lib/account";
 import { deauthorizeSavedCards, removeSavedCard, renewalReference, runAutoRenewals, setAutoRenew } from "@/lib/auto-renew";
 import { dueBillingAlert, recordPayment, runBillingAlerts, startCheckout } from "@/lib/billing";
-import type { EmailMessage } from "@/lib/email";
+import type { EmailMessage, SendEmail } from "@/lib/email";
 import { createPaystack, PaystackError, type Paystack, type PaystackTransaction } from "@/lib/paystack";
 import { addPeriod, cardLabel, cardUsable, dueRenewalAttempt, TRIAL_DAYS } from "@/lib/plans";
 
@@ -296,6 +296,44 @@ describe("charging the saved card", () => {
     expect(sent).toHaveLength(before);
     await runAutoRenewals(db, paystack, send, { now: at(5 * DAY) });
     expect(charges).toHaveLength(3);
+  });
+
+  /** Declines all three attempts, sending the last failure email with `lastSend`. */
+  async function declineThrice(lastSend: SendEmail) {
+    await pay();
+    const { paystack } = fakePaystack([0, 1, 2].map(() => ({ status: "failed", gatewayResponse: "Do Not Honor" })));
+    await runAutoRenewals(db, paystack, inbox().send, { now: at(-HOUR) });
+    await runAutoRenewals(db, paystack, inbox().send, { now: at(DAY) });
+    return runAutoRenewals(db, paystack, lastSend, { now: at(3 * DAY) });
+  }
+
+  it("leaves the \"ended\" email to the billing job if the last failure email can't be sent", async () => {
+    const third = await declineThrice(async () => {
+      throw new Error("SMTP down");
+    });
+    expect(third.declined[0]).toMatchObject({ attempt: 3, renewalOff: true });
+    expect(third.failed).toEqual([{ orgId, error: "The renewal failure email: SMTP down" }]);
+    expect((await db.select().from(billingAlertLog)).map((l) => l.kind)).not.toContain("ended");
+
+    const { sent, send } = inbox();
+    expect((await runBillingAlerts(db, send, { now: at(3 * DAY) })).sent).toEqual([{ orgId, kind: "ended", to: ["owner@sunrise.ke"] }]);
+    expect(sent).toHaveLength(1);
+  });
+
+  it("records only the owners the last failure email reached, and reports the rest", async () => {
+    const [u] = await db
+      .insert(users)
+      .values({ email: "bursar@sunrise.ke", name: "Bursar", passwordHash: "x", emailVerifiedAt: t0 })
+      .returning();
+    await db.insert(memberships).values({ userId: u.id, orgId, role: "owner" });
+
+    const third = await declineThrice(async () => ({ rejected: ["bursar@sunrise.ke"] }));
+    expect(third.failed).toEqual([
+      { orgId, error: "The renewal failure email: The mail server rejected bursar@sunrise.ke; the others were sent the email." },
+    ]);
+    expect(await db.select().from(billingAlertLog)).toContainEqual(
+      expect.objectContaining({ kind: "ended", recipients: ["owner@sunrise.ke"], sentAt: expect.any(Date) }),
+    );
   });
 
   it("treats Paystack refusing the charge as a decline", async () => {

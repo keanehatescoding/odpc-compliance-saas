@@ -101,11 +101,45 @@ describe("claims in the runners", () => {
   });
 
   const leftClaim = (claimedAt: Date) =>
-    db.insert(reminderLog).values({ registrationId, expiresOn: "2026-10-18", thresholdDays: 30, recipients: ["a@sunrise.ke"], claimedAt });
+    db
+      .insert(reminderLog)
+      .values({ registrationId, expiresOn: "2026-10-18", thresholdDays: 30, recipients: ["a@sunrise.ke"], claimedAt, sentAt: null });
 
   it("marks the reminder sent once it has gone", async () => {
     await runReminders(db, send, { now, today });
     expect(await db.select().from(reminderLog)).toMatchObject([{ claimedAt: now, sentAt: now }]);
+  });
+
+  it("stamps each claim and send when it happens, not when the run began", async () => {
+    // The first send is slow, so the run reaches the second reminder past the lease.
+    await db.insert(registrations).values({ orgId, role: "processor", issuedOn: "2024-10-18", expiresOn: "2026-10-18" });
+    const later = new Date(now.getTime() + CLAIM_LEASE_MS + 60_000);
+    const slow: SendEmail = async (m) => {
+      outbox.push(m);
+      if (outbox.length === 1) vi.setSystemTime(later);
+    };
+    vi.useFakeTimers({ toFake: ["Date"], now });
+    try {
+      await runReminders(db, slow, { today });
+    } finally {
+      vi.useRealTimers();
+    }
+    const rows = (await db.select().from(reminderLog)).sort((a, b) => a.claimedAt.getTime() - b.claimedAt.getTime());
+    // The second claim starts its lease when it's made, so an overlapping run can't take it over mid-send.
+    expect(rows).toMatchObject([
+      { claimedAt: now, sentAt: later },
+      { claimedAt: later, sentAt: later },
+    ]);
+  });
+
+  it("counts a row written without sent_at, as the app from before claims writes them, as sent", async () => {
+    // Such an app may still be running while the migration deploys.
+    // It doesn't know claimed_at either, which takes the database's clock.
+    await db.insert(reminderLog).values({ registrationId, expiresOn: "2026-10-18", thresholdDays: 30, recipients: ["a@sunrise.ke"] });
+    // Long enough after that the row would be an abandoned claim, if it didn't count as sent.
+    const r = await runReminders(db, send, { now: new Date(Date.now() + 2 * CLAIM_LEASE_MS), today });
+    expect(r.sent).toEqual([]);
+    expect(outbox).toHaveLength(0);
   });
 
   it("leaves a claim alone while the run that made it may still be sending", async () => {
@@ -152,6 +186,35 @@ describe("claims in the runners", () => {
     // The first run's failure didn't release the second's claim, so its send is recorded.
     expect(await db.select().from(reminderLog)).toMatchObject([{ claimedAt: later, sentAt: later }]);
     expect(outbox).toHaveLength(1);
+  });
+
+  it("doesn't mark a taken-over claim sent when the first run's send succeeds", async () => {
+    // As above, but the first send goes through while the second run is still sending.
+    const later = new Date(now.getTime() + CLAIM_LEASE_MS + 60_000);
+    let entered!: () => void;
+    const secondSending = new Promise<void>((resolve) => (entered = resolve));
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => (finish = resolve));
+    const secondSend: SendEmail = async (m) => {
+      entered();
+      await gate;
+      outbox.push(m);
+    };
+    let second!: Promise<unknown>;
+    const firstSend: SendEmail = async (m) => {
+      second = runReminders(db, secondSend, { now: later, today });
+      await secondSending;
+      outbox.push(m);
+    };
+    const r = await runReminders(db, firstSend, { now, today });
+    expect(r.sent).toHaveLength(1);
+    // The claim is the second run's, and stays unsent until its own send settles.
+    expect(await db.select().from(reminderLog)).toMatchObject([{ claimedAt: later, sentAt: null }]);
+    finish();
+    await second;
+    expect(await db.select().from(reminderLog)).toMatchObject([{ claimedAt: later, sentAt: later }]);
+    // Both went: at least once, never lost.
+    expect(outbox).toHaveLength(2);
   });
 
   it("records who the server accepted and reports who it rejected, without sending again", async () => {

@@ -35,6 +35,8 @@ export async function runParticularChangeAlerts(
   opts: { now?: Date; appUrl?: string; changeId?: string } = {},
 ): Promise<ParticularChangeAlertRunResult> {
   const now = opts.now ?? new Date();
+  // Claims and sends are stamped when they happen: a run may reach an alert long after it began.
+  const clock = () => opts.now ?? new Date();
   const today = todayInKenya(now);
   const appUrl = opts.appUrl ?? process.env.APP_URL ?? "http://localhost:3000";
   const result: ParticularChangeAlertRunResult = { checked: 0, sent: [], failed: [] };
@@ -86,22 +88,23 @@ export async function runParticularChangeAlerts(
       if (!change) return null;
       const kind = dueParticularChangeAlert(change, today, await sentKinds(tx, change.id, now));
       if (!kind) return null;
+      const claimedAt = clock();
       const [claimed] = await tx
         .insert(particularChangeAlertLog)
-        .values({ changeId: change.id, kind, recipients: to, claimedAt: now })
+        .values({ changeId: change.id, kind, recipients: to, claimedAt, sentAt: null })
         // A claim left by a run that died before sending is taken over.
         .onConflictDoUpdate({
           target: [particularChangeAlertLog.changeId, particularChangeAlertLog.kind],
-          set: { recipients: to, claimedAt: now },
-          setWhere: abandoned(particularChangeAlertLog, now),
+          set: { recipients: to, claimedAt },
+          setWhere: abandoned(particularChangeAlertLog, claimedAt),
         })
         .returning({ id: particularChangeAlertLog.id });
-      return claimed ? { id: claimed.id, change, kind } : null;
+      return claimed ? { id: claimed.id, change, kind, claimedAt } : null;
     });
     if (!claim) continue;
     const { change, kind } = claim;
 
-    const mine = ownClaim(particularChangeAlertLog, eq(particularChangeAlertLog.id, claim.id), now);
+    const mine = ownClaim(particularChangeAlertLog, eq(particularChangeAlertLog.id, claim.id), claim.claimedAt);
     const delivery = await deliverClaimed(
       sendEmail,
       {
@@ -111,7 +114,7 @@ export async function runParticularChangeAlerts(
       },
       {
         label: "particulars alert",
-        markSent: (recipients) => db.update(particularChangeAlertLog).set({ sentAt: now, recipients }).where(mine),
+        markSent: (recipients) => db.update(particularChangeAlertLog).set({ sentAt: clock(), recipients }).where(mine),
         release: () => db.delete(particularChangeAlertLog).where(mine),
       },
     );

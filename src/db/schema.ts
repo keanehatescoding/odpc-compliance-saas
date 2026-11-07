@@ -303,9 +303,11 @@ export const billingAlertLog = pgTable(
     recipients: text("recipients").array().notNull(),
     // A run claims the email before sending it, and marks it sent once the mail
     // server has taken it, with the recipients it accepted. No sent_at means
-    // it's being sent, or the run died first (see alert-delivery.ts).
+    // it's being sent, or the run died first (see alert-delivery.ts). Claims
+    // set sent_at to null explicitly: its default marks a row sent, as the
+    // code from before claims expects when it inserts one mid-deploy.
     claimedAt: timestamp("claimed_at", { withTimezone: true }).notNull().defaultNow(),
-    sentAt: timestamp("sent_at", { withTimezone: true }),
+    sentAt: timestamp("sent_at", { withTimezone: true }).defaultNow(),
   },
   (t) => [uniqueIndex("billing_alert_log_unique_idx").on(t.orgId, t.kind, t.endsAt)],
 );
@@ -418,9 +420,11 @@ export const reminderLog = pgTable(
     recipients: text("recipients").array().notNull(),
     // A run claims the email before sending it, and marks it sent once the mail
     // server has taken it, with the recipients it accepted. No sent_at means
-    // it's being sent, or the run died first (see alert-delivery.ts).
+    // it's being sent, or the run died first (see alert-delivery.ts). Claims
+    // set sent_at to null explicitly: its default marks a row sent, as the
+    // code from before claims expects when it inserts one mid-deploy.
     claimedAt: timestamp("claimed_at", { withTimezone: true }).notNull().defaultNow(),
-    sentAt: timestamp("sent_at", { withTimezone: true }),
+    sentAt: timestamp("sent_at", { withTimezone: true }).defaultNow(),
   },
   (t) => [uniqueIndex("reminder_log_unique_idx").on(t.registrationId, t.expiresOn, t.thresholdDays)],
 );
@@ -550,9 +554,11 @@ export const breachAlertLog = pgTable(
     recipients: text("recipients").array().notNull(),
     // A run claims the email before sending it, and marks it sent once the mail
     // server has taken it, with the recipients it accepted. No sent_at means
-    // it's being sent, or the run died first (see alert-delivery.ts).
+    // it's being sent, or the run died first (see alert-delivery.ts). Claims
+    // set sent_at to null explicitly: its default marks a row sent, as the
+    // code from before claims expects when it inserts one mid-deploy.
     claimedAt: timestamp("claimed_at", { withTimezone: true }).notNull().defaultNow(),
-    sentAt: timestamp("sent_at", { withTimezone: true }),
+    sentAt: timestamp("sent_at", { withTimezone: true }).defaultNow(),
   },
   (t) => [uniqueIndex("breach_alert_log_unique_idx").on(t.breachId, t.kind)],
 );
@@ -655,9 +661,11 @@ export const subjectRequestAlertLog = pgTable(
     recipients: text("recipients").array().notNull(),
     // A run claims the email before sending it, and marks it sent once the mail
     // server has taken it, with the recipients it accepted. No sent_at means
-    // it's being sent, or the run died first (see alert-delivery.ts).
+    // it's being sent, or the run died first (see alert-delivery.ts). Claims
+    // set sent_at to null explicitly: its default marks a row sent, as the
+    // code from before claims expects when it inserts one mid-deploy.
     claimedAt: timestamp("claimed_at", { withTimezone: true }).notNull().defaultNow(),
-    sentAt: timestamp("sent_at", { withTimezone: true }),
+    sentAt: timestamp("sent_at", { withTimezone: true }).defaultNow(),
   },
   (t) => [uniqueIndex("subject_request_alert_log_unique_idx").on(t.requestId, t.kind)],
 );
@@ -709,9 +717,11 @@ export const complaintAlertLog = pgTable(
     recipients: text("recipients").array().notNull(),
     // A run claims the email before sending it, and marks it sent once the mail
     // server has taken it, with the recipients it accepted. No sent_at means
-    // it's being sent, or the run died first (see alert-delivery.ts).
+    // it's being sent, or the run died first (see alert-delivery.ts). Claims
+    // set sent_at to null explicitly: its default marks a row sent, as the
+    // code from before claims expects when it inserts one mid-deploy.
     claimedAt: timestamp("claimed_at", { withTimezone: true }).notNull().defaultNow(),
-    sentAt: timestamp("sent_at", { withTimezone: true }),
+    sentAt: timestamp("sent_at", { withTimezone: true }).defaultNow(),
   },
   (t) => [uniqueIndex("complaint_alert_log_unique_idx").on(t.complaintId, t.kind)],
 );
@@ -758,9 +768,11 @@ export const particularChangeAlertLog = pgTable(
     recipients: text("recipients").array().notNull(),
     // A run claims the email before sending it, and marks it sent once the mail
     // server has taken it, with the recipients it accepted. No sent_at means
-    // it's being sent, or the run died first (see alert-delivery.ts).
+    // it's being sent, or the run died first (see alert-delivery.ts). Claims
+    // set sent_at to null explicitly: its default marks a row sent, as the
+    // code from before claims expects when it inserts one mid-deploy.
     claimedAt: timestamp("claimed_at", { withTimezone: true }).notNull().defaultNow(),
-    sentAt: timestamp("sent_at", { withTimezone: true }),
+    sentAt: timestamp("sent_at", { withTimezone: true }).defaultNow(),
   },
   (t) => [uniqueIndex("particular_change_alert_log_unique_idx").on(t.changeId, t.kind)],
 );

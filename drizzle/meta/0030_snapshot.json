@@ -1,5 +1,5 @@
 {
-  "id": "11ceeae8-b4ef-4844-9ef0-104343bfe1d6",
+  "id": "2a5b857f-6eca-4a15-b0b7-b584ed92d98e",
   "prevId": "73b1caae-c284-4b3c-a0c3-76132c0e5375",
   "version": "7",
   "dialect": "postgresql",
@@ -184,7 +184,8 @@
           "name": "sent_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "default": "now()"
         }
       },
       "indexes": {
@@ -337,7 +338,8 @@
           "name": "sent_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "default": "now()"
         }
       },
       "indexes": {
@@ -769,7 +771,8 @@
           "name": "sent_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "default": "now()"
         }
       },
       "indexes": {
@@ -2618,7 +2621,8 @@
           "name": "sent_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "default": "now()"
         }
       },
       "indexes": {
@@ -3982,7 +3986,8 @@
           "name": "sent_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "default": "now()"
         }
       },
       "indexes": {
@@ -4522,7 +4527,8 @@
           "name": "sent_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "default": "now()"
         }
       },
       "indexes": {

@@ -24,6 +24,8 @@ export async function runComplaintAlerts(
   opts: { now?: Date; appUrl?: string; complaintId?: string } = {},
 ): Promise<ComplaintAlertRunResult> {
   const now = opts.now ?? new Date();
+  // Claims and sends are stamped when they happen: a run may reach an alert long after it began.
+  const clock = () => opts.now ?? new Date();
   const today = todayInKenya(now);
   const appUrl = opts.appUrl ?? process.env.APP_URL ?? "http://localhost:3000";
   const result: ComplaintAlertRunResult = { checked: 0, sent: [], failed: [] };
@@ -54,22 +56,23 @@ export async function runComplaintAlerts(
       if (!complaint) return null;
       const kind = dueComplaintAlert(complaint, today, await sentKinds(tx, complaint.id, now));
       if (!kind) return null;
+      const claimedAt = clock();
       const [claimed] = await tx
         .insert(complaintAlertLog)
-        .values({ complaintId: complaint.id, kind, recipients: to, claimedAt: now })
+        .values({ complaintId: complaint.id, kind, recipients: to, claimedAt, sentAt: null })
         // A claim left by a run that died before sending is taken over.
         .onConflictDoUpdate({
           target: [complaintAlertLog.complaintId, complaintAlertLog.kind],
-          set: { recipients: to, claimedAt: now },
-          setWhere: abandoned(complaintAlertLog, now),
+          set: { recipients: to, claimedAt },
+          setWhere: abandoned(complaintAlertLog, claimedAt),
         })
         .returning({ id: complaintAlertLog.id });
-      return claimed ? { id: claimed.id, complaint, kind } : null;
+      return claimed ? { id: claimed.id, complaint, kind, claimedAt } : null;
     });
     if (!claim) continue;
     const { complaint, kind } = claim;
 
-    const mine = ownClaim(complaintAlertLog, eq(complaintAlertLog.id, claim.id), now);
+    const mine = ownClaim(complaintAlertLog, eq(complaintAlertLog.id, claim.id), claim.claimedAt);
     const delivery = await deliverClaimed(
       sendEmail,
       {
@@ -79,7 +82,7 @@ export async function runComplaintAlerts(
       },
       {
         label: "complaint alert",
-        markSent: (recipients) => db.update(complaintAlertLog).set({ sentAt: now, recipients }).where(mine),
+        markSent: (recipients) => db.update(complaintAlertLog).set({ sentAt: clock(), recipients }).where(mine),
         release: () => db.delete(complaintAlertLog).where(mine),
       },
     );
