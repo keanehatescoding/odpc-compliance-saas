@@ -5,6 +5,7 @@ import {
   breachActivities,
   breaches,
   complaints,
+  particularChanges,
   breachUpdates,
   consentRecords,
   disposals,
@@ -293,6 +294,26 @@ await db.insert(complaints).values([
   },
 ]);
 
+// Changes to the registered particulars: a new transfer abroad 9 days ago, so 5 days are left to tell the ODPC, and a move notified in time last year.
+await db.insert(particularChanges).values([
+  {
+    orgId: org.id,
+    role: "controller",
+    changedOn: addDays(today, -9),
+    description: "Started keeping pupil and parent records on the school system's servers in Ireland, a transfer outside Kenya the registration doesn't describe.",
+    loggedBy: user.id,
+  },
+  {
+    orgId: org.id,
+    role: null,
+    changedOn: addMonths(today, -11),
+    description: "New postal address and phone number after the move to the Lanet campus.",
+    notifiedOn: addDays(addMonths(today, -11), 6),
+    notifiedHow: "Letter emailed to the ODPC; acknowledged by reply.",
+    loggedBy: user.id,
+  },
+]);
+
 // Two processors: the school system with a contract due for review next month, and an SMS service with none.
 const [schoolSystem, sms] = await db
   .insert(processors)
@@ -488,7 +509,7 @@ await db.insert(policies).values([
 ]);
 
 console.log(
-  `Seeded "${org.name}" with ${templates.length + 1} RoPA entries, one DPIA, one open breach, two data subject requests, two ODPC letters, two processors, two training sessions, two consent records, one legitimate interest assessment, one transfer outside Kenya, two disposals and three policies.`,
+  `Seeded "${org.name}" with ${templates.length + 1} RoPA entries, one DPIA, one open breach, two data subject requests, two ODPC letters, two changes of registered particulars, two processors, two training sessions, two consent records, one legitimate interest assessment, one transfer outside Kenya, two disposals and three policies.`,
 );
 console.log(`Sign in as ${EMAIL} / ${PASSWORD}`);
 process.exit(0);

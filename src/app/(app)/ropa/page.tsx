@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { ParticularsPrompt } from "@/components/particulars-prompt";
 import { buttonClass, Card, cx, EmptyState, PageHeader, Pill } from "@/components/ui";
 import type { ProcessingActivity } from "@/db/schema";
 import { LAWFUL_BASES, type LawfulBasis } from "@/lib/dpa";
+import { suggestionFromQuery } from "@/lib/particulars";
 import { listActivities, listDpias } from "@/lib/queries";
 import { dpiaRecommended } from "@/lib/ropa";
 import { requireOrgContext } from "@/lib/session";
@@ -18,7 +20,9 @@ const FILTERS: Record<string, { label: string; test: (a: ProcessingActivity) => 
 
 export default async function RopaPage({ searchParams }: PageProps<"/ropa">) {
   const { org } = await requireOrgContext();
-  const { filter: raw } = await searchParams;
+  const query = await searchParams;
+  const raw = query.filter;
+  const suggestion = suggestionFromQuery(query);
   const filter = typeof raw === "string" && raw in FILTERS ? raw : "all";
   const [all, dpias] = await Promise.all([listActivities(org.id), listDpias(org.id)]);
   const assessed = new Set(dpias.map((d) => d.dpia.activityId));
@@ -40,6 +44,8 @@ export default async function RopaPage({ searchParams }: PageProps<"/ropa">) {
           </>
         }
       />
+
+      {suggestion && <ParticularsPrompt change={suggestion} />}
 
       {all.length === 0 ? (
         <EmptyState title="Your RoPA is empty">

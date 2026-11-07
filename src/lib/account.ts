@@ -16,6 +16,8 @@ import {
   invitations,
   memberships,
   organizations,
+  particularChangeAlertLog,
+  particularChanges,
   payments,
   processingActivities,
   consentRecords,
@@ -57,7 +59,7 @@ export async function exportOrganization(db: Db | Tx, orgId: string, now: Date =
   const [org] = await db.select().from(organizations).where(eq(organizations.id, orgId));
   if (!org) return null;
 
-  const [team, invited, regs, activities, breachRows, dpiaRows, requests, complaintRows, processorRows, trainingRows, consentRows, assessmentRows, transferRows, disposalRows, policyRows, paymentRows, orders, card, history] = await Promise.all([
+  const [team, invited, regs, changeRows, activities, breachRows, dpiaRows, requests, complaintRows, processorRows, trainingRows, consentRows, assessmentRows, transferRows, disposalRows, policyRows, paymentRows, orders, card, history] = await Promise.all([
     db
       .select({ id: users.id, name: users.name, email: users.email, role: memberships.role, joinedAt: memberships.createdAt })
       .from(memberships)
@@ -69,6 +71,7 @@ export async function exportOrganization(db: Db | Tx, orgId: string, now: Date =
       .from(invitations)
       .where(eq(invitations.orgId, orgId)),
     db.select().from(registrations).where(eq(registrations.orgId, orgId)).orderBy(asc(registrations.createdAt)),
+    db.select().from(particularChanges).where(eq(particularChanges.orgId, orgId)).orderBy(asc(particularChanges.changedOn), asc(particularChanges.createdAt)),
     db.select().from(processingActivities).where(eq(processingActivities.orgId, orgId)).orderBy(asc(processingActivities.createdAt)),
     db.select().from(breaches).where(eq(breaches.orgId, orgId)).orderBy(asc(breaches.discoveredAt)),
     db.select().from(dpias).where(eq(dpias.orgId, orgId)).orderBy(asc(dpias.createdAt)),
@@ -92,8 +95,13 @@ export async function exportOrganization(db: Db | Tx, orgId: string, now: Date =
   ]);
 
   const ids = <T extends { id: string }>(rows: T[]) => rows.map((r) => r.id);
-  const [reminders, affected, updates, breachAlerts, risks, requestAlerts, complaintAlerts, handled, refundRows, invoices] = await Promise.all([
+  const [reminders, changeAlerts, affected, updates, breachAlerts, risks, requestAlerts, complaintAlerts, handled, refundRows, invoices] = await Promise.all([
     db.select().from(reminderLog).where(inArray(reminderLog.registrationId, ids(regs))).orderBy(asc(reminderLog.sentAt)),
+    db
+      .select()
+      .from(particularChangeAlertLog)
+      .where(inArray(particularChangeAlertLog.changeId, ids(changeRows)))
+      .orderBy(asc(particularChangeAlertLog.sentAt)),
     db.select().from(breachActivities).where(inArray(breachActivities.breachId, ids(breachRows))),
     db.select().from(breachUpdates).where(inArray(breachUpdates.breachId, ids(breachRows))).orderBy(asc(breachUpdates.createdAt)),
     db.select().from(breachAlertLog).where(inArray(breachAlertLog.breachId, ids(breachRows))).orderBy(asc(breachAlertLog.sentAt)),
@@ -143,6 +151,10 @@ export async function exportOrganization(db: Db | Tx, orgId: string, now: Date =
     registrations: regs.map(({ orgId: _o, ...r }) => ({
       ...r,
       remindersSent: by(reminders, "registrationId", r.id).map(({ id: _i, registrationId: _r, ...m }) => m),
+    })),
+    particularChanges: changeRows.map(({ orgId: _o, ...c }) => ({
+      ...c,
+      alertsSent: by(changeAlerts, "changeId", c.id).map(({ id: _i, changeId: _c, ...a }) => a),
     })),
     processingActivities: activities.map(({ orgId: _o, ...a }) => a),
     breaches: breachRows.map(({ orgId: _o, ...b }) => ({
@@ -267,6 +279,7 @@ export async function deleteOrganization(
     await tx.delete(breaches).where(eq(breaches.orgId, p.orgId));
     await tx.delete(processingActivities).where(eq(processingActivities.orgId, p.orgId));
     await tx.delete(registrations).where(eq(registrations.orgId, p.orgId));
+    await tx.delete(particularChanges).where(eq(particularChanges.orgId, p.orgId));
     await tx.delete(subjectRequests).where(eq(subjectRequests.orgId, p.orgId));
     await tx.delete(complaints).where(eq(complaints.orgId, p.orgId));
     await tx.delete(processors).where(eq(processors.orgId, p.orgId));

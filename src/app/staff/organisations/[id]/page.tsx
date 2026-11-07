@@ -18,6 +18,7 @@ export const metadata: Metadata = { title: "Organisation" };
 
 const RECORD_LABELS = {
   registrations: "ODPC registrations",
+  particularChanges: "Changes of registered particulars",
   ropa: "RoPA activities",
   dpias: "Impact assessments",
   breaches: "Breaches",

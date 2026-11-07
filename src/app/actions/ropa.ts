@@ -4,12 +4,30 @@ import { and, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/db";
-import { processingActivities } from "@/db/schema";
+import { processingActivities, registrations } from "@/db/schema";
 import { changedFields, describe, editSummary, FIELD_LABELS, recordActivity } from "@/lib/activity";
+import { todayInKenya } from "@/lib/dates";
 import { fieldErrors, formValues, type FormState } from "@/lib/forms";
+import { addedActivitiesChange, ropaHref, ropaParticularChange, suggestionFor, type SuggestedChange } from "@/lib/particulars";
 import { ACTIVITY_TEMPLATES, parseActivityForm } from "@/lib/ropa";
 import { requireActiveOrg } from "@/lib/session";
 import { isUuid } from "@/lib/uuid";
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * Where to go after a RoPA change: the list, with a suggestion to log a change
+ * of registered particulars when one may be needed for a certificate held.
+ */
+async function afterRopaChange(tx: Tx, orgId: string, change: SuggestedChange | null): Promise<string> {
+  if (!change) return ropaHref(null);
+  const regs = await tx
+    .select({ role: registrations.role, issuedOn: registrations.issuedOn })
+    .from(registrations)
+    .where(eq(registrations.orgId, orgId));
+  const suggestion = suggestionFor(change, regs);
+  return ropaHref(suggestion && { ...suggestion, changedOn: todayInKenya() });
+}
 
 /** Creates or updates a RoPA entry. Edits carry the activity id in a hidden `id` field. */
 export async function saveActivity(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -25,35 +43,36 @@ export async function saveActivity(_prev: FormState, formData: FormData): Promis
     transferCountries: parsed.data.crossBorder ? parsed.data.transferCountries : "",
     transferSafeguards: parsed.data.crossBorder ? parsed.data.transferSafeguards : "",
   };
-  const saved = await db.transaction(async (tx) => {
+  const next = await db.transaction(async (tx) => {
     const log = (subjectId: string, summary: string) =>
       recordActivity(tx, { orgId: org.id, actorId: user.id, area: "ropa", subjectId, summary });
     if (!id) {
       const [created] = await tx.insert(processingActivities).values({ ...data, orgId: org.id }).returning();
       await log(created.id, `added ${describe.ropa(created)}`);
-      return true;
+      return afterRopaChange(tx, org.id, ropaParticularChange(null, created));
     }
     const [before] = await tx
       .select()
       .from(processingActivities)
       .where(and(eq(processingActivities.id, id), eq(processingActivities.orgId, org.id)))
       .for("update");
-    if (!before) return false;
+    if (!before) return null;
     await tx.update(processingActivities).set(data).where(eq(processingActivities.id, id));
     const summary = editSummary(describe.ropa(data), changedFields(before, data, FIELD_LABELS.ropa));
     if (summary) await log(id, summary);
-    return true;
+    return afterRopaChange(tx, org.id, ropaParticularChange(before, { ...before, ...data }));
   });
-  if (!saved) return { message: "Activity not found." };
+  if (!next) return { message: "Activity not found." };
 
   revalidatePath("/", "layout");
-  redirect("/ropa");
+  redirect(next);
 }
 
 export async function deleteActivity(id: string): Promise<void> {
   const { user, org } = await requireActiveOrg();
+  let next = ropaHref(null);
   if (typeof id === "string" && isUuid(id)) {
-    await db.transaction(async (tx) => {
+    next = await db.transaction(async (tx) => {
       const [gone] = await tx
         .delete(processingActivities)
         .where(and(eq(processingActivities.id, id), eq(processingActivities.orgId, org.id)))
@@ -61,10 +80,11 @@ export async function deleteActivity(id: string): Promise<void> {
       if (gone) {
         await recordActivity(tx, { orgId: org.id, actorId: user.id, area: "ropa", subjectId: id, summary: `deleted ${describe.ropa(gone)}` });
       }
+      return afterRopaChange(tx, org.id, gone ? ropaParticularChange(gone, null) : null);
     });
   }
   revalidatePath("/", "layout");
-  redirect("/ropa");
+  redirect(next);
 }
 
 /** Adds the selected sector templates to the organisation's RoPA, skipping any already added. */
@@ -72,6 +92,7 @@ export async function addTemplates(formData: FormData): Promise<void> {
   const { user, org } = await requireActiveOrg();
   const ids = new Set(formData.getAll("templateId").map(String));
   const chosen = ACTIVITY_TEMPLATES.filter((t) => ids.has(t.id));
+  let next = ropaHref(null);
   if (chosen.length > 0) {
     const existing = await db
       .select({ templateId: processingActivities.templateId })
@@ -91,7 +112,7 @@ export async function addTemplates(formData: FormData): Promise<void> {
       .map(({ id, sectors: _sectors, ...t }) => ({ ...t, orgId: org.id, templateId: id }));
     // The unique (org_id, template_id) index makes concurrent submissions safe.
     if (rows.length > 0) {
-      await db.transaction(async (tx) => {
+      next = await db.transaction(async (tx) => {
         const added = await tx.insert(processingActivities).values(rows).onConflictDoNothing().returning();
         await recordActivity(
           tx,
@@ -103,9 +124,10 @@ export async function addTemplates(formData: FormData): Promise<void> {
             summary: `added ${describe.ropa(a)} from a sector template`,
           })),
         );
+        return afterRopaChange(tx, org.id, addedActivitiesChange(added));
       });
     }
   }
   revalidatePath("/", "layout");
-  redirect("/ropa");
+  redirect(next);
 }

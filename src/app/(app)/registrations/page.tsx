@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { buttonClass, Card, EmptyState, PageHeader, StatusBadge } from "@/components/ui";
+import { buttonClass, Card, EmptyState, PageHeader, ParticularChangeStatusBadge, Pill, StatusBadge } from "@/components/ui";
 import { formatDate, todayInKenya } from "@/lib/dates";
 import { ODPC_FEES, REGISTRATION_ROLES, formatKsh, type OrgSize, type RegistrationRole } from "@/lib/dpa";
-import { listRegistrations } from "@/lib/queries";
+import { daysToNotify, formatDaysLeft, notifiedLate, notifyBy, particularChangeStatus, roleLabel } from "@/lib/particulars";
+import { listParticularChanges, listRegistrations } from "@/lib/queries";
 import { daysUntilExpiry, registrationStatus, renewalFiled } from "@/lib/registration";
 import { requireOrgContext } from "@/lib/session";
 
@@ -12,7 +13,8 @@ export const metadata: Metadata = { title: "ODPC registration" };
 export default async function RegistrationsPage() {
   const { org } = await requireOrgContext();
   const today = todayInKenya();
-  const regs = await listRegistrations(org.id);
+  const [regs, changes] = await Promise.all([listRegistrations(org.id), listParticularChanges(org.id)]);
+  const registered = regs.some((r) => r.issuedOn);
   const fees = ODPC_FEES[org.size as OrgSize];
 
   return (
@@ -79,6 +81,49 @@ export default async function RegistrationsPage() {
             );
           })}
         </div>
+      )}
+
+      {(registered || changes.length > 0) && (
+        <section className="mt-8">
+          <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="font-semibold">Changes to your registered particulars</h2>
+              <p className="mt-1 max-w-2xl text-sm text-stone-600">
+                When your name, contact details or the processing you registered changes, tell the Data Commissioner in writing
+                within 14 days (regulation 15 of the Registration Regulations, 2021).
+              </p>
+            </div>
+            <Link href="/registrations/changes/new" className={buttonClass.secondary}>
+              Log a change
+            </Link>
+          </div>
+          {changes.length === 0 ? (
+            <Card className="text-sm text-stone-600">No changes logged. Kinga suggests one when you edit something the register describes.</Card>
+          ) : (
+            <Card className="divide-y divide-stone-200 p-0">
+              {changes.map((c) => {
+                const status = particularChangeStatus(c, today);
+                return (
+                  <Link key={c.id} href={`/registrations/changes/${c.id}`} className="flex flex-wrap items-start justify-between gap-3 px-5 py-4 hover:bg-stone-50">
+                    <div className="min-w-0">
+                      <p className="line-clamp-2 text-sm font-medium text-stone-900">{c.description}</p>
+                      <p className="mt-1 text-xs text-stone-600">
+                        {formatDate(c.changedOn)} · {roleLabel(c.role)}
+                        {status === "notified"
+                          ? ` · notified ${formatDate(c.notifiedOn)}`
+                          : ` · notify by ${formatDate(notifyBy(c))} (${formatDaysLeft(daysToNotify(c, today))})`}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <ParticularChangeStatusBadge status={status} />
+                      {notifiedLate(c) && <Pill tone="amber">Late</Pill>}
+                    </div>
+                  </Link>
+                );
+              })}
+            </Card>
+          )}
+        </section>
       )}
 
       <Card className="mt-6 text-sm text-stone-700">

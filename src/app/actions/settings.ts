@@ -4,10 +4,12 @@ import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/db";
-import { organizations } from "@/db/schema";
+import { organizations, registrations } from "@/db/schema";
 import { changedFields, editSummary, FIELD_LABELS, recordActivity } from "@/lib/activity";
+import { todayInKenya } from "@/lib/dates";
 import { ORG_SIZE_KEYS, SECTOR_KEYS, type OrgSize, type Sector } from "@/lib/dpa";
 import { fieldErrors, formValues, type FormState } from "@/lib/forms";
+import { organizationParticularChange, suggestionFor, type SuggestedChange } from "@/lib/particulars";
 import { requireOrgContext } from "@/lib/session";
 
 const optionalText = (max: number) =>
@@ -50,7 +52,14 @@ const schema = z.object({
   address: optionalText(500),
 });
 
-export async function updateOrganization(_prev: FormState, formData: FormData): Promise<FormState> {
+export type SettingsState =
+  | (NonNullable<FormState> & {
+      /** Set when the edit may have changed what the ODPC's register holds. */
+      particulars?: SuggestedChange;
+    })
+  | undefined;
+
+export async function updateOrganization(_prev: SettingsState, formData: FormData): Promise<SettingsState> {
   const { user, org, role } = await requireOrgContext();
   const values = formValues(formData);
   if (role === "member") return { message: "Only owners and admins can change organisation settings.", values };
@@ -58,12 +67,17 @@ export async function updateOrganization(_prev: FormState, formData: FormData): 
   const parsed = schema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { errors: fieldErrors(parsed.error), values };
 
-  await db.transaction(async (tx) => {
+  const particulars = await db.transaction(async (tx) => {
     const [before] = await tx.select().from(organizations).where(eq(organizations.id, org.id)).for("update");
     await tx.update(organizations).set(parsed.data).where(eq(organizations.id, org.id));
     const summary = editSummary("the organisation's settings", changedFields(before, parsed.data, FIELD_LABELS.organization));
     if (summary) await recordActivity(tx, { orgId: org.id, actorId: user.id, area: "organization", subjectId: org.id, summary });
+    const change = organizationParticularChange(before, parsed.data);
+    if (!change) return undefined;
+    const regs = await tx.select({ role: registrations.role, issuedOn: registrations.issuedOn }).from(registrations).where(eq(registrations.orgId, org.id));
+    const suggestion = suggestionFor(change, regs);
+    return suggestion ? { ...suggestion, changedOn: todayInKenya() } : undefined;
   });
   revalidatePath("/", "layout");
-  return { message: "Saved.", values };
+  return { message: "Saved.", values, particulars };
 }
