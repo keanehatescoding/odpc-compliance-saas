@@ -8,8 +8,8 @@ import type { EmailMessage, SendEmail } from "./email";
  * sends it, then marks the row sent. If sending fails it deletes the row, so
  * the next run retries. A run that dies between claiming and marking leaves a
  * row with no sent_at; once it's older than CLAIM_LEASE_MS, another run takes
- * it over and sends the email again. So an email may go out twice, but is
- * never lost.
+ * it over and sends the email again. So an email may go out more than once,
+ * but is never lost.
  */
 
 /** How long a run's claim on an email holds before another run may take it over, say after the first died mid-send. */

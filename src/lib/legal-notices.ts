@@ -125,7 +125,7 @@ export interface LegalNoticeRunResult {
  * has gone, and released if the send fails, so overlapping runs don't send it
  * twice and a failure is retried. A claim left unfinished, because the run died
  * before marking it, expires after CLAIM_LEASE_MS and is sent again: an owner
- * might hear twice, but never not at all.
+ * might hear more than once, but never not at all.
  */
 export async function runLegalNotices(
   db: Db,

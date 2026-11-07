@@ -85,9 +85,9 @@ export function worstStatus(statuses: RegistrationStatus[]): RegistrationStatus 
 
 /**
  * Days-before-expiry thresholds that trigger a reminder email. Negative values
- * are post-expiry follow-ups. Each threshold fires once per certificate
- * (keyed by its expiry date), or twice if a run dies mid-send, so a renewed certificate starts a
- * fresh cycle.
+ * are post-expiry follow-ups. Each threshold fires once per certificate, keyed
+ * by its expiry date, so a renewed certificate starts a fresh cycle. A run that
+ * dies mid-send, or can't record the send, may make it fire more than once.
  */
 export const REMINDER_THRESHOLDS = [90, 60, 30, 14, 7, 1, 0, -7, -14, -30] as const;
 
