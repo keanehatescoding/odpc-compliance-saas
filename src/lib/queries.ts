@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull } from "drizzle-orm";
 import { db } from "@/db";
 import {
   breachActivities,
@@ -88,9 +88,11 @@ export function recentReminders(orgId: string, limit = 5) {
     })
     .from(reminderLog)
     .innerJoin(registrations, eq(registrations.id, reminderLog.registrationId))
-    .where(eq(registrations.orgId, orgId))
+    // Not one a run is still sending.
+    .where(and(eq(registrations.orgId, orgId), isNotNull(reminderLog.sentAt)))
     .orderBy(desc(reminderLog.sentAt))
-    .limit(limit);
+    .limit(limit)
+    .then((rows) => rows.map((r) => ({ ...r, sentAt: r.sentAt! })));
 }
 
 export function listBreaches(orgId: string) {

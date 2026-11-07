@@ -1,6 +1,7 @@
 import { and, eq, isNull } from "drizzle-orm";
 import type { Db } from "@/db";
 import { complaintAlertLog, complaints, organizations, type Complaint } from "@/db/schema";
+import { abandoned, deliverClaimed, ownClaim, sentOrClaimed } from "./alert-delivery";
 import { daysToAct, dueComplaintAlert, formatDaysLeft, kindInfo, type ComplaintAlertKind } from "./complaint";
 import { formatDate, todayInKenya } from "./dates";
 import type { SendEmail } from "./email";
@@ -22,7 +23,10 @@ export async function runComplaintAlerts(
   sendEmail: SendEmail,
   opts: { now?: Date; appUrl?: string; complaintId?: string } = {},
 ): Promise<ComplaintAlertRunResult> {
-  const today = todayInKenya(opts.now ?? new Date());
+  const now = opts.now ?? new Date();
+  // Claims and sends are stamped when they happen: a run may reach an alert long after it began.
+  const clock = () => opts.now ?? new Date();
+  const today = todayInKenya(now);
   const appUrl = opts.appUrl ?? process.env.APP_URL ?? "http://localhost:3000";
   const result: ComplaintAlertRunResult = { checked: 0, sent: [], failed: [] };
 
@@ -35,7 +39,7 @@ export async function runComplaintAlerts(
 
   for (const { complaint: listed, org } of rows) {
     result.checked++;
-    if (!dueComplaintAlert(listed, today, await sentKinds(db, listed.id))) continue;
+    if (!dueComplaintAlert(listed, today, await sentKinds(db, listed.id, now))) continue;
 
     const to = await reminderRecipients(db, org);
     if (to.length === 0) continue;
@@ -50,42 +54,49 @@ export async function runComplaintAlerts(
         .where(and(eq(complaints.id, listed.id), awaiting))
         .for("update");
       if (!complaint) return null;
-      const kind = dueComplaintAlert(complaint, today, await sentKinds(tx, complaint.id));
+      const kind = dueComplaintAlert(complaint, today, await sentKinds(tx, complaint.id, now));
       if (!kind) return null;
+      const claimedAt = clock();
       const [claimed] = await tx
         .insert(complaintAlertLog)
-        .values({ complaintId: complaint.id, kind, recipients: to })
-        .onConflictDoNothing()
+        .values({ complaintId: complaint.id, kind, recipients: to, claimedAt, sentAt: null })
+        // A claim left by a run that died before sending is taken over.
+        .onConflictDoUpdate({
+          target: [complaintAlertLog.complaintId, complaintAlertLog.kind],
+          set: { recipients: to, claimedAt },
+          setWhere: abandoned(complaintAlertLog, claimedAt),
+        })
         .returning({ id: complaintAlertLog.id });
-      return claimed ? { id: claimed.id, complaint, kind } : null;
+      return claimed ? { id: claimed.id, complaint, kind, claimedAt } : null;
     });
     if (!claim) continue;
     const { complaint, kind } = claim;
 
-    try {
-      await sendEmail({
+    const mine = ownClaim(complaintAlertLog, eq(complaintAlertLog.id, claim.id), claim.claimedAt);
+    const delivery = await deliverClaimed(
+      sendEmail,
+      {
         to,
         subject: alertSubject(org.name, complaint, today),
         text: alertBody(org.name, complaint, today, `${appUrl}/complaints/${complaint.id}`),
-      });
-      result.sent.push({ complaintId: complaint.id, kind, to });
-    } catch (err) {
-      result.failed.push({ complaintId: complaint.id, error: err instanceof Error ? err.message : String(err) });
-      // Release the claim so the next run retries. If that fails too, keep going with the other complaints.
-      await db
-        .delete(complaintAlertLog)
-        .where(eq(complaintAlertLog.id, claim.id))
-        .catch((releaseErr) => console.error("Failed to release complaint alert claim", releaseErr));
-    }
+      },
+      {
+        label: "complaint alert",
+        markSent: (recipients) => db.update(complaintAlertLog).set({ sentAt: clock(), recipients }).where(mine),
+        release: () => db.delete(complaintAlertLog).where(mine),
+      },
+    );
+    if (delivery.sent) result.sent.push({ complaintId: complaint.id, kind, to: delivery.sent });
+    if (delivery.error) result.failed.push({ complaintId: complaint.id, error: delivery.error });
   }
   return result;
 }
 
-async function sentKinds(db: Db, complaintId: string): Promise<Set<string>> {
+async function sentKinds(db: Db, complaintId: string, now: Date): Promise<Set<string>> {
   const rows = await db
     .select({ kind: complaintAlertLog.kind })
     .from(complaintAlertLog)
-    .where(eq(complaintAlertLog.complaintId, complaintId));
+    .where(and(eq(complaintAlertLog.complaintId, complaintId), sentOrClaimed(complaintAlertLog, now)));
   return new Set(rows.map((r) => r.kind));
 }
 

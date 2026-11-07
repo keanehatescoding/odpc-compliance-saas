@@ -2,7 +2,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Db } from "@/db";
 import * as schema from "@/db/schema";
 import type { EmailMessage } from "@/lib/email";
@@ -149,6 +149,22 @@ describe("runLegalNotices", () => {
     const { sent, send } = capture();
     await runLegalNotices(db, send, opts(later(60 * 60 * 1000)));
     expect(sent.map((m) => m.to)).toEqual([["a@sunrise.ke"]]);
+  });
+
+  it("reports an email it sent but couldn't record", async () => {
+    await addOrg("Sunrise Academy", [{ email: "a@sunrise.ke", role: "owner" }]);
+    await notice();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(db, "update").mockReturnValue({ set: () => ({ where: () => Promise.reject(new Error("db gone")) }) } as never);
+    const { sent, send } = capture();
+    const r = await runLegalNotices(db, send, opts());
+    vi.mocked(db.update).mockRestore();
+    error.mockRestore();
+    expect(sent).toHaveLength(1);
+    expect(r.sent.map((s) => s.to)).toEqual(["a@sunrise.ke"]);
+    expect(r.failed).toEqual([
+      expect.objectContaining({ error: "The email was sent but couldn't be recorded, so it may be sent again: db gone" }),
+    ]);
   });
 
   it("sends an email again if the run that claimed it died before sending", async () => {
