@@ -155,7 +155,7 @@ describe("runLegalNotices", () => {
     await addOrg("Sunrise Academy", [{ email: "a@sunrise.ke", role: "owner" }]);
     await notice();
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.spyOn(db, "update").mockReturnValue({ set: () => ({ where: () => Promise.reject(new Error("db gone")) }) } as never);
+    vi.spyOn(db, "update").mockReturnValue({ set: () => ({ where: () => ({ returning: () => Promise.reject(new Error("db gone")) }) }) } as never);
     const { sent, send } = capture();
     const r = await runLegalNotices(db, send, opts());
     vi.mocked(db.update).mockRestore();
@@ -212,8 +212,13 @@ describe("runLegalNotices", () => {
     );
     await failing.inside;
 
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
     slow.open();
-    await first;
+    // The first run's email went, but the claim it would mark is no longer its own.
+    expect((await first).failed).toEqual([
+      { noticeId: expect.any(String), userId: expect.any(String), error: expect.stringContaining("taken over") },
+    ]);
+    error.mockRestore();
     failing.open();
     await second;
     // Only the old address got it, so the new one is still owed the notice.

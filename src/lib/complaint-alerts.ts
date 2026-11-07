@@ -82,7 +82,8 @@ export async function runComplaintAlerts(
       },
       {
         label: "complaint alert",
-        markSent: (recipients) => db.update(complaintAlertLog).set({ sentAt: clock(), recipients }).where(mine),
+        markSent: (recipients) =>
+          db.update(complaintAlertLog).set({ sentAt: clock(), recipients }).where(mine).returning({ id: complaintAlertLog.id }),
         release: () => db.delete(complaintAlertLog).where(mine),
       },
     );

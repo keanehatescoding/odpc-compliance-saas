@@ -365,7 +365,10 @@ async function declineRenewal(
   const mine = endedId ? ownClaim(billingAlertLog, eq(billingAlertLog.id, endedId), claimedAt) : null;
   const delivery = await deliverClaimed(sendEmail, renewalFailedEmail(to, claim, reason, next, `${appUrl}/billing`), {
     label: "renewal failure email",
-    markSent: async (recipients) => mine && db.update(billingAlertLog).set({ sentAt: new Date(), recipients }).where(mine),
+    markSent: async (recipients) =>
+      mine
+        ? db.update(billingAlertLog).set({ sentAt: new Date(), recipients }).where(mine).returning({ id: billingAlertLog.id })
+        : null, // nothing was claimed, so there is nothing to record
     release: async () => mine && db.delete(billingAlertLog).where(mine),
   });
   if (delivery.error) result.failed.push({ orgId: claim.orgId, error: `The renewal failure email: ${delivery.error}` });

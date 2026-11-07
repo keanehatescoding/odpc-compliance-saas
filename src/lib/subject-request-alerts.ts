@@ -88,7 +88,8 @@ export async function runSubjectRequestAlerts(
       },
       {
         label: "subject request alert",
-        markSent: (recipients) => db.update(subjectRequestAlertLog).set({ sentAt: clock(), recipients }).where(mine),
+        markSent: (recipients) =>
+          db.update(subjectRequestAlertLog).set({ sentAt: clock(), recipients }).where(mine).returning({ id: subjectRequestAlertLog.id }),
         release: () => db.delete(subjectRequestAlertLog).where(mine),
       },
     );

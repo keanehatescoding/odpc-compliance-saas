@@ -460,7 +460,8 @@ export async function runBillingAlerts(
       billingEmail(to, claim.org, claim.kind, claim.access.endsAt, claim.org.paidUntil !== null, `${appUrl}/billing`, claim.card),
       {
         label: "billing alert",
-        markSent: (recipients) => db.update(billingAlertLog).set({ sentAt: clock(), recipients }).where(mine),
+        markSent: (recipients) =>
+          db.update(billingAlertLog).set({ sentAt: clock(), recipients }).where(mine).returning({ id: billingAlertLog.id }),
         release: () => db.delete(billingAlertLog).where(mine),
       },
     );

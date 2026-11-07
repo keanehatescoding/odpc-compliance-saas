@@ -13,7 +13,11 @@ const { memberships, organizations, registrations, reminderLog, users } = schema
 
 describe("deliverClaimed", () => {
   const message: EmailMessage = { to: ["a@sunrise.ke", "b@sunrise.ke"], subject: "s", text: "t" };
-  const claim = () => ({ label: "test", markSent: vi.fn(async () => {}), release: vi.fn(async () => {}) });
+  const claim = () => ({
+    label: "test",
+    markSent: vi.fn(async (): Promise<unknown[] | null> => [{ id: "claim" }]),
+    release: vi.fn(async () => {}),
+  });
 
   it("marks the claim sent to everyone when the server takes the email", async () => {
     const c = claim();
@@ -62,6 +66,24 @@ describe("deliverClaimed", () => {
     expect(error).toHaveBeenCalledWith("Failed to mark test sent", expect.any(Error));
     expect(c.release).not.toHaveBeenCalled();
     error.mockRestore();
+  });
+
+  it("reports the send unrecorded if the claim was gone when marking it", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const c = { ...claim(), markSent: async () => [] };
+    expect(await deliverClaimed(async () => {}, message, c)).toEqual({
+      sent: message.to,
+      error:
+        "The email was sent but couldn't be recorded, so it may be sent again: " +
+        "its claim was removed or taken over by another run",
+    });
+    expect(c.release).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  it("reports nothing when there was no claim to record", async () => {
+    const c = { ...claim(), markSent: async () => null };
+    expect(await deliverClaimed(async () => {}, message, c)).toEqual({ sent: message.to, error: undefined });
   });
 
   it("reports both a rejected recipient and a failure to record the send", async () => {
@@ -222,8 +244,12 @@ describe("claims in the runners", () => {
       await secondSending;
       outbox.push(m);
     };
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const r = await runReminders(db, firstSend, { now, today });
     expect(r.sent).toHaveLength(1);
+    // Its send couldn't be recorded against a claim it no longer holds, so the run says so.
+    expect(r.failed).toEqual([{ registrationId: expect.any(String), error: expect.stringContaining("taken over") }]);
+    error.mockRestore();
     // The claim is the second run's, and stays unsent until its own send settles.
     expect(await db.select().from(reminderLog)).toMatchObject([{ claimedAt: later, sentAt: null }]);
     finish();
@@ -235,7 +261,7 @@ describe("claims in the runners", () => {
 
   it("fails the run if a sent reminder can't be recorded", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.spyOn(db, "update").mockReturnValue({ set: () => ({ where: () => Promise.reject(new Error("db gone")) }) } as never);
+    vi.spyOn(db, "update").mockReturnValue({ set: () => ({ where: () => ({ returning: () => Promise.reject(new Error("db gone")) }) }) } as never);
     const r = await runReminders(db, send, { now, today });
     vi.mocked(db.update).mockRestore();
     error.mockRestore();

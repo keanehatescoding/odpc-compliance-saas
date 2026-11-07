@@ -48,6 +48,9 @@ export function rejectedRecipients(to: string[], rejected: readonly string[] = [
   return to.filter((a) => turnedAway.has(a.trim().toLowerCase()));
 }
 
+/** Why a send couldn't be recorded when the claim it would mark wasn't this run's any more. */
+export const CLAIM_GONE = "its claim was removed or taken over by another run";
+
 /**
  * The error for an email that went out but couldn't be marked sent. It's
  * reported, so the run shows as failed: the claim expires, and the next run
@@ -63,12 +66,18 @@ export function unrecordedError(err: unknown): string {
  * retry. Otherwise it's marked sent with the recipients the server accepted,
  * and any it rejected are reported as an error without a retry, since sending
  * again would repeat the email to everyone else. A failure to mark it sent is
- * reported too.
+ * reported too, including when markSent updates no row because the claim was
+ * removed or taken over mid-send. markSent returns the rows it updated, or null
+ * when there's no claim to record.
  */
 export async function deliverClaimed(
   sendEmail: SendEmail,
   message: EmailMessage,
-  claim: { label: string; markSent: (recipients: string[]) => Promise<unknown>; release: () => Promise<unknown> },
+  claim: {
+    label: string;
+    markSent: (recipients: string[]) => Promise<readonly unknown[] | null>;
+    release: () => Promise<unknown>;
+  },
 ): Promise<{ sent?: string[]; error?: string }> {
   const release = (error: string) =>
     claim
@@ -87,9 +96,14 @@ export async function deliverClaimed(
 
   const errors: string[] = [];
   if (rejected.length > 0) errors.push(`The mail server rejected ${rejected.join(", ")}; the others were sent the email.`);
-  await claim.markSent(sent).catch((markErr) => {
-    console.error(`Failed to mark ${claim.label} sent`, markErr);
-    errors.push(unrecordedError(markErr));
-  });
+  await claim
+    .markSent(sent)
+    .then((rows) => {
+      if (rows && rows.length === 0) throw new Error(CLAIM_GONE);
+    })
+    .catch((markErr) => {
+      console.error(`Failed to mark ${claim.label} sent`, markErr);
+      errors.push(unrecordedError(markErr));
+    });
   return { sent, error: errors.length > 0 ? errors.join(" ") : undefined };
 }

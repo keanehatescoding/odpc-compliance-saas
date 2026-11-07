@@ -82,7 +82,8 @@ export async function runBreachAlerts(
       },
       {
         label: "breach alert",
-        markSent: (recipients) => db.update(breachAlertLog).set({ sentAt: clock(), recipients }).where(mine),
+        markSent: (recipients) =>
+          db.update(breachAlertLog).set({ sentAt: clock(), recipients }).where(mine).returning({ id: breachAlertLog.id }),
         release: () => db.delete(breachAlertLog).where(mine),
       },
     );

@@ -85,7 +85,8 @@ export async function runReminders(
       },
       {
         label: "renewal reminder",
-        markSent: (recipients) => db.update(reminderLog).set({ sentAt: clock(), recipients }).where(mine),
+        markSent: (recipients) =>
+          db.update(reminderLog).set({ sentAt: clock(), recipients }).where(mine).returning({ id: reminderLog.id }),
         release: () => db.delete(reminderLog).where(mine),
       },
     );

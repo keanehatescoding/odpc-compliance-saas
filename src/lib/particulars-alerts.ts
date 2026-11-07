@@ -114,7 +114,8 @@ export async function runParticularChangeAlerts(
       },
       {
         label: "particulars alert",
-        markSent: (recipients) => db.update(particularChangeAlertLog).set({ sentAt: clock(), recipients }).where(mine),
+        markSent: (recipients) =>
+          db.update(particularChangeAlertLog).set({ sentAt: clock(), recipients }).where(mine).returning({ id: particularChangeAlertLog.id }),
         release: () => db.delete(particularChangeAlertLog).where(mine),
       },
     );
