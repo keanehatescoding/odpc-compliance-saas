@@ -52,11 +52,27 @@ describe("deliverClaimed", () => {
     expect(c.release).toHaveBeenCalledOnce();
   });
 
-  it("still reports the email sent if marking it fails", async () => {
+  it("reports the email sent, and the failure to record it, if marking it fails", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const c = { ...claim(), markSent: async () => Promise.reject(new Error("db gone")) };
-    expect(await deliverClaimed(async () => {}, message, c)).toEqual({ sent: message.to, error: undefined });
+    expect(await deliverClaimed(async () => {}, message, c)).toEqual({
+      sent: message.to,
+      error: "The email was sent but couldn't be recorded, so it may be sent again: db gone",
+    });
     expect(error).toHaveBeenCalledWith("Failed to mark test sent", expect.any(Error));
+    expect(c.release).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  it("reports both a rejected recipient and a failure to record the send", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const c = { ...claim(), markSent: async () => Promise.reject(new Error("db gone")) };
+    expect(await deliverClaimed(async () => ({ rejected: ["b@sunrise.ke"] }), message, c)).toEqual({
+      sent: ["a@sunrise.ke"],
+      error:
+        "The mail server rejected b@sunrise.ke; the others were sent the email. " +
+        "The email was sent but couldn't be recorded, so it may be sent again: db gone",
+    });
     error.mockRestore();
   });
 
@@ -215,6 +231,17 @@ describe("claims in the runners", () => {
     expect(await db.select().from(reminderLog)).toMatchObject([{ claimedAt: later, sentAt: later }]);
     // Both went: at least once, never lost.
     expect(outbox).toHaveLength(2);
+  });
+
+  it("fails the run if a sent reminder can't be recorded", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(db, "update").mockReturnValue({ set: () => ({ where: () => Promise.reject(new Error("db gone")) }) } as never);
+    const r = await runReminders(db, send, { now, today });
+    vi.mocked(db.update).mockRestore();
+    error.mockRestore();
+    expect(r.sent).toEqual([{ registrationId, threshold: 30, to: ["a@sunrise.ke", "b@sunrise.ke"] }]);
+    expect(r.failed).toEqual([{ registrationId, error: "The email was sent but couldn't be recorded, so it may be sent again: db gone" }]);
+    expect(await db.select().from(reminderLog)).toMatchObject([{ claimedAt: now, sentAt: null }]);
   });
 
   it("records who the server accepted and reports who it rejected, without sending again", async () => {

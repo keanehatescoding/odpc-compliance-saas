@@ -3,7 +3,7 @@ import type { Db } from "@/db";
 import { legalNoticeLog, legalNotices, memberships, organizations, users } from "@/db/schema";
 import { sellerFromEnv, type Seller } from "./billing";
 import { addDays, formatDate, isIsoDate, todayInKenya } from "./dates";
-import { CLAIM_LEASE_MS } from "./alert-delivery";
+import { CLAIM_LEASE_MS, unrecordedError } from "./alert-delivery";
 import type { SendEmail } from "./email";
 import { LEGAL_NOTICE_DAYS } from "./legal";
 
@@ -169,12 +169,14 @@ export async function runLegalNotices(
         continue;
       }
       result.sent.push({ noticeId: notice.id, userId: r.userId, to: r.email });
-      // If this fails the claim expires and the owner is emailed again.
       await db
         .update(legalNoticeLog)
         .set({ sentAt: now })
         .where(mine)
-        .catch((markErr) => console.error("Failed to mark legal notice sent", markErr));
+        .catch((markErr) => {
+          console.error("Failed to mark legal notice sent", markErr);
+          result.failed.push({ noticeId: notice.id, userId: r.userId, error: unrecordedError(markErr) });
+        });
     }
   }
   return result;

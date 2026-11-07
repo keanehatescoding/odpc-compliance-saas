@@ -49,11 +49,21 @@ export function rejectedRecipients(to: string[], rejected: readonly string[] = [
 }
 
 /**
+ * The error for an email that went out but couldn't be marked sent. It's
+ * reported, so the run shows as failed: the claim expires, and the next run
+ * after that sends the email again.
+ */
+export function unrecordedError(err: unknown): string {
+  return `The email was sent but couldn't be recorded, so it may be sent again: ${err instanceof Error ? err.message : String(err)}`;
+}
+
+/**
  * Sends a claimed email and settles the claim. If the send fails, or the mail
  * server rejects every recipient, the claim is released for the next run to
  * retry. Otherwise it's marked sent with the recipients the server accepted,
  * and any it rejected are reported as an error without a retry, since sending
- * again would repeat the email to everyone else.
+ * again would repeat the email to everyone else. A failure to mark it sent is
+ * reported too.
  */
 export async function deliverClaimed(
   sendEmail: SendEmail,
@@ -75,10 +85,11 @@ export async function deliverClaimed(
   const sent = message.to.filter((a) => !rejected.includes(a));
   if (sent.length === 0) return release(`The mail server rejected every recipient: ${rejected.join(", ")}`);
 
-  // If this fails the claim expires and the email goes out again.
-  await claim.markSent(sent).catch((markErr) => console.error(`Failed to mark ${claim.label} sent`, markErr));
-  return {
-    sent,
-    error: rejected.length > 0 ? `The mail server rejected ${rejected.join(", ")}; the others were sent the email.` : undefined,
-  };
+  const errors: string[] = [];
+  if (rejected.length > 0) errors.push(`The mail server rejected ${rejected.join(", ")}; the others were sent the email.`);
+  await claim.markSent(sent).catch((markErr) => {
+    console.error(`Failed to mark ${claim.label} sent`, markErr);
+    errors.push(unrecordedError(markErr));
+  });
+  return { sent, error: errors.length > 0 ? errors.join(" ") : undefined };
 }
