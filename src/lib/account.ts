@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, ne } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, ne } from "drizzle-orm";
 import type { Db } from "@/db";
 import {
   activityLog,
@@ -96,25 +96,25 @@ export async function exportOrganization(db: Db | Tx, orgId: string, now: Date =
 
   const ids = <T extends { id: string }>(rows: T[]) => rows.map((r) => r.id);
   const [reminders, changeAlerts, affected, updates, breachAlerts, risks, requestAlerts, complaintAlerts, handled, refundRows, invoices] = await Promise.all([
-    db.select().from(reminderLog).where(inArray(reminderLog.registrationId, ids(regs))).orderBy(asc(reminderLog.sentAt)),
+    db.select().from(reminderLog).where(and(inArray(reminderLog.registrationId, ids(regs)), isNotNull(reminderLog.sentAt))).orderBy(asc(reminderLog.sentAt)),
     db
       .select()
       .from(particularChangeAlertLog)
-      .where(inArray(particularChangeAlertLog.changeId, ids(changeRows)))
+      .where(and(inArray(particularChangeAlertLog.changeId, ids(changeRows)), isNotNull(particularChangeAlertLog.sentAt)))
       .orderBy(asc(particularChangeAlertLog.sentAt)),
     db.select().from(breachActivities).where(inArray(breachActivities.breachId, ids(breachRows))),
     db.select().from(breachUpdates).where(inArray(breachUpdates.breachId, ids(breachRows))).orderBy(asc(breachUpdates.createdAt)),
-    db.select().from(breachAlertLog).where(inArray(breachAlertLog.breachId, ids(breachRows))).orderBy(asc(breachAlertLog.sentAt)),
+    db.select().from(breachAlertLog).where(and(inArray(breachAlertLog.breachId, ids(breachRows)), isNotNull(breachAlertLog.sentAt))).orderBy(asc(breachAlertLog.sentAt)),
     db.select().from(dpiaRisks).where(inArray(dpiaRisks.dpiaId, ids(dpiaRows))).orderBy(asc(dpiaRisks.position)),
     db
       .select()
       .from(subjectRequestAlertLog)
-      .where(inArray(subjectRequestAlertLog.requestId, ids(requests)))
+      .where(and(inArray(subjectRequestAlertLog.requestId, ids(requests)), isNotNull(subjectRequestAlertLog.sentAt)))
       .orderBy(asc(subjectRequestAlertLog.sentAt)),
     db
       .select()
       .from(complaintAlertLog)
-      .where(inArray(complaintAlertLog.complaintId, ids(complaintRows)))
+      .where(and(inArray(complaintAlertLog.complaintId, ids(complaintRows)), isNotNull(complaintAlertLog.sentAt)))
       .orderBy(asc(complaintAlertLog.sentAt)),
     db.select().from(processorActivities).where(inArray(processorActivities.processorId, ids(processorRows))),
     db.select().from(refunds).where(inArray(refunds.paymentId, ids(paymentRows))).orderBy(asc(refunds.refundedAt)),
@@ -150,18 +150,18 @@ export async function exportOrganization(db: Db | Tx, orgId: string, now: Date =
     invitations: invited,
     registrations: regs.map(({ orgId: _o, ...r }) => ({
       ...r,
-      remindersSent: by(reminders, "registrationId", r.id).map(({ id: _i, registrationId: _r, ...m }) => m),
+      remindersSent: by(reminders, "registrationId", r.id).map(({ id: _i, registrationId: _r, claimedAt: _a, ...m }) => m),
     })),
     particularChanges: changeRows.map(({ orgId: _o, ...c }) => ({
       ...c,
-      alertsSent: by(changeAlerts, "changeId", c.id).map(({ id: _i, changeId: _c, ...a }) => a),
+      alertsSent: by(changeAlerts, "changeId", c.id).map(({ id: _i, changeId: _c, claimedAt: _a, ...a }) => a),
     })),
     processingActivities: activities.map(({ orgId: _o, ...a }) => a),
     breaches: breachRows.map(({ orgId: _o, ...b }) => ({
       ...b,
       affectedActivityIds: by(affected, "breachId", b.id).map((a) => a.activityId),
       incidentLog: by(updates, "breachId", b.id).map(({ id: _i, breachId: _b, ...u }) => u),
-      alertsSent: by(breachAlerts, "breachId", b.id).map(({ id: _i, breachId: _b, ...a }) => a),
+      alertsSent: by(breachAlerts, "breachId", b.id).map(({ id: _i, breachId: _b, claimedAt: _a, ...a }) => a),
     })),
     impactAssessments: dpiaRows.map(({ orgId: _o, ...d }) => ({
       ...d,
@@ -169,11 +169,11 @@ export async function exportOrganization(db: Db | Tx, orgId: string, now: Date =
     })),
     subjectRequests: requests.map(({ orgId: _o, ...r }) => ({
       ...r,
-      alertsSent: by(requestAlerts, "requestId", r.id).map(({ id: _i, requestId: _r, ...a }) => a),
+      alertsSent: by(requestAlerts, "requestId", r.id).map(({ id: _i, requestId: _r, claimedAt: _a, ...a }) => a),
     })),
     complaints: complaintRows.map(({ orgId: _o, ...c }) => ({
       ...c,
-      alertsSent: by(complaintAlerts, "complaintId", c.id).map(({ id: _i, complaintId: _c, ...a }) => a),
+      alertsSent: by(complaintAlerts, "complaintId", c.id).map(({ id: _i, complaintId: _c, claimedAt: _a, ...a }) => a),
     })),
     processors: processorRows.map(({ orgId: _o, ...p }) => ({
       ...p,

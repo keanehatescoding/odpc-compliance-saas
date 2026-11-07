@@ -3,13 +3,12 @@ import type { Db } from "@/db";
 import { legalNoticeLog, legalNotices, memberships, organizations, users } from "@/db/schema";
 import { sellerFromEnv, type Seller } from "./billing";
 import { addDays, formatDate, isIsoDate, todayInKenya } from "./dates";
+import { CLAIM_GONE, CLAIM_LEASE_MS, unrecordedError } from "./alert-delivery";
 import type { SendEmail } from "./email";
 import { LEGAL_NOTICE_DAYS } from "./legal";
 
 export type LegalNotice = typeof legalNotices.$inferSelect;
 
-/** How long a run's claim on an email holds before another run may take it over, say after the first died mid-send. */
-const CLAIM_LEASE_MS = 30 * 60 * 1000;
 
 /** Why a notice can't be sent, or null. The Terms and DPA promise owners LEGAL_NOTICE_DAYS' warning. */
 export function legalNoticeError(effectiveOn: string, summary: string, now: Date = new Date()): string | null {
@@ -126,7 +125,7 @@ export interface LegalNoticeRunResult {
  * has gone, and released if the send fails, so overlapping runs don't send it
  * twice and a failure is retried. A claim left unfinished, because the run died
  * before marking it, expires after CLAIM_LEASE_MS and is sent again: an owner
- * might hear twice, but never not at all.
+ * might hear more than once, but never not at all.
  */
 export async function runLegalNotices(
   db: Db,
@@ -170,12 +169,18 @@ export async function runLegalNotices(
         continue;
       }
       result.sent.push({ noticeId: notice.id, userId: r.userId, to: r.email });
-      // If this fails the claim expires and the owner is emailed again.
       await db
         .update(legalNoticeLog)
         .set({ sentAt: now })
         .where(mine)
-        .catch((markErr) => console.error("Failed to mark legal notice sent", markErr));
+        .returning({ userId: legalNoticeLog.userId })
+        .then((rows) => {
+          if (rows.length === 0) throw new Error(CLAIM_GONE);
+        })
+        .catch((markErr) => {
+          console.error("Failed to mark legal notice sent", markErr);
+          result.failed.push({ noticeId: notice.id, userId: r.userId, error: unrecordedError(markErr) });
+        });
     }
   }
   return result;

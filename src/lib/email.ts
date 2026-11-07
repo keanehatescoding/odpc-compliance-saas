@@ -6,7 +6,17 @@ export interface EmailMessage {
   text: string;
 }
 
-export type SendEmail = (message: EmailMessage) => Promise<void>;
+/** What the mail server did with a message it took: the recipients it turned away, if any. */
+export interface SendResult {
+  rejected: string[];
+}
+
+/**
+ * Resolves once the mail server has taken the message, possibly for only some
+ * of its recipients, and rejects if it took none. Senders that can't tell
+ * (tests, the log) return nothing, meaning everyone.
+ */
+export type SendEmail = (message: EmailMessage) => Promise<SendResult | void>;
 
 /**
  * Whether emails go to stdout instead of SMTP: always without SMTP_URL in
@@ -38,6 +48,8 @@ export function createEmailSender(env: NodeJS.ProcessEnv = process.env): SendEma
   }
   const transport = nodemailer.createTransport(env.SMTP_URL);
   return async (m) => {
-    await transport.sendMail({ from, to: m.to, subject: m.subject, text: m.text });
+    const info = await transport.sendMail({ from, to: m.to, subject: m.subject, text: m.text });
+    // Recipients the server turned away. If it turned away all of them, sendMail rejected instead.
+    return { rejected: info.rejected };
   };
 }
