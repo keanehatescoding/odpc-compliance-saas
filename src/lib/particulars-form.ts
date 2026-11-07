@@ -30,11 +30,12 @@ export function particularChangeSchema(today: string) {
       const issue = (path: string, message: string) => ctx.addIssue({ code: "custom", path: [path], message });
       if (!v.changedOn) issue("changedOn", "Enter the date it changed. The 14 days count from it.");
       else if (v.changedOn > today) issue("changedOn", "This can't be in the future. Log it once it has changed.");
-      if (v.notifiedOn) {
-        if (v.notifiedOn > today) issue("notifiedOn", "This can't be in the future.");
-      } else if (v.notifiedHow) {
-        issue("notifiedOn", "Enter the date you told the ODPC.");
-      }
+       if (v.notifiedOn) {
+         if (v.notifiedOn > today) issue("notifiedOn", "This can't be in the future.");
+         else if (v.changedOn && v.notifiedOn < v.changedOn) issue("notifiedOn", "This can't be before the change happened.");
+       } else if (v.notifiedHow) {
+         issue("notifiedOn", "Enter the date you told the ODPC.");
+       }
     })
     .transform((v) => ({ ...v, changedOn: v.changedOn as string }));
 }
