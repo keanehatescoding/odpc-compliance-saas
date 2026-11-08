@@ -9,6 +9,7 @@ import { formatDate, formatDateTime, todayInKenya } from "@/lib/dates";
 import { disposalStatus, latestByActivity } from "@/lib/disposal";
 import { ODPC_FEES, REGISTRATION_ROLES, formatKsh, type OrgSize, type RegistrationRole } from "@/lib/dpa";
 import { dpiaStatus } from "@/lib/dpia";
+import { dpoIssues, dpoTodo } from "@/lib/dpo";
 import { activitiesWithoutAssessment, liaStatus, stillReliedOn } from "@/lib/lia";
 import { daysToNotify, roleLabel } from "@/lib/particulars";
 import { policyStatus } from "@/lib/policy";
@@ -179,6 +180,7 @@ export default async function DashboardPage() {
     if (status === "draft") todos.push({ text: `Get your policy approved: ${p.title}`, href: `/policies/${p.id}` });
     else if (status === "review_due") todos.push({ text: `Review your policy: ${p.title} (due ${formatDate(p.reviewOn)})`, href: `/policies/${p.id}` });
   }
+  for (const issue of dpoIssues(org)) todos.push({ text: dpoTodo(issue), href: "/settings#dpo" });
 
   return (
     <>

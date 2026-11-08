@@ -72,6 +72,12 @@ const [org] = await db
     privacyEmail: "privacy@sunrise.example",
     privacyPhone: "+254 700 000 000",
     address: "PO Box 1234-00100\nNairobi",
+    dpoDesignated: true,
+    dpoName: "Grace Wambui",
+    dpoEmail: "dpo@sunrise.example",
+    dpoAppointedOn: addMonths(today, -8),
+    dpoNotifiedOn: addDays(addMonths(today, -8), 6),
+    dpoDetailsChangedOn: addMonths(today, -8),
   })
   .returning();
 await db.insert(memberships).values({ userId: user.id, orgId: org.id, role: "owner" });

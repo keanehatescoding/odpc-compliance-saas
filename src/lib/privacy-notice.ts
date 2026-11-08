@@ -1,5 +1,6 @@
 import { formatDate } from "./dates";
 import type { LawfulBasis } from "./dpa";
+import { publishedDpo, type DpoLike } from "./dpo";
 import type { ActivityInput } from "./ropa";
 import { REQUEST_KINDS } from "./subject-request";
 
@@ -15,7 +16,7 @@ import { REQUEST_KINDS } from "./subject-request";
  * explain, and an activity whose role nobody has confirmed waits until someone does.
  */
 
-export interface NoticeOrg {
+export interface NoticeOrg extends DpoLike {
   name: string;
   privacyContact: string | null;
   privacyEmail: string | null;
@@ -166,6 +167,10 @@ export function buildPrivacyNotice(input: {
   }
   if (!org.privacyEmail && !org.privacyPhone) checks.push("Add an email address or phone number people can contact about their data (Settings).");
   if (!org.address) checks.push("Add your physical or postal address (Settings).");
+  // s.24(6): a data protection officer's contact details are published.
+  const dpo = publishedDpo(org);
+  if (dpo) who.push({ kind: "p", text: "You can also contact our data protection officer:" }, { kind: "facts", items: dpo });
+  else if (org.dpoDesignated) checks.push("Add an email address or phone number for your data protection officer, so the notice can publish it (Settings).");
   sections.push({ heading: "Who we are", blocks: who });
 
   // What we collect and why

@@ -166,10 +166,21 @@ const mailing = (over: Partial<ReportActivity> = {}) =>
 const cctv = (over: Partial<ReportActivity> = {}) => activity({ id: "a4", name: "CCTV", lawfulBasis: "legitimate_interests", ...over });
 const newsletter = (over: Partial<ReportActivity> = {}) => activity({ id: "a2", name: "Newsletter", lawfulBasis: "consent", provision: "", ...over });
 
+const noDpo = {
+  dpoDesignated: false,
+  dpoName: null,
+  dpoEmail: null,
+  dpoPhone: null,
+  dpoAppointedOn: null,
+  dpoNotifiedOn: null,
+  dpoDetailsChangedOn: null,
+};
+const org: ReportInput["org"] = { privacyContact: "The Bursar", privacyEmail: "privacy@sunrise.test", privacyPhone: null, address: "PO Box 1, Nakuru", ...noDpo };
+
 /** An organisation with everything in order. */
 function input(over: Partial<ReportInput> = {}): ReportInput {
   return {
-    org: { privacyContact: "The Bursar", privacyEmail: "privacy@sunrise.test", privacyPhone: null, address: "PO Box 1, Nakuru" },
+    org,
     registrations: [{ role: "controller", certificateNumber: "DC-001", appliedOn: "2025-12-01", issuedOn: "2026-01-10", expiresOn: "2028-01-10" }],
     particularChanges: [],
     activities: [activity()],
@@ -200,7 +211,7 @@ describe("buildComplianceReport", () => {
   it("finds nothing open when every record is in order", () => {
     const report = buildComplianceReport(input());
     expect(report.openCount).toBe(0);
-    expect(report.sections.map((s) => s.key)).toEqual(["registration", "ropa", "notice", "consent", "lia", "dpia", "breach", "request", "complaint", "processor", "transfer", "disposal", "training", "policy"]);
+    expect(report.sections.map((s) => s.key)).toEqual(["registration", "ropa", "notice", "dpo", "consent", "lia", "dpia", "breach", "request", "complaint", "processor", "transfer", "disposal", "training", "policy"]);
     expect(report.preparedOn).toBe("2026-10-10");
     expect(report.periodFrom).toBe("2025-10-10");
   });
@@ -358,9 +369,60 @@ describe("privacy notice", () => {
   });
 
   it("flags missing contact details", () => {
-    const s = section({ org: { privacyContact: null, privacyEmail: null, privacyPhone: null, address: null } }, "notice");
+    const s = section({ org: { ...org, privacyContact: null, privacyEmail: null, privacyPhone: null, address: null } }, "notice");
     expect(fact(s, "Contact for data protection")).toBe("Not recorded");
     expect(s.open).toHaveLength(2);
+  });
+});
+
+describe("data protection officer", () => {
+  const dpo = {
+    ...org,
+    dpoDesignated: true,
+    dpoName: "Achieng Otieno",
+    dpoEmail: "dpo@sunrise.test",
+    dpoPhone: null,
+    dpoAppointedOn: "2026-02-01",
+    dpoNotifiedOn: "2026-02-10",
+    dpoDetailsChangedOn: "2026-02-01",
+  };
+
+  it("has nothing open when the organisation says it has none", () => {
+    const s = section({}, "dpo");
+    expect(s.open).toEqual([]);
+    expect(s.facts).toEqual([{ label: "Data protection officer designated", value: "No" }]);
+    expect(s.basis).toBe("Data Protection Act, 2019, s.24");
+  });
+
+  it("asks whether there is one until someone says", () => {
+    const s = section({ org: { ...org, dpoDesignated: null } }, "dpo");
+    expect(fact(s, "Data protection officer designated")).toBe("Not recorded");
+    expect(s.open).toEqual(["Whether the organisation has designated a data protection officer isn't recorded."]);
+  });
+
+  it("gives the officer's details once they have been sent to the Data Commissioner", () => {
+    const s = section({ org: dpo }, "dpo");
+    expect(s.open).toEqual([]);
+    expect(fact(s, "Data protection officer")).toBe("Achieng Otieno");
+    expect(fact(s, "Contact details")).toBe("dpo@sunrise.test");
+    expect(fact(s, "Details sent to the Data Commissioner")).toBe("10 Feb 2026");
+  });
+
+  it("flags an officer with no name, no contact, and details never sent", () => {
+    const s = section({ org: { ...dpo, dpoName: null, dpoEmail: null, dpoNotifiedOn: null } }, "dpo");
+    expect(fact(s, "Contact details")).toBe("Not recorded");
+    expect(s.open).toEqual([
+      "A data protection officer is designated, but who it is isn't recorded.",
+      "No email address or phone number is recorded for the data protection officer, so there are no contact details to publish.",
+      "The data protection officer's contact details aren't recorded as sent to the Data Commissioner.",
+    ]);
+  });
+
+  it("flags details that changed after they were sent", () => {
+    const s = section({ org: { ...dpo, dpoDetailsChangedOn: "2026-05-01" } }, "dpo");
+    expect(s.open).toEqual([
+      "The data protection officer's contact details changed on 1 May 2026, after they were last sent to the Data Commissioner on 10 Feb 2026.",
+    ]);
   });
 });
 

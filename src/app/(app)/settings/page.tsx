@@ -20,7 +20,7 @@ export default async function SettingsPage() {
 
   return (
     <>
-      <PageHeader title="Settings" description="Organisation details, where renewal reminders are sent, your password, and exporting or deleting your data." />
+      <PageHeader title="Settings" description="Organisation details, your data protection officer, where renewal reminders are sent, your password, and exporting or deleting your data." />
       <div className="space-y-6">
         <SettingsForm org={org} canEdit={role !== "member"} ownerEmails={owners.map((o) => o.email)} />
         <ChangePasswordForm />

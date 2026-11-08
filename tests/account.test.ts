@@ -82,7 +82,7 @@ beforeEach(async () => {
 
   const [o] = await db
     .insert(organizations)
-    .values({ name: "Sunrise Academy", sector: "education", size: "micro_small", kraPin: "P051234567X", reminderEmail: "dpo@sunrise.ke" })
+    .values({ name: "Sunrise Academy", sector: "education", size: "micro_small", kraPin: "P051234567X", reminderEmail: "dpo@sunrise.ke", dpoDesignated: true, dpoName: "Achieng Otieno", dpoEmail: "dpo@sunrise.ke", dpoPhone: "+254 700 000 001" })
     .returning({ id: organizations.id });
   orgId = o.id;
   owner = await addUser("owner@sunrise.ke");
@@ -145,7 +145,11 @@ describe("exportOrganization", () => {
     const data = await exportOrganization(db, orgId, t0);
     expect(data).not.toBeNull();
     expect(data!.format).toBe(EXPORT_FORMAT);
-    expect(data!.organization).toMatchObject({ name: "Sunrise Academy", kraPin: "P051234567X" });
+    expect(data!.organization).toMatchObject({
+      name: "Sunrise Academy",
+      kraPin: "P051234567X",
+      dataProtectionOfficer: { designated: true, name: "Achieng Otieno", email: "dpo@sunrise.ke", phone: "+254 700 000 001" },
+    });
     expect(data!.team.map((m) => m.role).sort()).toEqual(["admin", "member", "owner"]);
     expect(data!.invitations).toEqual([expect.objectContaining({ email: "new@sunrise.ke", role: "member" })]);
     expect(data!.registrations).toEqual([expect.objectContaining({ certificateNumber: "ODPC-1", remindersSent: [] })]);
@@ -223,7 +227,7 @@ describe("deleteOrganization", () => {
       expect(await db.select().from(table)).toEqual([]);
     }
     const [org] = await db.select().from(organizations).where(eq(organizations.id, orgId));
-    expect(org).toMatchObject({ deletedAt: t0, reminderEmail: null, autoRenewInterval: null });
+    expect(org).toMatchObject({ deletedAt: t0, reminderEmail: null, autoRenewInterval: null, dpoName: null, dpoEmail: null, dpoPhone: null });
 
     const left = await db.select().from(payments);
     expect(left.map((p) => p.reference).sort()).toEqual(["paid-1", "pending-1"]);
