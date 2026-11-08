@@ -228,6 +228,20 @@ describe("moving an order on", () => {
     expect(await orderStatus(order.id)).toBe("delivered");
   });
 
+  it("keeps the order delivered and says nobody was emailed when no owner has a confirmed address", async () => {
+    const { payment, order } = await orderService();
+    await succeed(payment);
+    await db.update(users).set({ emailVerifiedAt: null }).where(eq(users.email, "owner@sunrise.ke"));
+    const send = vi.fn(async () => {});
+    expect(await setServiceOrderStatus(db, send, order.id, "delivered", { now: t0 })).toEqual({
+      ok: true,
+      emailed: [],
+      emailError: "No owner has a confirmed email address",
+    });
+    expect(send).not.toHaveBeenCalled();
+    expect(await orderStatus(order.id)).toBe("delivered");
+  });
+
   it("lists only the owners the delivery email reached, and reports the rest", async () => {
     const { payment, order } = await orderService();
     await succeed(payment);

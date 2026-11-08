@@ -106,7 +106,7 @@ const NEXT_STATUSES: Record<ServiceOrderStatus, ServiceOrderStatus[]> = {
 };
 
 export type SetStatusResult =
-  /** `emailError` is set when the status changed but the delivery email didn't reach every owner; `emailed` lists those it did. */
+  /** `emailError` is set when the status changed but the delivery email didn't reach every owner, or no owner has a confirmed address; `emailed` lists those it did reach. */
   | { ok: true; emailed: string[]; emailError?: string }
   | { ok: false; error: string };
 
@@ -153,7 +153,7 @@ export async function setServiceOrderStatus(
   // Looking up the owners can fail too, and the order is already delivered by then.
   try {
     to = await ownerEmails(db, moved.orgId);
-    if (to.length === 0) return { ok: true, emailed: [] };
+    if (to.length === 0) return { ok: true, emailed: [], emailError: "No owner has a confirmed email address" };
     const sent = await sendEmail(serviceDeliveredEmail(to, moved.orgName, moved.service, `${appUrl}/services`));
     rejected = rejectedRecipients(to, sent?.rejected);
   } catch (err) {

@@ -29,9 +29,6 @@ export async function moveServiceOrder(orderId: string, _prev: OrderMoveState, f
     const whom = result.emailed.length > 0 ? "the other owners" : "the owners";
     done.push(`Couldn't email ${whom} (${result.emailError}), so tell them yourself.`);
   }
-  if (status === "delivered" && result.emailed.length === 0 && !result.emailError) {
-    done.push("No owner has a confirmed address, so nobody was emailed.");
-  }
   if (status === "cancelled") done.push("Refund them from the Paystack dashboard; the eTIMS credit note follows.");
   return { message: done.join(" "), closed: status !== "in_progress" };
 }
