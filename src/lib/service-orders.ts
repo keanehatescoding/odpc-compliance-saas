@@ -148,10 +148,12 @@ export async function setServiceOrderStatus(
   if ("error" in moved) return { ok: false, error: moved.error };
   if (status !== "delivered") return { ok: true, emailed: [] };
 
-  const to = await ownerEmails(db, moved.orgId);
-  if (to.length === 0) return { ok: true, emailed: [] };
+  let to: string[];
   let rejected: string[];
+  // Looking up the owners can fail too, and the order is already delivered by then.
   try {
+    to = await ownerEmails(db, moved.orgId);
+    if (to.length === 0) return { ok: true, emailed: [] };
     const sent = await sendEmail(serviceDeliveredEmail(to, moved.orgName, moved.service, `${appUrl}/services`));
     rejected = rejectedRecipients(to, sent?.rejected);
   } catch (err) {

@@ -2,7 +2,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Db } from "@/db";
 import * as schema from "@/db/schema";
 import { afterPaymentCredited } from "@/lib/after-payment";
@@ -201,6 +201,30 @@ describe("moving an order on", () => {
       emailed: [],
       emailError: "SMTP down",
     });
+    expect(await orderStatus(order.id)).toBe("delivered");
+  });
+
+  it("keeps the order delivered and says so when the owners can't be looked up", async () => {
+    const { payment, order } = await orderService();
+    await succeed(payment);
+    // The move runs in a transaction (tx.select); only the owner lookup after it uses db.select.
+    const lookupFails = new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop === "select") {
+          return () => {
+            throw new Error("connection lost");
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    const send = vi.fn(async () => {});
+    expect(await setServiceOrderStatus(lookupFails, send, order.id, "delivered", { now: t0 })).toEqual({
+      ok: true,
+      emailed: [],
+      emailError: "connection lost",
+    });
+    expect(send).not.toHaveBeenCalled();
     expect(await orderStatus(order.id)).toBe("delivered");
   });
 

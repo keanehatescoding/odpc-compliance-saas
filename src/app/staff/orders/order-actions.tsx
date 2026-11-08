@@ -2,7 +2,7 @@
 
 import { createContext, useActionState, useContext, useState, type ReactNode } from "react";
 import { SubmitButton } from "@/components/submit-button";
-import type { FormState } from "@/lib/forms";
+import type { OrderMoveState } from "@/app/actions/staff";
 
 interface OrderResult {
   orderId: string;
@@ -13,9 +13,11 @@ interface OrderResult {
 const ReportResult = createContext<(result: OrderResult) => void>(() => {});
 
 /**
- * Shows, above the list, what happened to orders that have left it. Delivering
- * or cancelling an order drops its card, and with it the result shown there,
- * such as owners the delivery email didn't reach or the refund still to make.
+ * Shows, above the list, what happened to orders this user delivered or
+ * cancelled. Doing so drops the order's card, and with it the result shown
+ * there, such as owners the delivery email didn't reach or the refund still to
+ * make. Other results stay in the card only: an order a colleague closes in the
+ * meantime leaves the list too, and a result from before that isn't its outcome.
  */
 export function OrderResults({ open, children }: { open: string[]; children: ReactNode }) {
   const [results, setResults] = useState<OrderResult[]>([]);
@@ -47,14 +49,14 @@ export function OrderActions({
 }: {
   orderId: string;
   label: string;
-  action: (prev: FormState, formData: FormData) => Promise<FormState>;
+  action: (prev: OrderMoveState, formData: FormData) => Promise<OrderMoveState>;
   started: boolean;
 }) {
   const report = useContext(ReportResult);
   // Reported as soon as the action returns, before the refreshed list drops this card.
-  const [state, formAction] = useActionState(async (prev: FormState, formData: FormData) => {
+  const [state, formAction] = useActionState(async (prev: OrderMoveState, formData: FormData) => {
     const next = await action(prev, formData);
-    if (next?.message) report({ orderId, label, message: next.message });
+    if (next?.closed && next.message) report({ orderId, label, message: next.message });
     return next;
   }, undefined);
   return (
