@@ -82,7 +82,7 @@ beforeEach(async () => {
 
   const [o] = await db
     .insert(organizations)
-    .values({ name: "Sunrise Academy", sector: "education", size: "micro_small", kraPin: "P051234567X", reminderEmail: "dpo@sunrise.ke", dpoDesignated: true, dpoName: "Achieng Otieno", dpoEmail: "dpo@sunrise.ke", dpoPhone: "+254 700 000 001" })
+    .values({ name: "Sunrise Academy", sector: "education", size: "micro_small", kraPin: "P051234567X", reminderEmail: "dpo@sunrise.ke", dpoDesignated: true, dpoName: "Achieng Otieno", dpoEmail: "dpo@sunrise.ke", dpoPhone: "+254 700 000 001", dpoAppointedOn: "2026-01-05", dpoNotifiedOn: "2026-01-20", dpoDetailsChangedOn: "2026-01-12" })
     .returning({ id: organizations.id });
   orgId = o.id;
   owner = await addUser("owner@sunrise.ke");
@@ -148,7 +148,15 @@ describe("exportOrganization", () => {
     expect(data!.organization).toMatchObject({
       name: "Sunrise Academy",
       kraPin: "P051234567X",
-      dataProtectionOfficer: { designated: true, name: "Achieng Otieno", email: "dpo@sunrise.ke", phone: "+254 700 000 001" },
+      dataProtectionOfficer: {
+        designated: true,
+        name: "Achieng Otieno",
+        email: "dpo@sunrise.ke",
+        phone: "+254 700 000 001",
+        appointedOn: "2026-01-05",
+        notifiedOn: "2026-01-20",
+        detailsChangedOn: "2026-01-12",
+      },
     });
     expect(data!.team.map((m) => m.role).sort()).toEqual(["admin", "member", "owner"]);
     expect(data!.invitations).toEqual([expect.objectContaining({ email: "new@sunrise.ke", role: "member" })]);

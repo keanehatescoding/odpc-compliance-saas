@@ -35,13 +35,18 @@ export function dpoDetailsChanged(before: Partial<DpoLike>, after: Partial<DpoLi
 
 /**
  * The dpoDetailsChangedOn to store after an edit. Changed details are dated
- * today, unless the same edit records when they were sent to the Data
+ * today, unless the same edit records a new date they were sent to the Data
  * Commissioner, which says the details as saved are the ones sent (such as an
- * organisation entering a DPO it reported before it used Kinga).
+ * organisation entering a DPO it reported before it used Kinga). Clearing the
+ * sent date doesn't count: nothing was sent, so the change is dated today.
  */
 export function nextDpoDetailsChangedOn(before: DpoLike, after: Partial<DpoLike>, today: string): string | null {
   if (!dpoDetailsChanged(before, after)) return before.dpoDetailsChangedOn;
-  if ("dpoNotifiedOn" in after && norm(after.dpoNotifiedOn) !== norm(before.dpoNotifiedOn)) return before.dpoDetailsChangedOn;
+  const sentOn = "dpoNotifiedOn" in after ? norm(after.dpoNotifiedOn) : "";
+  if (sentOn && sentOn !== norm(before.dpoNotifiedOn)) {
+    // An earlier change date stands; a later one would say these details came after they were sent.
+    return before.dpoDetailsChangedOn && before.dpoDetailsChangedOn <= sentOn ? before.dpoDetailsChangedOn : null;
+  }
   return today;
 }
 

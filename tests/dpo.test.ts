@@ -73,6 +73,25 @@ describe("tracking when the details change", () => {
     expect(dpoIssues({ ...sent, dpoDetailsChangedOn: changedOn })).toEqual([]);
   });
 
+  it("clears a change date later than the sent date given in the same save", () => {
+    const changed = { ...sent, dpoDetailsChangedOn: "2026-05-01" };
+    const after = { ...changed, dpoEmail: "new@sunrise.test", dpoNotifiedOn: "2026-04-01" };
+    const changedOn = nextDpoDetailsChangedOn(changed, after, today);
+    expect(changedOn).toBeNull();
+    expect(dpoIssues({ ...after, dpoDetailsChangedOn: changedOn })).toEqual([]);
+    // An earlier change date is still true of the details sent.
+    expect(nextDpoDetailsChangedOn(sent, { ...sent, dpoEmail: "new@sunrise.test", dpoNotifiedOn: "2026-04-01" }, today)).toBe("2026-02-01");
+  });
+
+  it("dates a change made while clearing the sent date, so putting the old date back still flags it", () => {
+    const cleared = { ...sent, dpoEmail: "new@sunrise.test", dpoNotifiedOn: null };
+    const changedOn = nextDpoDetailsChangedOn(sent, cleared, today);
+    expect(changedOn).toBe(today);
+    const restored = { ...cleared, dpoDetailsChangedOn: changedOn, dpoNotifiedOn: sent.dpoNotifiedOn };
+    expect(nextDpoDetailsChangedOn({ ...cleared, dpoDetailsChangedOn: changedOn }, restored, today)).toBe(today);
+    expect(dpoIssues(restored).map((i) => i.kind)).toEqual(["changed_since_notified"]);
+  });
+
   it("keeps the last change date when the details are untouched", () => {
     expect(nextDpoDetailsChangedOn(sent, { ...sent, dpoAppointedOn: "2026-01-15" }, today)).toBe("2026-02-01");
   });

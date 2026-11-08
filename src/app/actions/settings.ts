@@ -85,6 +85,8 @@ export async function updateOrganization(_prev: SettingsState, formData: FormDat
 
   const particulars = await db.transaction(async (tx) => {
     const [before] = await tx.select().from(organizations).where(eq(organizations.id, org.id)).for("update");
+    // Deleting the organisation erases contact details under this same lock; a save queued behind it mustn't put them back.
+    if (before.deletedAt) return "deleted" as const;
     // So details changed after they were sent to the Data Commissioner show up as not yet sent.
     const dpoDetailsChangedOn = nextDpoDetailsChangedOn(before, parsed.data, todayInKenya());
     await tx
@@ -99,6 +101,7 @@ export async function updateOrganization(_prev: SettingsState, formData: FormDat
     const suggestion = suggestionFor(change, regs);
     return suggestion ? { ...suggestion, changedOn: todayInKenya() } : undefined;
   });
+  if (particulars === "deleted") return { message: "This organisation has been deleted.", values };
   revalidatePath("/", "layout");
   return { message: "Saved.", values, particulars };
 }
