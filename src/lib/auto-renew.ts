@@ -3,7 +3,7 @@ import type { Db } from "@/db";
 import { billingAlertLog, organizations, payments, renewalAttempts, savedCards, type Organization, type SavedCard } from "@/db/schema";
 import { recordActivity } from "./activity";
 import { afterPaymentCredited } from "./after-payment";
-import { deliverClaimed, ownClaim } from "./alert-delivery";
+import { abandoned, deliverClaimed, ownClaim, rejectedRecipients } from "./alert-delivery";
 import { CURRENCY, recordPayment } from "./billing";
 import { formatDate, todayInKenya } from "./dates";
 import { formatKsh, type OrgSize } from "./dpa";
@@ -352,7 +352,12 @@ async function declineRenewal(
         const [ended] = await tx
           .insert(billingAlertLog)
           .values({ orgId: claim.orgId, kind: "ended", endsAt: claim.endsAt, recipients: to, claimedAt, sentAt: null })
-          .onConflictDoNothing()
+          // A claim left by a billing run that died before sending is taken over, as that job would.
+          .onConflictDoUpdate({
+            target: [billingAlertLog.orgId, billingAlertLog.kind, billingAlertLog.endsAt],
+            set: { recipients: to, claimedAt },
+            setWhere: abandoned(billingAlertLog, claimedAt),
+          })
           .returning({ id: billingAlertLog.id });
         return ended?.id ?? null;
       }
@@ -706,7 +711,7 @@ export async function deauthorizeSavedCards(
   return result;
 }
 
-/** Emails the owners that renewal has stopped. Returns why it couldn't, or null once sent (or with no owner to send to). */
+/** Emails the owners that renewal has stopped. Returns why it couldn't reach them all, or null once sent (or with no owner to send to). */
 async function notifyRenewalStopped(
   db: Db,
   sendEmail: SendEmail,
@@ -720,7 +725,7 @@ async function notifyRenewalStopped(
   const access = accessFor(org, now);
   const ends = formatDate(todayInKenya(access.endsAt));
   try {
-    await sendEmail({
+    const sent = await sendEmail({
       to,
       subject: `${org.name}: Kinga won't renew automatically`,
       text: [
@@ -737,7 +742,8 @@ async function notifyRenewalStopped(
         `${appUrl}/billing`,
       ].join("\n"),
     });
-    return null;
+    const rejected = rejectedRecipients(to, sent?.rejected);
+    return rejected.length > 0 ? `The mail server rejected ${rejected.join(", ")}; the others were sent the email.` : null;
   } catch (err) {
     console.error("Failed to send renewal change email", org.id, err);
     return err instanceof Error ? err.message : String(err);

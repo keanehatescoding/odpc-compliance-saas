@@ -31,7 +31,7 @@ export async function runSubjectRequestAlerts(
   opts: { now?: Date; appUrl?: string; requestId?: string } = {},
 ): Promise<RequestAlertRunResult> {
   const now = opts.now ?? new Date();
-  // Claims and sends are stamped when they happen: a run may reach an alert long after it began.
+  // Claims are checked, made and marked sent at the time they happen: a run may reach an alert long after it began.
   const clock = () => opts.now ?? new Date();
   const today = todayInKenya(now);
   const appUrl = opts.appUrl ?? process.env.APP_URL ?? "http://localhost:3000";
@@ -45,7 +45,7 @@ export async function runSubjectRequestAlerts(
 
   for (const { request: listed, org } of rows) {
     result.checked++;
-    if (!dueRequestAlert(listed, today, await sentKinds(db, listed.id, now))) continue;
+    if (!dueRequestAlert(listed, today, await sentKinds(db, listed.id, clock()))) continue;
 
     const to = await reminderRecipients(db, org);
     if (to.length === 0) continue;
@@ -60,7 +60,7 @@ export async function runSubjectRequestAlerts(
         .where(and(eq(subjectRequests.id, listed.id), isNull(subjectRequests.outcome)))
         .for("update");
       if (!request) return null;
-      const kind = dueRequestAlert(request, today, await sentKinds(tx, request.id, now));
+      const kind = dueRequestAlert(request, today, await sentKinds(tx, request.id, clock()));
       if (!kind) return null;
       const claimedAt = clock();
       const [claimed] = await tx

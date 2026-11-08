@@ -6,10 +6,10 @@ import type { EmailMessage, SendEmail } from "./email";
  * How the alert and reminder runners send each email once. A run claims the
  * email by inserting a row in its log (the unique key stops a second run),
  * sends it, then marks the row sent. If sending fails it deletes the row, so
- * the next run retries. A run that dies between claiming and marking leaves a
- * row with no sent_at; once it's older than CLAIM_LEASE_MS, another run takes
- * it over and sends the email again. So an email may go out more than once,
- * but is never lost.
+ * the next run retries. A run that dies or stalls between claiming and marking
+ * leaves a row with no sent_at; once it's older than CLAIM_LEASE_MS, another
+ * run takes it over and sends the email again, even if the first run is still
+ * going. So an email may go out more than once, but is never lost.
  */
 
 /** How long a run's claim on an email holds before another run may take it over, say after the first died mid-send. */

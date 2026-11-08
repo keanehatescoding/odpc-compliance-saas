@@ -204,6 +204,22 @@ describe("moving an order on", () => {
     expect(await orderStatus(order.id)).toBe("delivered");
   });
 
+  it("lists only the owners the delivery email reached, and reports the rest", async () => {
+    const { payment, order } = await orderService();
+    await succeed(payment);
+    const [u] = await db
+      .insert(users)
+      .values({ email: "bursar@sunrise.ke", name: "Bursar", passwordHash: "x", emailVerifiedAt: new Date() })
+      .returning();
+    await db.insert(memberships).values({ userId: u.id, orgId, role: "owner" });
+    const partial = async () => ({ rejected: ["Bursar@Sunrise.ke"] });
+    expect(await setServiceOrderStatus(db, partial, order.id, "delivered", { now: t0 })).toEqual({
+      ok: true,
+      emailed: ["owner@sunrise.ke"],
+      emailError: "The mail server rejected bursar@sunrise.ke",
+    });
+  });
+
   it("refuses moves that make no sense", async () => {
     const send = async () => {};
     const { order: unpaid } = await orderService();

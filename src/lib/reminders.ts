@@ -25,7 +25,7 @@ export async function runReminders(
   opts: { now?: Date; today?: string; appUrl?: string } = {},
 ): Promise<ReminderRunResult> {
   const now = opts.now ?? new Date();
-  // Claims and sends are stamped when they happen: a run may reach an alert long after it began.
+  // Claims are checked, made and marked sent at the time they happen: a run may reach an alert long after it began.
   const clock = () => opts.now ?? new Date();
   const today = opts.today ?? todayInKenya(now);
   const appUrl = opts.appUrl ?? process.env.APP_URL ?? "http://localhost:3000";
@@ -45,7 +45,7 @@ export async function runReminders(
     const sentRows = await db
       .select({ t: reminderLog.thresholdDays })
       .from(reminderLog)
-      .where(and(eq(reminderLog.registrationId, reg.id), eq(reminderLog.expiresOn, expiresOn), sentOrClaimed(reminderLog, now)));
+      .where(and(eq(reminderLog.registrationId, reg.id), eq(reminderLog.expiresOn, expiresOn), sentOrClaimed(reminderLog, clock())));
     const threshold = dueReminderThreshold(expiresOn, today, new Set(sentRows.map((r) => r.t)));
     if (threshold === null) continue;
 

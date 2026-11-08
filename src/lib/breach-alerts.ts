@@ -34,7 +34,7 @@ export async function runBreachAlerts(
   opts: { now?: Date; appUrl?: string; breachId?: string } = {},
 ): Promise<BreachAlertRunResult> {
   const now = opts.now ?? new Date();
-  // Claims and sends are stamped when they happen: a run may reach an alert long after it began.
+  // Claims are checked, made and marked sent at the time they happen: a run may reach an alert long after it began.
   const clock = () => opts.now ?? new Date();
   const appUrl = opts.appUrl ?? process.env.APP_URL ?? "http://localhost:3000";
   const result: BreachAlertRunResult = { checked: 0, sent: [], failed: [] };
@@ -52,7 +52,7 @@ export async function runBreachAlerts(
     const sentRows = await db
       .select({ kind: breachAlertLog.kind })
       .from(breachAlertLog)
-      .where(and(eq(breachAlertLog.breachId, breach.id), sentOrClaimed(breachAlertLog, now)));
+      .where(and(eq(breachAlertLog.breachId, breach.id), sentOrClaimed(breachAlertLog, clock())));
     const kind = dueBreachAlert(breach, now, new Set(sentRows.map((r) => r.kind)));
     if (!kind) continue;
 

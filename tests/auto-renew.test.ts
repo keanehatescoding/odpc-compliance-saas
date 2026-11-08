@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "@/db";
 import * as schema from "@/db/schema";
 import { deleteOrganization } from "@/lib/account";
+import { CLAIM_LEASE_MS } from "@/lib/alert-delivery";
 import { deauthorizeSavedCards, removeSavedCard, renewalReference, runAutoRenewals, setAutoRenew } from "@/lib/auto-renew";
 import { dueBillingAlert, recordPayment, runBillingAlerts, startCheckout } from "@/lib/billing";
 import type { EmailMessage, SendEmail } from "@/lib/email";
@@ -318,6 +319,31 @@ describe("charging the saved card", () => {
     const { sent, send } = inbox();
     expect((await runBillingAlerts(db, send, { now: at(3 * DAY) })).sent).toEqual([{ orgId, kind: "ended", to: ["owner@sunrise.ke"] }]);
     expect(sent).toHaveLength(1);
+  });
+
+  it("takes over an \"ended\" claim a billing run left, so the billing job doesn't send it again", async () => {
+    await pay();
+    const { paystack } = fakePaystack([0, 1, 2].map(() => ({ status: "failed", gatewayResponse: "Do Not Honor" })));
+    await runAutoRenewals(db, paystack, inbox().send, { now: at(-HOUR) });
+    await runAutoRenewals(db, paystack, inbox().send, { now: at(DAY) });
+    // A billing run claimed the "ended" email and died before sending it. The decline stamps its claim with the real clock.
+    await db.insert(billingAlertLog).values({
+      orgId,
+      kind: "ended",
+      endsAt: ends,
+      recipients: ["owner@sunrise.ke"],
+      claimedAt: new Date(Date.now() - CLAIM_LEASE_MS - 60_000),
+      sentAt: null,
+    });
+
+    const third = await runAutoRenewals(db, paystack, inbox().send, { now: at(3 * DAY) });
+    expect(third.failed).toEqual([]);
+    expect(await db.select().from(billingAlertLog)).toContainEqual(
+      expect.objectContaining({ kind: "ended", recipients: ["owner@sunrise.ke"], sentAt: expect.any(Date) }),
+    );
+    const { sent, send } = inbox();
+    expect((await runBillingAlerts(db, send, { now: at(4 * DAY) })).sent).toEqual([]);
+    expect(sent).toEqual([]);
   });
 
   it("records only the owners the last failure email reached, and reports the rest", async () => {
@@ -735,6 +761,27 @@ describe("forgetting every saved card after a leak", () => {
       { orgId, orgName: "Sunrise Academy", card: "Visa ending 4242", error: "SMTP connection refused" },
     ]);
     expect(sent.map((m) => m.to)).toEqual([["owner@mwangi.ke"]]);
+  });
+
+  it("reports owners the mail server turned away", async () => {
+    await pay();
+    const [u] = await db
+      .insert(users)
+      .values({ email: "bursar@sunrise.ke", name: "Bursar", passwordHash: "x", emailVerifiedAt: t0 })
+      .returning();
+    await db.insert(memberships).values({ userId: u.id, orgId, role: "owner" });
+    const { paystack } = fakePaystack();
+
+    const result = await deauthorizeSavedCards(db, paystack, async () => ({ rejected: ["bursar@sunrise.ke"] }), { reason, now: t0 });
+
+    expect(result.unnotified).toEqual([
+      {
+        orgId,
+        orgName: "Sunrise Academy",
+        card: "Visa ending 4242",
+        error: "The mail server rejected bursar@sunrise.ke; the others were sent the email.",
+      },
+    ]);
   });
 
   it("carries on with the other cards when one can't be deleted here", async () => {

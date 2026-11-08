@@ -1,3 +1,6 @@
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
@@ -104,6 +107,39 @@ describe("deliverClaimed", () => {
   });
 });
 
+describe("migration 0030", () => {
+  it("keeps the send time of emails sent before it, and takes it as their claim time", async () => {
+    // Migrate as far as 0029, from a copy of the migrations that stops there.
+    const upTo0029 = mkdtempSync(join(tmpdir(), "migrations-"));
+    try {
+      cpSync("drizzle", upTo0029, { recursive: true });
+      const journalPath = join(upTo0029, "meta", "_journal.json");
+      const journal = JSON.parse(readFileSync(journalPath, "utf8"));
+      journal.entries = journal.entries.filter((e: { idx: number }) => e.idx < 30);
+      writeFileSync(journalPath, JSON.stringify(journal));
+
+      const client = new PGlite();
+      const pg = drizzle({ client, schema });
+      await migrate(pg, { migrationsFolder: upTo0029 });
+      const [o] = await pg.insert(organizations).values({ name: "Sunrise Academy", sector: "education", size: "micro_small" }).returning();
+      const [r] = await pg
+        .insert(registrations)
+        .values({ orgId: o.id, role: "controller", issuedOn: "2024-10-18", expiresOn: "2026-10-18" })
+        .returning();
+      const sentAt = new Date("2026-09-18T06:00:00Z");
+      await client.query(
+        `insert into reminder_log (registration_id, expires_on, threshold_days, recipients, sent_at) values ($1, '2026-10-18', 30, '{a@sunrise.ke}', $2)`,
+        [r.id, sentAt.toISOString()],
+      );
+
+      await migrate(pg, { migrationsFolder: "drizzle" });
+      expect(await pg.select().from(reminderLog)).toMatchObject([{ sentAt, claimedAt: sentAt }]);
+    } finally {
+      rmSync(upTo0029, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("claims in the runners", () => {
   let db: Db;
   let outbox: EmailMessage[];
@@ -196,6 +232,36 @@ describe("claims in the runners", () => {
     // And only once.
     await runReminders(db, send, { now: new Date(now.getTime() + 2 * CLAIM_LEASE_MS), today });
     expect(outbox).toHaveLength(1);
+  });
+
+  it("takes over a claim that expires while the run is on its way to it", async () => {
+    // Another run claimed the second certificate's reminder shortly before this one began.
+    const [p] = await db
+      .insert(registrations)
+      .values({ orgId, role: "processor", issuedOn: "2024-10-18", expiresOn: "2026-10-18" })
+      .returning();
+    await db.insert(reminderLog).values({
+      registrationId: p.id,
+      expiresOn: "2026-10-18",
+      thresholdDays: 30,
+      recipients: ["a@sunrise.ke"],
+      claimedAt: ago(CLAIM_LEASE_MS - 60_000),
+      sentAt: null,
+    });
+    // The first send is slow, so the run reaches the second reminder after that claim has expired.
+    const later = new Date(now.getTime() + 2 * 60_000);
+    const slow: SendEmail = async (m) => {
+      outbox.push(m);
+      if (outbox.length === 1) vi.setSystemTime(later);
+    };
+    vi.useFakeTimers({ toFake: ["Date"], now });
+    try {
+      const r = await runReminders(db, slow, { today });
+      expect(r.sent.map((s) => s.registrationId)).toEqual([registrationId, p.id]);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(outbox).toHaveLength(2);
   });
 
   it("doesn't release or mark a claim another run has taken over", async () => {

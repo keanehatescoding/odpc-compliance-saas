@@ -411,7 +411,7 @@ export async function runBillingAlerts(
   opts: { now?: Date; appUrl?: string } = {},
 ): Promise<BillingAlertRunResult> {
   const now = opts.now ?? new Date();
-  // Claims and sends are stamped when they happen: a run may reach an alert long after it began.
+  // Claims are checked, made and marked sent at the time they happen: a run may reach an alert long after it began.
   const clock = () => opts.now ?? new Date();
   const appUrl = opts.appUrl ?? process.env.APP_URL ?? "http://localhost:3000";
   const result: BillingAlertRunResult = { checked: 0, sent: [], failed: [] };

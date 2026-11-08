@@ -1,4 +1,4 @@
-import { and, eq, isNull, lte, notExists } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, lte, notExists } from "drizzle-orm";
 import type { Db } from "@/db";
 import { organizations, particularChangeAlertLog, particularChanges, type ParticularChange } from "@/db/schema";
 import { abandoned, deliverClaimed, ownClaim, sentOrClaimed } from "./alert-delivery";
@@ -35,7 +35,7 @@ export async function runParticularChangeAlerts(
   opts: { now?: Date; appUrl?: string; changeId?: string } = {},
 ): Promise<ParticularChangeAlertRunResult> {
   const now = opts.now ?? new Date();
-  // Claims and sends are stamped when they happen: a run may reach an alert long after it began.
+  // Claims are checked, made and marked sent at the time they happen: a run may reach an alert long after it began.
   const clock = () => opts.now ?? new Date();
   const today = todayInKenya(now);
   const appUrl = opts.appUrl ?? process.env.APP_URL ?? "http://localhost:3000";
@@ -44,7 +44,9 @@ export async function runParticularChangeAlerts(
   const awaiting = isNull(particularChanges.notifiedOn);
   // Only changes already due soon, and not those whose overdue alert, the
   // last one, has gone out. The rest have nothing to send, and an unnotified
-  // change stays in the table until someone records the notice.
+  // change stays in the table until someone records the notice. One whose
+  // overdue alert is only claimed stays in, so the loop can take the claim
+  // over if it expires while this run is going.
   const dueSoonFrom = addDays(today, DUE_SOON_DAYS - NOTIFY_DAYS);
   const overdueSent = db
     .select({ id: particularChangeAlertLog.id })
@@ -53,7 +55,7 @@ export async function runParticularChangeAlerts(
       and(
         eq(particularChangeAlertLog.changeId, particularChanges.id),
         eq(particularChangeAlertLog.kind, "overdue"),
-        sentOrClaimed(particularChangeAlertLog, now),
+        isNotNull(particularChangeAlertLog.sentAt),
       ),
     );
   const rows = await db
@@ -71,7 +73,7 @@ export async function runParticularChangeAlerts(
 
   for (const { change: listed, org } of rows) {
     result.checked++;
-    if (!dueParticularChangeAlert(listed, today, await sentKinds(db, listed.id, now))) continue;
+    if (!dueParticularChangeAlert(listed, today, await sentKinds(db, listed.id, clock()))) continue;
 
     const to = await reminderRecipients(db, org);
     if (to.length === 0) continue;
@@ -86,7 +88,7 @@ export async function runParticularChangeAlerts(
         .where(and(eq(particularChanges.id, listed.id), awaiting))
         .for("update");
       if (!change) return null;
-      const kind = dueParticularChangeAlert(change, today, await sentKinds(tx, change.id, now));
+      const kind = dueParticularChangeAlert(change, today, await sentKinds(tx, change.id, clock()));
       if (!kind) return null;
       const claimedAt = clock();
       const [claimed] = await tx

@@ -22,7 +22,10 @@ export async function moveServiceOrder(orderId: string, _prev: FormState, formDa
 
   const done = [`Now "${SERVICE_ORDER_STATUSES[status]}".`];
   if (result.emailed.length > 0) done.push(`Emailed ${result.emailed.join(", ")}.`);
-  if (result.emailError) done.push(`Couldn't email the owners (${result.emailError}), so tell them yourself.`);
+  if (result.emailError) {
+    const whom = result.emailed.length > 0 ? "the other owners" : "the owners";
+    done.push(`Couldn't email ${whom} (${result.emailError}), so tell them yourself.`);
+  }
   if (status === "delivered" && result.emailed.length === 0 && !result.emailError) {
     done.push("No owner has a confirmed address, so nobody was emailed.");
   }

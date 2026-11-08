@@ -24,7 +24,7 @@ export async function runComplaintAlerts(
   opts: { now?: Date; appUrl?: string; complaintId?: string } = {},
 ): Promise<ComplaintAlertRunResult> {
   const now = opts.now ?? new Date();
-  // Claims and sends are stamped when they happen: a run may reach an alert long after it began.
+  // Claims are checked, made and marked sent at the time they happen: a run may reach an alert long after it began.
   const clock = () => opts.now ?? new Date();
   const today = todayInKenya(now);
   const appUrl = opts.appUrl ?? process.env.APP_URL ?? "http://localhost:3000";
@@ -39,7 +39,7 @@ export async function runComplaintAlerts(
 
   for (const { complaint: listed, org } of rows) {
     result.checked++;
-    if (!dueComplaintAlert(listed, today, await sentKinds(db, listed.id, now))) continue;
+    if (!dueComplaintAlert(listed, today, await sentKinds(db, listed.id, clock()))) continue;
 
     const to = await reminderRecipients(db, org);
     if (to.length === 0) continue;
@@ -54,7 +54,7 @@ export async function runComplaintAlerts(
         .where(and(eq(complaints.id, listed.id), awaiting))
         .for("update");
       if (!complaint) return null;
-      const kind = dueComplaintAlert(complaint, today, await sentKinds(tx, complaint.id, now));
+      const kind = dueComplaintAlert(complaint, today, await sentKinds(tx, complaint.id, clock()));
       if (!kind) return null;
       const claimedAt = clock();
       const [claimed] = await tx
