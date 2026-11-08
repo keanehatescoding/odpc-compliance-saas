@@ -114,6 +114,8 @@ beforeEach(async () => {
     .values({ orgId, role: "controller", changedOn: "2026-10-01", description: "Moved offices", loggedBy: owner })
     .returning({ id: particularChanges.id });
   await db.insert(particularChangeAlertLog).values({ changeId: change.id, kind: "due_soon", recipients: ["owner@sunrise.ke"], sentAt: t0 });
+  // A claim a run is still sending: not an alert sent, so not in the export.
+  await db.insert(particularChangeAlertLog).values({ changeId: change.id, kind: "overdue", recipients: ["owner@sunrise.ke"], claimedAt: t0, sentAt: null });
   const [processor] = await db.insert(processors).values({ orgId, name: "Elimu Systems", service: "Hosts the school system" }).returning({ id: processors.id });
   await db.insert(processorActivities).values({ processorId: processor.id, activityId: activity.id });
   const [induction] = await db

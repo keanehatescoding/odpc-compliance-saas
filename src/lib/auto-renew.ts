@@ -3,6 +3,7 @@ import type { Db } from "@/db";
 import { billingAlertLog, organizations, payments, renewalAttempts, savedCards, type Organization, type SavedCard } from "@/db/schema";
 import { recordActivity } from "./activity";
 import { afterPaymentCredited } from "./after-payment";
+import { abandoned, deliverClaimed, ownClaim, rejectedRecipients } from "./alert-delivery";
 import { CURRENCY, recordPayment } from "./billing";
 import { formatDate, todayInKenya } from "./dates";
 import { formatKsh, type OrgSize } from "./dpa";
@@ -47,7 +48,7 @@ export interface RenewalRunResult {
   declined: { orgId: string; attempt: number; reason: string; renewalOff: boolean }[];
   /** Charges whose outcome isn't known yet; the webhook or the next run settles them. */
   pending: { orgId: string; reference: string }[];
-  /** Errors in the job itself, such as Paystack being unreachable. */
+  /** Errors in the job itself, such as Paystack being unreachable, or an email that didn't reach every owner. */
   failed: { orgId: string; error: string }[];
 }
 
@@ -318,7 +319,9 @@ async function settleCharge(
 /**
  * A renewal charge failed: marks it so, tells the owners, and after the last
  * attempt turns automatic renewal off (the card stays saved). That last email
- * also says access has ended, so it stands in for the usual "ended" email.
+ * also says access has ended, so it stands in for the usual "ended" email: it
+ * claims that one, and if it can't be sent, releases it, so the billing job
+ * sends the "ended" email instead (see alert-delivery.ts).
  */
 async function declineRenewal(
   db: Db,
@@ -330,7 +333,8 @@ async function declineRenewal(
 ): Promise<void> {
   const next = nextRenewalAttemptAt(claim.endsAt, claim.attempt);
   const to = await ownerEmails(db, claim.orgId);
-  await db.transaction(async (tx) => {
+  const claimedAt = new Date();
+  const endedId = await db.transaction(async (tx) => {
     await tx.update(payments).set({ status: "failed" }).where(and(eq(payments.id, claim.paymentId), eq(payments.status, "pending")));
     await tx.update(renewalAttempts).set({ error: reason }).where(eq(renewalAttempts.id, claim.attemptId));
     if (!next) {
@@ -345,20 +349,34 @@ async function declineRenewal(
           ),
         );
       if (to.length > 0) {
-        await tx
+        const [ended] = await tx
           .insert(billingAlertLog)
-          .values({ orgId: claim.orgId, kind: "ended", endsAt: claim.endsAt, recipients: to })
-          .onConflictDoNothing();
+          .values({ orgId: claim.orgId, kind: "ended", endsAt: claim.endsAt, recipients: to, claimedAt, sentAt: null })
+          // A claim left by a billing run that died before sending is taken over, as that job would.
+          .onConflictDoUpdate({
+            target: [billingAlertLog.orgId, billingAlertLog.kind, billingAlertLog.endsAt],
+            set: { recipients: to, claimedAt },
+            setWhere: abandoned(billingAlertLog, claimedAt),
+          })
+          .returning({ id: billingAlertLog.id });
+        return ended?.id ?? null;
       }
     }
+    return null;
   });
   result.declined.push({ orgId: claim.orgId, attempt: claim.attempt, reason, renewalOff: !next });
   if (to.length === 0) return;
-  try {
-    await sendEmail(renewalFailedEmail(to, claim, reason, next, `${appUrl}/billing`));
-  } catch (err) {
-    console.error("Failed to send renewal failure email", claim.orgId, err);
-  }
+
+  const mine = endedId ? ownClaim(billingAlertLog, eq(billingAlertLog.id, endedId), claimedAt) : null;
+  const delivery = await deliverClaimed(sendEmail, renewalFailedEmail(to, claim, reason, next, `${appUrl}/billing`), {
+    label: "renewal failure email",
+    markSent: async (recipients) =>
+      mine
+        ? db.update(billingAlertLog).set({ sentAt: new Date(), recipients }).where(mine).returning({ id: billingAlertLog.id })
+        : null, // nothing was claimed, so there is nothing to record
+    release: async () => mine && db.delete(billingAlertLog).where(mine),
+  });
+  if (delivery.error) result.failed.push({ orgId: claim.orgId, error: `The renewal failure email: ${delivery.error}` });
 }
 
 export function renewalFailedEmail(
@@ -693,7 +711,7 @@ export async function deauthorizeSavedCards(
   return result;
 }
 
-/** Emails the owners that renewal has stopped. Returns why it couldn't, or null once sent (or with no owner to send to). */
+/** Emails the owners that renewal has stopped. Returns why it couldn't reach them all, or null once sent (or with no owner to send to). */
 async function notifyRenewalStopped(
   db: Db,
   sendEmail: SendEmail,
@@ -707,7 +725,7 @@ async function notifyRenewalStopped(
   const access = accessFor(org, now);
   const ends = formatDate(todayInKenya(access.endsAt));
   try {
-    await sendEmail({
+    const sent = await sendEmail({
       to,
       subject: `${org.name}: Kinga won't renew automatically`,
       text: [
@@ -724,7 +742,8 @@ async function notifyRenewalStopped(
         `${appUrl}/billing`,
       ].join("\n"),
     });
-    return null;
+    const rejected = rejectedRecipients(to, sent?.rejected);
+    return rejected.length > 0 ? `The mail server rejected ${rejected.join(", ")}; the others were sent the email.` : null;
   } catch (err) {
     console.error("Failed to send renewal change email", org.id, err);
     return err instanceof Error ? err.message : String(err);

@@ -1,6 +1,7 @@
 import { and, eq, isNull } from "drizzle-orm";
 import type { Db } from "@/db";
 import { organizations, subjectRequestAlertLog, subjectRequests, type SubjectRequest } from "@/db/schema";
+import { abandoned, deliverClaimed, ownClaim, sentOrClaimed } from "./alert-delivery";
 import { formatDate, todayInKenya } from "./dates";
 import type { SendEmail } from "./email";
 import { reminderRecipients } from "./reminders";
@@ -29,7 +30,10 @@ export async function runSubjectRequestAlerts(
   sendEmail: SendEmail,
   opts: { now?: Date; appUrl?: string; requestId?: string } = {},
 ): Promise<RequestAlertRunResult> {
-  const today = todayInKenya(opts.now ?? new Date());
+  const now = opts.now ?? new Date();
+  // Claims are checked, made and marked sent at the time they happen: a run may reach an alert long after it began.
+  const clock = () => opts.now ?? new Date();
+  const today = todayInKenya(now);
   const appUrl = opts.appUrl ?? process.env.APP_URL ?? "http://localhost:3000";
   const result: RequestAlertRunResult = { checked: 0, sent: [], failed: [] };
 
@@ -41,7 +45,7 @@ export async function runSubjectRequestAlerts(
 
   for (const { request: listed, org } of rows) {
     result.checked++;
-    if (!dueRequestAlert(listed, today, await sentKinds(db, listed.id))) continue;
+    if (!dueRequestAlert(listed, today, await sentKinds(db, listed.id, clock()))) continue;
 
     const to = await reminderRecipients(db, org);
     if (to.length === 0) continue;
@@ -56,42 +60,50 @@ export async function runSubjectRequestAlerts(
         .where(and(eq(subjectRequests.id, listed.id), isNull(subjectRequests.outcome)))
         .for("update");
       if (!request) return null;
-      const kind = dueRequestAlert(request, today, await sentKinds(tx, request.id));
+      const kind = dueRequestAlert(request, today, await sentKinds(tx, request.id, clock()));
       if (!kind) return null;
+      const claimedAt = clock();
       const [claimed] = await tx
         .insert(subjectRequestAlertLog)
-        .values({ requestId: request.id, kind, recipients: to })
-        .onConflictDoNothing()
+        .values({ requestId: request.id, kind, recipients: to, claimedAt, sentAt: null })
+        // A claim left by a run that died before sending is taken over.
+        .onConflictDoUpdate({
+          target: [subjectRequestAlertLog.requestId, subjectRequestAlertLog.kind],
+          set: { recipients: to, claimedAt },
+          setWhere: abandoned(subjectRequestAlertLog, claimedAt),
+        })
         .returning({ id: subjectRequestAlertLog.id });
-      return claimed ? { id: claimed.id, request, kind } : null;
+      return claimed ? { id: claimed.id, request, kind, claimedAt } : null;
     });
     if (!claim) continue;
     const { request, kind } = claim;
 
-    try {
-      await sendEmail({
+    const mine = ownClaim(subjectRequestAlertLog, eq(subjectRequestAlertLog.id, claim.id), claim.claimedAt);
+    const delivery = await deliverClaimed(
+      sendEmail,
+      {
         to,
         subject: alertSubject(org.name, request, today),
         text: alertBody(org.name, request, today, `${appUrl}/requests/${request.id}`),
-      });
-      result.sent.push({ requestId: request.id, kind, to });
-    } catch (err) {
-      result.failed.push({ requestId: request.id, error: err instanceof Error ? err.message : String(err) });
-      // Release the claim so the next run retries. If that fails too, keep going with the other requests.
-      await db
-        .delete(subjectRequestAlertLog)
-        .where(eq(subjectRequestAlertLog.id, claim.id))
-        .catch((releaseErr) => console.error("Failed to release subject request alert claim", releaseErr));
-    }
+      },
+      {
+        label: "subject request alert",
+        markSent: (recipients) =>
+          db.update(subjectRequestAlertLog).set({ sentAt: clock(), recipients }).where(mine).returning({ id: subjectRequestAlertLog.id }),
+        release: () => db.delete(subjectRequestAlertLog).where(mine),
+      },
+    );
+    if (delivery.sent) result.sent.push({ requestId: request.id, kind, to: delivery.sent });
+    if (delivery.error) result.failed.push({ requestId: request.id, error: delivery.error });
   }
   return result;
 }
 
-async function sentKinds(db: Db, requestId: string): Promise<Set<string>> {
+async function sentKinds(db: Db, requestId: string, now: Date): Promise<Set<string>> {
   const rows = await db
     .select({ kind: subjectRequestAlertLog.kind })
     .from(subjectRequestAlertLog)
-    .where(eq(subjectRequestAlertLog.requestId, requestId));
+    .where(and(eq(subjectRequestAlertLog.requestId, requestId), sentOrClaimed(subjectRequestAlertLog, now)));
   return new Set(rows.map((r) => r.kind));
 }
 

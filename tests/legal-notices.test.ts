@@ -2,7 +2,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Db } from "@/db";
 import * as schema from "@/db/schema";
 import type { EmailMessage } from "@/lib/email";
@@ -151,6 +151,22 @@ describe("runLegalNotices", () => {
     expect(sent.map((m) => m.to)).toEqual([["a@sunrise.ke"]]);
   });
 
+  it("reports an email it sent but couldn't record", async () => {
+    await addOrg("Sunrise Academy", [{ email: "a@sunrise.ke", role: "owner" }]);
+    await notice();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(db, "update").mockReturnValue({ set: () => ({ where: () => ({ returning: () => Promise.reject(new Error("db gone")) }) }) } as never);
+    const { sent, send } = capture();
+    const r = await runLegalNotices(db, send, opts());
+    vi.mocked(db.update).mockRestore();
+    error.mockRestore();
+    expect(sent).toHaveLength(1);
+    expect(r.sent.map((s) => s.to)).toEqual(["a@sunrise.ke"]);
+    expect(r.failed).toEqual([
+      expect.objectContaining({ error: "The email was sent but couldn't be recorded, so it may be sent again: db gone" }),
+    ]);
+  });
+
   it("sends an email again if the run that claimed it died before sending", async () => {
     const org = await addOrg("Sunrise Academy", [{ email: "a@sunrise.ke", role: "owner" }]);
     const n = await notice();
@@ -196,8 +212,13 @@ describe("runLegalNotices", () => {
     );
     await failing.inside;
 
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
     slow.open();
-    await first;
+    // The first run's email went, but the claim it would mark is no longer its own.
+    expect((await first).failed).toEqual([
+      { noticeId: expect.any(String), userId: expect.any(String), error: expect.stringContaining("taken over") },
+    ]);
+    error.mockRestore();
     failing.open();
     await second;
     // Only the old address got it, so the new one is still owed the notice.

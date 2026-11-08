@@ -2,7 +2,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Db } from "@/db";
 import * as schema from "@/db/schema";
 import { afterPaymentCredited } from "@/lib/after-payment";
@@ -202,6 +202,60 @@ describe("moving an order on", () => {
       emailError: "SMTP down",
     });
     expect(await orderStatus(order.id)).toBe("delivered");
+  });
+
+  it("keeps the order delivered and says so when the owners can't be looked up", async () => {
+    const { payment, order } = await orderService();
+    await succeed(payment);
+    // The move runs in a transaction (tx.select); only the owner lookup after it uses db.select.
+    const lookupFails = new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop === "select") {
+          return () => {
+            throw new Error("connection lost");
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    const send = vi.fn(async () => {});
+    expect(await setServiceOrderStatus(lookupFails, send, order.id, "delivered", { now: t0 })).toEqual({
+      ok: true,
+      emailed: [],
+      emailError: "connection lost",
+    });
+    expect(send).not.toHaveBeenCalled();
+    expect(await orderStatus(order.id)).toBe("delivered");
+  });
+
+  it("keeps the order delivered and says nobody was emailed when no owner has a confirmed address", async () => {
+    const { payment, order } = await orderService();
+    await succeed(payment);
+    await db.update(users).set({ emailVerifiedAt: null }).where(eq(users.email, "owner@sunrise.ke"));
+    const send = vi.fn(async () => {});
+    expect(await setServiceOrderStatus(db, send, order.id, "delivered", { now: t0 })).toEqual({
+      ok: true,
+      emailed: [],
+      emailError: "No owner has a confirmed email address",
+    });
+    expect(send).not.toHaveBeenCalled();
+    expect(await orderStatus(order.id)).toBe("delivered");
+  });
+
+  it("lists only the owners the delivery email reached, and reports the rest", async () => {
+    const { payment, order } = await orderService();
+    await succeed(payment);
+    const [u] = await db
+      .insert(users)
+      .values({ email: "bursar@sunrise.ke", name: "Bursar", passwordHash: "x", emailVerifiedAt: new Date() })
+      .returning();
+    await db.insert(memberships).values({ userId: u.id, orgId, role: "owner" });
+    const partial = async () => ({ rejected: ["Bursar@Sunrise.ke"] });
+    expect(await setServiceOrderStatus(db, partial, order.id, "delivered", { now: t0 })).toEqual({
+      ok: true,
+      emailed: ["owner@sunrise.ke"],
+      emailError: "The mail server rejected bursar@sunrise.ke",
+    });
   });
 
   it("refuses moves that make no sense", async () => {

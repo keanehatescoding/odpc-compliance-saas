@@ -10,8 +10,11 @@ import { requireStaff } from "@/lib/session";
 
 const MOVES: ServiceOrderStatus[] = ["in_progress", "delivered", "cancelled"];
 
+/** `closed` is set once the order is delivered or cancelled, so it has left the list of open orders. */
+export type OrderMoveState = (NonNullable<FormState> & { closed?: boolean }) | undefined;
+
 /** Moves a service order on, as `npm run service-order` does. Delivering emails the owners. */
-export async function moveServiceOrder(orderId: string, _prev: FormState, formData: FormData): Promise<FormState> {
+export async function moveServiceOrder(orderId: string, _prev: OrderMoveState, formData: FormData): Promise<OrderMoveState> {
   await requireStaff();
   const status = formData.get("status") as ServiceOrderStatus;
   if (!MOVES.includes(status)) return { message: "Choose what to do with the order." };
@@ -22,10 +25,10 @@ export async function moveServiceOrder(orderId: string, _prev: FormState, formDa
 
   const done = [`Now "${SERVICE_ORDER_STATUSES[status]}".`];
   if (result.emailed.length > 0) done.push(`Emailed ${result.emailed.join(", ")}.`);
-  if (result.emailError) done.push(`Couldn't email the owners (${result.emailError}), so tell them yourself.`);
-  if (status === "delivered" && result.emailed.length === 0 && !result.emailError) {
-    done.push("No owner has a confirmed address, so nobody was emailed.");
+  if (result.emailError) {
+    const whom = result.emailed.length > 0 ? "the other owners" : "the owners";
+    done.push(`Couldn't email ${whom} (${result.emailError}), so tell them yourself.`);
   }
   if (status === "cancelled") done.push("Refund them from the Paystack dashboard; the eTIMS credit note follows.");
-  return { message: done.join(" ") };
+  return { message: done.join(" "), closed: status !== "in_progress" };
 }

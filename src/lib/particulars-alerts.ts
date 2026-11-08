@@ -1,6 +1,7 @@
-import { and, eq, isNull, lte, notExists } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, lte, notExists } from "drizzle-orm";
 import type { Db } from "@/db";
 import { organizations, particularChangeAlertLog, particularChanges, type ParticularChange } from "@/db/schema";
+import { abandoned, deliverClaimed, ownClaim, sentOrClaimed } from "./alert-delivery";
 import { addDays, formatDate, todayInKenya } from "./dates";
 import type { SendEmail } from "./email";
 import {
@@ -33,19 +34,30 @@ export async function runParticularChangeAlerts(
   sendEmail: SendEmail,
   opts: { now?: Date; appUrl?: string; changeId?: string } = {},
 ): Promise<ParticularChangeAlertRunResult> {
-  const today = todayInKenya(opts.now ?? new Date());
+  const now = opts.now ?? new Date();
+  // Claims are checked, made and marked sent at the time they happen: a run may reach an alert long after it began.
+  const clock = () => opts.now ?? new Date();
+  const today = todayInKenya(now);
   const appUrl = opts.appUrl ?? process.env.APP_URL ?? "http://localhost:3000";
   const result: ParticularChangeAlertRunResult = { checked: 0, sent: [], failed: [] };
 
   const awaiting = isNull(particularChanges.notifiedOn);
   // Only changes already due soon, and not those whose overdue alert, the
   // last one, has gone out. The rest have nothing to send, and an unnotified
-  // change stays in the table until someone records the notice.
+  // change stays in the table until someone records the notice. One whose
+  // overdue alert is only claimed stays in, so the loop can take the claim
+  // over if it expires while this run is going.
   const dueSoonFrom = addDays(today, DUE_SOON_DAYS - NOTIFY_DAYS);
   const overdueSent = db
     .select({ id: particularChangeAlertLog.id })
     .from(particularChangeAlertLog)
-    .where(and(eq(particularChangeAlertLog.changeId, particularChanges.id), eq(particularChangeAlertLog.kind, "overdue")));
+    .where(
+      and(
+        eq(particularChangeAlertLog.changeId, particularChanges.id),
+        eq(particularChangeAlertLog.kind, "overdue"),
+        isNotNull(particularChangeAlertLog.sentAt),
+      ),
+    );
   const rows = await db
     .select({ change: particularChanges, org: organizations })
     .from(particularChanges)
@@ -61,7 +73,7 @@ export async function runParticularChangeAlerts(
 
   for (const { change: listed, org } of rows) {
     result.checked++;
-    if (!dueParticularChangeAlert(listed, today, await sentKinds(db, listed.id))) continue;
+    if (!dueParticularChangeAlert(listed, today, await sentKinds(db, listed.id, clock()))) continue;
 
     const to = await reminderRecipients(db, org);
     if (to.length === 0) continue;
@@ -76,42 +88,50 @@ export async function runParticularChangeAlerts(
         .where(and(eq(particularChanges.id, listed.id), awaiting))
         .for("update");
       if (!change) return null;
-      const kind = dueParticularChangeAlert(change, today, await sentKinds(tx, change.id));
+      const kind = dueParticularChangeAlert(change, today, await sentKinds(tx, change.id, clock()));
       if (!kind) return null;
+      const claimedAt = clock();
       const [claimed] = await tx
         .insert(particularChangeAlertLog)
-        .values({ changeId: change.id, kind, recipients: to })
-        .onConflictDoNothing()
+        .values({ changeId: change.id, kind, recipients: to, claimedAt, sentAt: null })
+        // A claim left by a run that died before sending is taken over.
+        .onConflictDoUpdate({
+          target: [particularChangeAlertLog.changeId, particularChangeAlertLog.kind],
+          set: { recipients: to, claimedAt },
+          setWhere: abandoned(particularChangeAlertLog, claimedAt),
+        })
         .returning({ id: particularChangeAlertLog.id });
-      return claimed ? { id: claimed.id, change, kind } : null;
+      return claimed ? { id: claimed.id, change, kind, claimedAt } : null;
     });
     if (!claim) continue;
     const { change, kind } = claim;
 
-    try {
-      await sendEmail({
+    const mine = ownClaim(particularChangeAlertLog, eq(particularChangeAlertLog.id, claim.id), claim.claimedAt);
+    const delivery = await deliverClaimed(
+      sendEmail,
+      {
         to,
         subject: alertSubject(org.name, change, today),
         text: alertBody(org.name, change, today, `${appUrl}/registrations/changes/${change.id}`),
-      });
-      result.sent.push({ changeId: change.id, kind, to });
-    } catch (err) {
-      result.failed.push({ changeId: change.id, error: err instanceof Error ? err.message : String(err) });
-      // Release the claim so the next run retries. If that fails too, keep going with the other changes.
-      await db
-        .delete(particularChangeAlertLog)
-        .where(eq(particularChangeAlertLog.id, claim.id))
-        .catch((releaseErr) => console.error("Failed to release particulars alert claim", releaseErr));
-    }
+      },
+      {
+        label: "particulars alert",
+        markSent: (recipients) =>
+          db.update(particularChangeAlertLog).set({ sentAt: clock(), recipients }).where(mine).returning({ id: particularChangeAlertLog.id }),
+        release: () => db.delete(particularChangeAlertLog).where(mine),
+      },
+    );
+    if (delivery.sent) result.sent.push({ changeId: change.id, kind, to: delivery.sent });
+    if (delivery.error) result.failed.push({ changeId: change.id, error: delivery.error });
   }
   return result;
 }
 
-async function sentKinds(db: Db, changeId: string): Promise<Set<string>> {
+async function sentKinds(db: Db, changeId: string, now: Date): Promise<Set<string>> {
   const rows = await db
     .select({ kind: particularChangeAlertLog.kind })
     .from(particularChangeAlertLog)
-    .where(eq(particularChangeAlertLog.changeId, changeId));
+    .where(and(eq(particularChangeAlertLog.changeId, changeId), sentOrClaimed(particularChangeAlertLog, now)));
   return new Set(rows.map((r) => r.kind));
 }
 

@@ -2,6 +2,7 @@ import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
 import type { Db } from "@/db";
 import { organizations, payments, serviceOrders, users } from "@/db/schema";
 import { formatPaymentAmount, formatReceiptNumber, sellerFromEnv, type Seller } from "./billing";
+import { rejectedRecipients } from "./alert-delivery";
 import type { SendEmail } from "./email";
 import { ownerEmails } from "./reminders";
 import { SERVICES, SERVICE_ORDER_STATUSES, type ServiceKey, type ServiceOrderStatus } from "./services";
@@ -105,7 +106,7 @@ const NEXT_STATUSES: Record<ServiceOrderStatus, ServiceOrderStatus[]> = {
 };
 
 export type SetStatusResult =
-  /** `emailError` is set when the status changed but the delivery email couldn't be sent. */
+  /** `emailError` is set when the status changed but the delivery email didn't reach every owner, or no owner has a confirmed address; `emailed` lists those it did reach. */
   | { ok: true; emailed: string[]; emailError?: string }
   | { ok: false; error: string };
 
@@ -147,15 +148,21 @@ export async function setServiceOrderStatus(
   if ("error" in moved) return { ok: false, error: moved.error };
   if (status !== "delivered") return { ok: true, emailed: [] };
 
-  const to = await ownerEmails(db, moved.orgId);
-  if (to.length === 0) return { ok: true, emailed: [] };
+  let to: string[];
+  let rejected: string[];
+  // Looking up the owners can fail too, and the order is already delivered by then.
   try {
-    await sendEmail(serviceDeliveredEmail(to, moved.orgName, moved.service, `${appUrl}/services`));
+    to = await ownerEmails(db, moved.orgId);
+    if (to.length === 0) return { ok: true, emailed: [], emailError: "No owner has a confirmed email address" };
+    const sent = await sendEmail(serviceDeliveredEmail(to, moved.orgName, moved.service, `${appUrl}/services`));
+    rejected = rejectedRecipients(to, sent?.rejected);
   } catch (err) {
     console.error("Failed to send service delivered email", orderId, err);
     return { ok: true, emailed: [], emailError: err instanceof Error ? err.message : String(err) };
   }
-  return { ok: true, emailed: to };
+  const emailed = to.filter((a) => !rejected.includes(a));
+  if (rejected.length > 0) return { ok: true, emailed, emailError: `The mail server rejected ${rejected.join(", ")}` };
+  return { ok: true, emailed };
 }
 
 export function serviceDeliveredEmail(to: string[], orgName: string, service: ServiceKey, link: string) {
