@@ -205,11 +205,12 @@ describe("parseParticularChangeForm", () => {
     expect(errors(form({ changedOn: "2026-02-30" }))).toHaveProperty("changedOn");
   });
 
-  it("needs the notice date with how it was sent, not in the future", () => {
-    expect(errors(form({ notifiedHow: "Emailed the ODPC." }))).toHaveProperty("notifiedOn");
-    expect(errors(form({ notifiedOn: "2026-10-06" }))).toHaveProperty("notifiedOn");
-    expect(form({ notifiedOn: "2026-10-04", notifiedHow: "Emailed the ODPC." }).success).toBe(true);
-  });
+   it("needs the notice date with how it was sent, not in the future", () => {
+     expect(errors(form({ notifiedHow: "Emailed the ODPC." }))).toHaveProperty("notifiedOn");
+     expect(errors(form({ notifiedOn: "2026-10-06" }))).toHaveProperty("notifiedOn");
+     expect(form({ notifiedOn: "2026-10-04", notifiedHow: "Emailed the ODPC." }).success).toBe(true);
+     expect(errors(form({ changedOn: "2026-10-03", notifiedOn: "2026-10-02" }))).toHaveProperty("notifiedOn");
+   });
 
   it("rejects an unknown registration and an empty description", () => {
     expect(errors(form({ role: "admin" }))).toHaveProperty("role");

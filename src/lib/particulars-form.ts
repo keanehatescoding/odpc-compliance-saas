@@ -32,6 +32,7 @@ export function particularChangeSchema(today: string) {
       else if (v.changedOn > today) issue("changedOn", "This can't be in the future. Log it once it has changed.");
       if (v.notifiedOn) {
         if (v.notifiedOn > today) issue("notifiedOn", "This can't be in the future.");
+        else if (v.changedOn && v.notifiedOn < v.changedOn) issue("notifiedOn", "This can't be before the change happened.");
       } else if (v.notifiedHow) {
         issue("notifiedOn", "Enter the date you told the ODPC.");
       }
