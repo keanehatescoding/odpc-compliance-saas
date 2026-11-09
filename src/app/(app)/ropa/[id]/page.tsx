@@ -15,6 +15,7 @@ import { processorStatus } from "@/lib/processor";
 import { transferStatus } from "@/lib/transfer";
 import { activityAssessments, activityConsents, activityProcessors, activityTransfers, getActivity, getDpiaForActivity, listDisposals } from "@/lib/queries";
 import { dpiaRecommended, dpiaTriggers } from "@/lib/ropa";
+import { activityNextRound, describeRetention, retentionCutoff } from "@/lib/retention";
 import { requireOrgContext } from "@/lib/session";
 import { isUuid } from "@/lib/uuid";
 import { ActivityForm } from "../activity-form";
@@ -38,6 +39,9 @@ export default async function EditActivityPage({ params }: PageProps<"/ropa/[id]
   ]);
   const disposals = allDisposals.filter((d) => d.activityId === activity.id);
   const today = todayInKenya();
+  const period = describeRetention(activity);
+  const cutoff = retentionCutoff(activity, today);
+  const next = activityNextRound(activity, disposals, today);
 
   return (
     <>
@@ -196,6 +200,16 @@ export default async function EditActivityPage({ params }: PageProps<"/ropa/[id]
           <div>
             <h2 className="font-semibold">Disposal</h2>
             <p className="mt-1 text-sm text-stone-700">Kept for: {activity.retentionPeriod}</p>
+            {period && cutoff && (
+              <p className="mt-1 text-sm text-stone-700">
+                As a length: {period}. Today, that is anything from before {formatDate(cutoff)}.
+              </p>
+            )}
+            {next && (
+              <p className={next.due ? "mt-1 text-sm font-medium text-amber-800" : "mt-1 text-sm text-stone-700"}>
+                {next.due ? `The next round was due on ${formatDate(next.on)}.` : `Next round: ${formatDate(next.on)}.`}
+              </p>
+            )}
           </div>
           <Link href={`/disposals/new?activity=${activity.id}`} className={buttonClass.secondary}>
             Record a disposal

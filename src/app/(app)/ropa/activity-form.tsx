@@ -6,6 +6,7 @@ import { SubmitButton } from "@/components/submit-button";
 import { Card, CheckboxField, FormMessage, SelectField, TextArea, TextField } from "@/components/ui";
 import type { ProcessingActivity } from "@/db/schema";
 import { LAWFUL_BASES, SENSITIVE_CATEGORIES } from "@/lib/dpa";
+import { RETENTION_UNITS } from "@/lib/retention";
 import { ACTIVITY_ROLES } from "@/lib/ropa";
 
 export function ActivityForm({ activity }: { activity?: ProcessingActivity }) {
@@ -117,7 +118,40 @@ export function ActivityForm({ activity }: { activity?: ProcessingActivity }) {
 
       <Card className="space-y-5">
         <h2 className="font-semibold">Retention and security</h2>
-        <TextField name="retentionPeriod" label="Retention period" placeholder="e.g. 7 years after employment ends" initial={activity?.retentionPeriod} {...f} />
+        <TextField
+          name="retentionPeriod"
+          label="Retention period"
+          placeholder="e.g. 7 years after employment ends"
+          hint="In your own words. This is what your privacy notice shows."
+          initial={activity?.retentionPeriod}
+          {...f}
+        />
+        <fieldset className="space-y-3">
+          <legend className="text-sm font-medium">The period as a length (optional)</legend>
+          <p className="text-sm text-stone-600">
+            Lets Kinga show where the line falls on any day and when to go through the data again. Leave it blank when
+            the period has no fixed length, such as &ldquo;until consent is withdrawn&rdquo;.
+          </p>
+          <div className="grid gap-5 sm:grid-cols-[8rem_10rem_1fr]">
+            <TextField
+              name="retentionLength"
+              label="Length"
+              inputMode="numeric"
+              placeholder="e.g. 7"
+              initial={activity?.retentionLength?.toString() ?? ""}
+              {...f}
+            />
+            <SelectField name="retentionUnit" label="Unit" options={RETENTION_UNITS} placeholder="None" initial={activity?.retentionUnit ?? ""} {...f} />
+            <TextField
+              name="retentionFrom"
+              label="Counted from"
+              placeholder="e.g. the end of employment"
+              hint="Read as “7 years from the end of employment”."
+              initial={activity?.retentionFrom}
+              {...f}
+            />
+          </div>
+        </fieldset>
         <TextArea name="securityMeasures" label="Security measures" initial={activity?.securityMeasures} {...f} />
         <TextField name="systems" label="Systems / storage location" initial={activity?.systems} {...f} />
       </Card>

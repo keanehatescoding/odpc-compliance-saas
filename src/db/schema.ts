@@ -23,6 +23,7 @@ import { LIKELIHOOD_KEYS, SEVERITY_KEYS } from "../lib/dpia";
 import { LIA_OUTCOME_KEYS } from "../lib/lia";
 import { TRANSFER_BASIS_KEYS } from "../lib/transfer";
 import { POLICY_KIND_KEYS } from "../lib/policy";
+import { RETENTION_UNIT_KEYS, type RetentionUnit } from "../lib/retention";
 import { BILLING_INTERVAL_KEYS, TRIAL_DAYS } from "../lib/plans";
 import { LAWFUL_BASIS_KEYS, ORG_SIZE_KEYS, SECTOR_KEYS } from "../lib/dpa";
 import { SERVICE_KEYS, SERVICE_ORDER_STATUS_KEYS } from "../lib/services";
@@ -37,6 +38,7 @@ export const breachKindEnum = pgEnum("breach_kind", BREACH_KIND_KEYS as [string,
 export const consentMethodEnum = pgEnum("consent_method", CONSENT_METHOD_KEYS as [string, ...string[]]);
 export const disposalMethodEnum = pgEnum("disposal_method", DISPOSAL_METHOD_KEYS as [string, ...string[]]);
 export const disposalReasonEnum = pgEnum("disposal_reason", DISPOSAL_REASON_KEYS as [string, ...string[]]);
+export const retentionUnitEnum = pgEnum("retention_unit", RETENTION_UNIT_KEYS as [RetentionUnit, ...RetentionUnit[]]);
 export const policyKindEnum = pgEnum("policy_kind", POLICY_KIND_KEYS as [string, ...string[]]);
 export const liaOutcomeEnum = pgEnum("lia_outcome", LIA_OUTCOME_KEYS as [string, ...string[]]);
 export const transferBasisEnum = pgEnum("transfer_basis", TRANSFER_BASIS_KEYS as [string, ...string[]]);
@@ -464,7 +466,13 @@ export const processingActivities = pgTable(
     crossBorder: boolean("cross_border").notNull().default(false),
     transferCountries: text("transfer_countries").notNull().default(""),
     transferSafeguards: text("transfer_safeguards").notNull().default(""),
+    // In the organisation's own words, as the privacy notice shows it.
     retentionPeriod: text("retention_period").notNull(),
+    // The same period as a length Kinga can count with, such as 7 years from
+    // "the end of employment". Both null when it has no fixed length.
+    retentionLength: integer("retention_length"),
+    retentionUnit: retentionUnitEnum("retention_unit"),
+    retentionFrom: text("retention_from").notNull().default(""),
     securityMeasures: text("security_measures").notNull().default(""),
     systems: text("systems").notNull().default(""),
     owner: text("owner").notNull().default(""),
@@ -477,6 +485,8 @@ export const processingActivities = pgTable(
   (t) => [
     index("processing_activities_org_idx").on(t.orgId),
     uniqueIndex("processing_activities_org_template_idx").on(t.orgId, t.templateId),
+    check("processing_activities_retention_check", sql`(${t.retentionLength} is null) = (${t.retentionUnit} is null)`),
+    check("processing_activities_retention_length_positive", sql`${t.retentionLength} > 0`),
   ],
 );
 

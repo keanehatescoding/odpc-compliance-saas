@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { LAWFUL_BASES, LAWFUL_BASIS_KEYS, SENSITIVE_CATEGORIES, type LawfulBasis, type Sector } from "./dpa";
+import { describeRetention, MAX_RETENTION_YEARS, RETENTION_UNIT_KEYS, type RetentionUnit } from "./retention";
 
 /** The organisation's part in an activity: deciding why and how the data is used, or handling it for someone who does. */
 export const ACTIVITY_ROLES = {
@@ -26,6 +27,11 @@ export interface ActivityInput {
   transferCountries: string;
   transferSafeguards: string;
   retentionPeriod: string;
+  /** The period as a length Kinga can count with. Both null when it has no fixed length. */
+  retentionLength: number | null;
+  retentionUnit: RetentionUnit | null;
+  /** What the period is counted from, such as "the end of employment". */
+  retentionFrom: string;
   securityMeasures: string;
   systems: string;
   owner: string;
@@ -68,6 +74,19 @@ export const activityFormSchema = z
     transferCountries: z.string().trim().max(500).default(""),
     transferSafeguards: z.string().trim().max(2000).default(""),
     retentionPeriod: z.string().trim().min(1, { error: "State how long you keep the data." }).max(500),
+    retentionLength: z
+      .string()
+      .trim()
+      .default("")
+      .refine((v) => v === "" || (/^\d{1,5}$/.test(v) && Number(v) > 0), { error: "Enter a whole number, or leave it blank." })
+      .transform((v) => (v === "" ? null : Number(v))),
+    retentionUnit: z
+      .union([z.literal(""), z.enum(RETENTION_UNIT_KEYS as [RetentionUnit, ...RetentionUnit[]])], {
+        error: "Choose days, months or years.",
+      })
+      .default("")
+      .transform((v) => v || null),
+    retentionFrom: z.string().trim().max(200).default(""),
     securityMeasures: z.string().trim().max(2000).default(""),
     systems: z.string().trim().max(500).default(""),
     owner: z.string().trim().max(200).default(""),
@@ -80,7 +99,24 @@ export const activityFormSchema = z
     error: "Name the countries data is transferred to.",
     // Run even when unrelated fields fail, so every error shows on the first submit.
     when: ({ issues }) => !issues.some((i) => ["crossBorder", "transferCountries"].includes(String(i.path?.[0]))),
+  })
+  .superRefine((v, ctx) => {
+    const issue = (path: string, message: string) => ctx.addIssue({ code: "custom", path: [path], message });
+    if (v.retentionLength !== null && v.retentionUnit === null) issue("retentionUnit", "Choose days, months or years.");
+    if (v.retentionLength === null && v.retentionUnit !== null) issue("retentionLength", "Give the length, or leave the unit blank.");
+    if (v.retentionLength === null && v.retentionUnit === null && v.retentionFrom) {
+      issue("retentionLength", "Give the length the period runs for, or leave what it counts from blank.");
+    }
+    if (v.retentionLength !== null && v.retentionUnit !== null && tooLong(v.retentionLength, v.retentionUnit)) {
+      issue("retentionLength", `Keep it to ${MAX_RETENTION_YEARS} years. For data kept permanently, say so in the retention period and leave the length blank.`);
+    }
   });
+
+/** Longer than the most a period may run for. */
+function tooLong(length: number, unit: RetentionUnit): boolean {
+  const max = { days: Math.floor(MAX_RETENTION_YEARS * 365.25), months: MAX_RETENTION_YEARS * 12, years: MAX_RETENTION_YEARS };
+  return length > max[unit];
+}
 
 export function parseActivityForm(formData: FormData) {
   const get = (k: string) => formData.get(k) ?? undefined;
@@ -98,6 +134,9 @@ export function parseActivityForm(formData: FormData) {
     transferCountries: get("transferCountries"),
     transferSafeguards: get("transferSafeguards"),
     retentionPeriod: get("retentionPeriod"),
+    retentionLength: get("retentionLength"),
+    retentionUnit: get("retentionUnit"),
+    retentionFrom: get("retentionFrom"),
     securityMeasures: get("securityMeasures"),
     systems: get("systems"),
     owner: get("owner"),
@@ -157,6 +196,7 @@ export const ROPA_COLUMNS: { header: string; value: (a: ActivityInput) => string
   },
   { header: "Transfer safeguards", value: (a) => (a.crossBorder ? a.transferSafeguards : "") },
   { header: "Retention period", value: (a) => a.retentionPeriod },
+  { header: "Retention period as a length", value: (a) => describeRetention(a) ?? "" },
   { header: "Security measures", value: (a) => a.securityMeasures },
   { header: "Systems / location", value: (a) => a.systems },
   { header: "Owner", value: (a) => a.owner },
@@ -198,7 +238,13 @@ const base = {
   systematicMonitoring: false,
   involvesChildren: false,
   owner: "",
+  retentionLength: null,
+  retentionUnit: null,
+  retentionFrom: "",
 } satisfies Partial<ActivityInput>;
+
+/** A template's retention period as a length, where its wording gives one. */
+const keep = (retentionLength: number, retentionUnit: RetentionUnit, retentionFrom: string) => ({ retentionLength, retentionUnit, retentionFrom });
 
 /**
  * Starter RoPA entries by sector. Users add the ones that apply and then edit
@@ -218,6 +264,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     sensitiveCategories: ["Health status", "Family details (children, parents, spouse)", "Marital status"],
     recipients: "KRA, NSSF, SHA, payroll provider, bank",
     retentionPeriod: "7 years after employment ends",
+    ...keep(7, "years", "the end of employment"),
     securityMeasures: "Access restricted to HR and finance; payroll system with individual logins",
     systems: "Payroll software, HR files",
   },
@@ -233,6 +280,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     dataCategories: ["Video footage"],
     recipients: "Security contractor; police on lawful request",
     retentionPeriod: "30 days unless needed for an investigation",
+    ...keep(30, "days", "recording"),
     securityMeasures: "DVR in locked room; viewing limited to security lead; signage at entrances",
     systems: "On-site DVR",
     systematicMonitoring: true,
@@ -251,6 +299,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     transferCountries: "United States (email service provider)",
     transferSafeguards: "Contractual clauses with provider; provider's data protection terms",
     retentionPeriod: "Until consent is withdrawn, or 2 years after last interaction",
+    ...keep(2, "years", "the last interaction"),
     securityMeasures: "Opt-out on every message; unsubscribe list honoured",
     systems: "CRM, bulk SMS platform",
   },
@@ -267,6 +316,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     sensitiveCategories: ["Health status", "Family details (children, parents, spouse)"],
     recipients: "Ministry of Education, KNEC, examination bodies",
     retentionPeriod: "Duration of enrolment plus 7 years; academic transcripts permanently",
+    ...keep(7, "years", "the pupil leaving"),
     securityMeasures: "School management system with role-based access; paper files in locked cabinets",
     systems: "School management system, NEMIS",
     involvesChildren: true,
@@ -284,6 +334,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     dataCategories: ["Name", "Phone number", "M-Pesa transaction details", "Fee balance"],
     recipients: "Bank, M-Pesa (Safaricom), auditors",
     retentionPeriod: "7 years (tax and audit requirements)",
+    ...keep(7, "years", "the payment"),
     securityMeasures: "Finance office access only",
     systems: "Accounting software",
     involvesChildren: true,
@@ -318,6 +369,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     sensitiveCategories: ["Health status"],
     recipients: "SHA, private insurers",
     retentionPeriod: "7 years",
+    ...keep(7, "years", "the claim"),
     securityMeasures: "Claims submitted through insurer portals; access limited to billing staff",
     systems: "Billing system, insurer portals",
   },
@@ -334,6 +386,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     sensitiveCategories: ["Biometric data", "Family details (children, parents, spouse)"],
     recipients: "SASRA / CBK on request, Financial Reporting Centre, IPRS verification",
     retentionPeriod: "7 years after the relationship ends (POCAMLA)",
+    ...keep(7, "years", "the end of the relationship"),
     securityMeasures: "Core banking system with maker-checker; ID copies stored encrypted",
     systems: "Core banking / SACCO system",
     largeScale: true,
@@ -350,6 +403,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     dataCategories: ["Name", "National ID number", "Loan history", "M-Pesa statements", "Credit score"],
     recipients: "Credit reference bureaus (Metropol, TransUnion, Creditinfo)",
     retentionPeriod: "7 years after loan closure",
+    ...keep(7, "years", "the loan closing"),
     securityMeasures: "Role-based access; CRB submissions over secure API",
     systems: "Loan management system",
     largeScale: true,
@@ -367,6 +421,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     dataCategories: ["Name", "Phone number", "Delivery address", "Order history", "Payment reference"],
     recipients: "Delivery riders / courier, payment provider",
     retentionPeriod: "5 years (tax records)",
+    ...keep(5, "years", "the sale"),
     securityMeasures: "POS / e-commerce platform access controls",
     systems: "POS, e-commerce platform",
   },
@@ -381,6 +436,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     dataCategories: ["Name", "Phone number", "Date of birth", "Purchase history"],
     recipients: "Loyalty platform provider",
     retentionPeriod: "Until membership ends plus 1 year",
+    ...keep(1, "years", "the end of membership"),
     securityMeasures: "Access limited to marketing team",
     systems: "Loyalty platform",
   },
@@ -396,6 +452,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     dataCategories: ["Name", "ID / passport number", "Nationality", "Phone number", "Stay dates"],
     recipients: "Tourism Regulatory Authority / police on lawful request",
     retentionPeriod: "2 years",
+    ...keep(2, "years", "the stay"),
     securityMeasures: "Guest register kept at reception, archived in locked store",
     systems: "Property management system",
   },
@@ -411,6 +468,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     dataCategories: ["Name", "ID number", "Phone number", "Time in / out"],
     recipients: "None",
     retentionPeriod: "6 months",
+    ...keep(6, "months", "the visit"),
     securityMeasures: "Log kept at reception; ID numbers not shown to other visitors",
     systems: "Paper register / visitor app",
   },

@@ -34,12 +34,16 @@ function activity(over: Partial<ReportActivity> = {}): ReportActivity {
     transferCountries: "",
     transferSafeguards: "",
     retentionPeriod: "7 years",
+    retentionLength: null,
+    retentionUnit: null,
+    retentionFrom: "",
     securityMeasures: "Access limited to the bursar",
     systems: "",
     owner: "",
     largeScale: false,
     systematicMonitoring: false,
     involvesChildren: false,
+    createdAt: at("2026-01-05T10:00"),
     updatedAt: at("2026-09-01T10:00"),
     ...over,
   };
@@ -898,6 +902,27 @@ describe("disposal", () => {
   it("says when the last disposal is more than a year old", () => {
     const s = section({ disposals: [disposal({ disposedOn: "2025-09-01", nextOn: null })] }, "disposal");
     expect(s.open).toEqual(["No disposal is recorded in the last 12 months. The most recent was on 1 Sept 2025."]);
+  });
+
+  it("reports a round its retention period says is due, when no disposal set a date", () => {
+    const cctv = activity({ retentionLength: 30, retentionUnit: "days", retentionFrom: "recording" });
+    const s = section({ activities: [cctv], disposals: [disposal({ disposedOn: "2026-08-20", nextOn: null })] }, "disposal");
+    expect(fact(s, "Activities giving their retention period as a length")).toBe("1 of 1");
+    expect(s.open).toEqual(["Going through the Fee payments data was due on 19 Sept 2026, given its retention period of 30 days from recording."]);
+  });
+
+  it("leaves a due date a disposal set to that disposal, and doesn't count an erasure as a round", () => {
+    const s = section(
+      {
+        activities: [activity({ retentionLength: 7, retentionUnit: "years", retentionFrom: "the payment" })],
+        disposals: [
+          disposal({ disposedOn: "2025-09-01", nextOn: "2026-09-01" }),
+          disposal({ id: "x2", disposedOn: "2026-09-15", nextOn: null, reason: "erasure" }),
+        ],
+      },
+      "disposal",
+    );
+    expect(s.open).toEqual(["The next disposal after 1 Sept 2025 for Fee payments was due on 1 Sept 2026."]);
   });
 });
 
