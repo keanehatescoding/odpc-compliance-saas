@@ -121,11 +121,18 @@ describe("migration 0030", () => {
       const client = new PGlite();
       const pg = drizzle({ client, schema });
       await migrate(pg, { migrationsFolder: upTo0029 });
-      const [o] = await pg.insert(organizations).values({ name: "Sunrise Academy", sector: "education", size: "micro_small" }).returning();
-      const [r] = await pg
-        .insert(registrations)
-        .values({ orgId: o.id, role: "controller", issuedOn: "2024-10-18", expiresOn: "2026-10-18" })
-        .returning();
+      // Plain SQL: the schema in code has columns later migrations add, which this database doesn't have yet.
+      const {
+        rows: [o],
+      } = await client.query<{ id: string }>(
+        `insert into organizations (name, sector, size) values ('Sunrise Academy', 'education', 'micro_small') returning id`,
+      );
+      const {
+        rows: [r],
+      } = await client.query<{ id: string }>(
+        `insert into registrations (org_id, role, issued_on, expires_on) values ($1, 'controller', '2024-10-18', '2026-10-18') returning id`,
+        [o.id],
+      );
       const sentAt = new Date("2026-09-18T06:00:00Z");
       await client.query(
         `insert into reminder_log (registration_id, expires_on, threshold_days, recipients, sent_at) values ($1, '2026-10-18', 30, '{a@sunrise.ke}', $2)`,

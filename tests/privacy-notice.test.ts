@@ -30,6 +30,13 @@ const org: NoticeOrg = {
   privacyEmail: "privacy@sunrise.ac.ke",
   privacyPhone: null,
   address: "PO Box 1, Nairobi",
+  dpoDesignated: null,
+  dpoName: null,
+  dpoEmail: null,
+  dpoPhone: null,
+  dpoAppointedOn: null,
+  dpoNotifiedOn: null,
+  dpoDetailsChangedOn: null,
 };
 
 const today = "2026-10-10";
@@ -151,6 +158,30 @@ describe("activitiesFor", () => {
 });
 
 describe("buildPrivacyNotice", () => {
+  it("publishes the data protection officer's contact details (s.24(6))", () => {
+    const n = build({ org: { ...org, dpoDesignated: true, dpoName: "Achieng Otieno", dpoEmail: "dpo@sunrise.ac.ke" } });
+    expect(section(n, "Who we are")?.blocks).toContainEqual({
+      kind: "facts",
+      items: [
+        { label: "Name", value: "Achieng Otieno" },
+        { label: "Email", value: "dpo@sunrise.ac.ke" },
+      ],
+    });
+    expect(n.checks).toEqual([]);
+  });
+
+  it("asks for the officer's contact details when there is an officer but none to publish", () => {
+    const n = build({ org: { ...org, dpoDesignated: true, dpoName: "Achieng Otieno" } });
+    expect(text(n)).not.toContain("Achieng Otieno");
+    expect(n.checks).toEqual(["Add an email address or phone number for your data protection officer, so the notice can publish it (Settings)."]);
+  });
+
+  it("leaves out details kept for an officer the organisation says it doesn't have", () => {
+    const n = build({ org: { ...org, dpoDesignated: false, dpoName: "Former DPO", dpoEmail: "old@sunrise.ac.ke" } });
+    expect(text(n)).not.toContain("old@sunrise.ac.ke");
+    expect(n.checks).toEqual([]);
+  });
+
   it("covers only the chosen audience's activities", () => {
     const n = build({
       activities: [activity({ name: "Admissions", dataSubjects: ["Parents"] }), activity({ name: "Payroll", dataSubjects: ["Staff"] })],

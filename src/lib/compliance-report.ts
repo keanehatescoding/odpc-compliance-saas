@@ -10,6 +10,7 @@ import {
 } from "./complaint";
 import { addMonths, formatDate, formatDateTime, todayInKenya } from "./dates";
 import { LAWFUL_BASES, REGISTRATION_ROLES, type LawfulBasis, type RegistrationRole } from "./dpa";
+import { DPO_PROVISION, dpoFinding, dpoIssues, type DpoLike } from "./dpo";
 import { DPIA_STATUS_LABEL, dpiaStatus, highestLevel, residualLevel, RISK_LEVEL_LABEL, type DpiaLike, type RiskLevel } from "./dpia";
 import {
   activitiesWithoutConsent,
@@ -80,7 +81,7 @@ import { refreshedIds, TRAINING_STATUS_LABEL, trainingStatus, type TrainingLike 
 /** Breaches, requests, disposals and training are reported over this many months up to the day of the report. */
 export const REPORT_PERIOD_MONTHS = 12;
 
-export interface ReportOrg {
+export interface ReportOrg extends DpoLike {
   privacyContact: string | null;
   privacyEmail: string | null;
   privacyPhone: string | null;
@@ -203,7 +204,7 @@ export interface ReportInput {
   now: Date;
 }
 
-export type ReportSectionKey = "registration" | "ropa" | "notice" | "consent" | "lia" | "dpia" | "breach" | "request" | "complaint" | "processor" | "transfer" | "disposal" | "training" | "policy";
+export type ReportSectionKey = "registration" | "ropa" | "notice" | "dpo" | "consent" | "lia" | "dpia" | "breach" | "request" | "complaint" | "processor" | "transfer" | "disposal" | "training" | "policy";
 
 export interface ReportSection {
   key: ReportSectionKey;
@@ -373,6 +374,30 @@ function noticeSection(input: ReportInput): ReportSection {
       ...(audiences.length > 0 ? [{ label: "Written for", value: audiences.join(", ") }] : []),
     ],
     open,
+  };
+}
+
+/** Whether a data protection officer is designated, who and how to reach them, when they were reported, and what s.24 still needs. */
+function dpoSection(input: ReportInput): ReportSection {
+  const { org } = input;
+  const designated = org.dpoDesignated === null ? "Not recorded" : org.dpoDesignated ? "Yes" : "No";
+  const facts: ReportSection["facts"] = [{ label: "Data protection officer designated", value: designated }];
+  if (org.dpoDesignated) {
+    const contact = [org.dpoEmail, org.dpoPhone].filter(Boolean).join(", ");
+    facts.push(
+      { label: "Data protection officer", value: org.dpoName || "Not recorded" },
+      { label: "Contact details", value: contact || "Not recorded" },
+      { label: "Appointed", value: formatDate(org.dpoAppointedOn) },
+      { label: "Details sent to the Data Commissioner", value: org.dpoNotifiedOn ? formatDate(org.dpoNotifiedOn) : "Not recorded" },
+    );
+  }
+  return {
+    key: "dpo",
+    heading: "Data protection officer",
+    basis: DPO_PROVISION,
+    href: "/settings#dpo",
+    facts,
+    open: dpoIssues(org).map(dpoFinding),
   };
 }
 
@@ -952,6 +977,7 @@ export function buildComplianceReport(input: ReportInput): ComplianceReport {
     registrationSection(input, today),
     ropaSection(input),
     noticeSection(input),
+    dpoSection(input),
     consentSection(input, today),
     liaSection(input, today),
     dpiaSection(input, today),

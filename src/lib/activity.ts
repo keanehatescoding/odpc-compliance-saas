@@ -289,6 +289,12 @@ export const FIELD_LABELS = {
     privacyEmail: "privacy email",
     privacyPhone: "privacy phone",
     address: "address",
+    dpoDesignated: "whether there's a data protection officer",
+    dpoName: "data protection officer",
+    dpoEmail: "data protection officer's email",
+    dpoPhone: "data protection officer's phone",
+    dpoAppointedOn: "when the data protection officer was appointed",
+    dpoNotifiedOn: "when the Data Commissioner was sent the DPO's details",
   } satisfies Partial<Record<keyof Organization, string>>,
 };
 

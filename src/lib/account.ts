@@ -141,6 +141,15 @@ export async function exportOrganization(db: Db | Tx, orgId: string, now: Date =
       size: org.size,
       kraPin: org.kraPin,
       reminderEmail: org.reminderEmail,
+      dataProtectionOfficer: {
+        designated: org.dpoDesignated,
+        name: org.dpoName,
+        email: org.dpoEmail,
+        phone: org.dpoPhone,
+        appointedOn: org.dpoAppointedOn,
+        notifiedOn: org.dpoNotifiedOn,
+        detailsChangedOn: org.dpoDetailsChangedOn,
+      },
       trialEndsAt: org.trialEndsAt,
       paidUntil: org.paidUntil,
       autoRenewInterval: org.autoRenewInterval,
@@ -297,9 +306,10 @@ export async function deleteOrganization(
       .update(payments)
       .set({ startedBy: null })
       .where(and(eq(payments.orgId, p.orgId), ne(payments.status, "succeeded")));
+    // The row stays for the tax records; the data protection officer's details name a person, so they go.
     await tx
       .update(organizations)
-      .set({ deletedAt: now, reminderEmail: null, autoRenewInterval: null })
+      .set({ deletedAt: now, reminderEmail: null, autoRenewInterval: null, dpoName: null, dpoEmail: null, dpoPhone: null })
       .where(eq(organizations.id, p.orgId));
 
     return { ok: true, orgName: org.name, team: people, card: card ?? null };

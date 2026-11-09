@@ -6,7 +6,8 @@ import { z } from "zod";
 import { db } from "@/db";
 import { organizations, registrations } from "@/db/schema";
 import { changedFields, editSummary, FIELD_LABELS, recordActivity } from "@/lib/activity";
-import { todayInKenya } from "@/lib/dates";
+import { isIsoDate, todayInKenya } from "@/lib/dates";
+import { nextDpoDetailsChangedOn } from "@/lib/dpo";
 import { ORG_SIZE_KEYS, SECTOR_KEYS, type OrgSize, type Sector } from "@/lib/dpa";
 import { fieldErrors, formValues, type FormState } from "@/lib/forms";
 import { organizationParticularChange, suggestionFor, type SuggestedChange } from "@/lib/particulars";
@@ -18,6 +19,19 @@ const optionalText = (max: number) =>
     .trim()
     .max(max)
     .transform((v) => v || null);
+
+const optionalEmail = z
+  .string()
+  .trim()
+  .refine((v) => v === "" || z.email().safeParse(v).success, { error: "Enter an email address." })
+  .transform((v) => v || null);
+
+const pastDate = z
+  .string()
+  .trim()
+  .transform((v) => v || null)
+  .refine((v) => v === null || isIsoDate(v), { error: "Enter a valid date." })
+  .refine((v) => v === null || v <= todayInKenya(), { error: "This can't be in the future." });
 
 const schema = z.object({
   name: z.string().trim().min(2, { error: "Enter your organisation's name." }).max(200),
@@ -43,13 +57,15 @@ const schema = z.object({
     )
     .transform((v) => v || null),
   privacyContact: optionalText(200),
-  privacyEmail: z
-    .string()
-    .trim()
-    .refine((v) => v === "" || z.email().safeParse(v).success, { error: "Enter an email address." })
-    .transform((v) => v || null),
+  privacyEmail: optionalEmail,
   privacyPhone: optionalText(50),
   address: optionalText(500),
+  dpoDesignated: z.enum(["", "yes", "no"]).transform((v) => (v === "" ? null : v === "yes")),
+  dpoName: optionalText(200),
+  dpoEmail: optionalEmail,
+  dpoPhone: optionalText(50),
+  dpoAppointedOn: pastDate,
+  dpoNotifiedOn: pastDate,
 });
 
 export type SettingsState =
@@ -59,6 +75,12 @@ export type SettingsState =
     })
   | undefined;
 
+/**
+ * Saves the organisation's settings for an owner or admin, including its data
+ * protection officer, and dates any change to the officer's details that hasn't
+ * been sent to the Data Commissioner. Refuses a save once the organisation is
+ * deleted, and suggests a register update when the edit changes its particulars.
+ */
 export async function updateOrganization(_prev: SettingsState, formData: FormData): Promise<SettingsState> {
   const { user, org, role } = await requireOrgContext();
   const values = formValues(formData);
@@ -69,7 +91,14 @@ export async function updateOrganization(_prev: SettingsState, formData: FormDat
 
   const particulars = await db.transaction(async (tx) => {
     const [before] = await tx.select().from(organizations).where(eq(organizations.id, org.id)).for("update");
-    await tx.update(organizations).set(parsed.data).where(eq(organizations.id, org.id));
+    // Deleting the organisation erases contact details under this same lock; a save queued behind it mustn't put them back.
+    if (!before || before.deletedAt) return "deleted" as const;
+    // So details changed after they were sent to the Data Commissioner show up as not yet sent.
+    const dpoDetailsChangedOn = nextDpoDetailsChangedOn(before, parsed.data, todayInKenya());
+    await tx
+      .update(organizations)
+      .set({ ...parsed.data, dpoDetailsChangedOn })
+      .where(eq(organizations.id, org.id));
     const summary = editSummary("the organisation's settings", changedFields(before, parsed.data, FIELD_LABELS.organization));
     if (summary) await recordActivity(tx, { orgId: org.id, actorId: user.id, area: "organization", subjectId: org.id, summary });
     const change = organizationParticularChange(before, parsed.data);
@@ -78,6 +107,7 @@ export async function updateOrganization(_prev: SettingsState, formData: FormDat
     const suggestion = suggestionFor(change, regs);
     return suggestion ? { ...suggestion, changedOn: todayInKenya() } : undefined;
   });
+  if (particulars === "deleted") return { message: "This organisation has been deleted.", values };
   revalidatePath("/", "layout");
   return { message: "Saved.", values, particulars };
 }

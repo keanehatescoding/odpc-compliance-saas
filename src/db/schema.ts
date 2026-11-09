@@ -151,6 +151,18 @@ export const organizations = pgTable("organizations", {
   privacyEmail: text("privacy_email"),
   privacyPhone: text("privacy_phone"),
   address: text("address"),
+  // The data protection officer (s.24 of the Act). Designating one is null
+  // until someone says whether the organisation has. The contact details are
+  // published in the privacy notice and sent to the Data Commissioner (s.24(6));
+  // dpoNotifiedOn is when they were last sent, and dpoDetailsChangedOn, set by
+  // the app, when they last changed, so new details not yet sent show up.
+  dpoDesignated: boolean("dpo_designated"),
+  dpoName: text("dpo_name"),
+  dpoEmail: text("dpo_email"),
+  dpoPhone: text("dpo_phone"),
+  dpoAppointedOn: date("dpo_appointed_on", { mode: "string" }),
+  dpoNotifiedOn: date("dpo_notified_on", { mode: "string" }),
+  dpoDetailsChangedOn: date("dpo_details_changed_on", { mode: "string" }),
   // New organisations start with a free trial. Existing ones got theirs when billing launched.
   trialEndsAt: timestamp("trial_ends_at", { withTimezone: true })
     .notNull()
