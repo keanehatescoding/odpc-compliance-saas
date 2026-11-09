@@ -377,6 +377,7 @@ function noticeSection(input: ReportInput): ReportSection {
   };
 }
 
+/** Whether a data protection officer is designated, who and how to reach them, when they were reported, and what s.24 still needs. */
 function dpoSection(input: ReportInput): ReportSection {
   const { org } = input;
   const designated = org.dpoDesignated === null ? "Not recorded" : org.dpoDesignated ? "Yes" : "No";

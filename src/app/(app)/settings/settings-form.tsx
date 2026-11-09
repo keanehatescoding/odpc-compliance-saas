@@ -10,6 +10,7 @@ import type { Organization } from "@/db/schema";
 import { ORG_SIZES, SECTORS } from "@/lib/dpa";
 import { DPO_CHECKLIST, dpoIssues, dpoTodo } from "@/lib/dpo";
 
+/** The organisation's settings, with its data protection officer and what that record still needs; read-only for members. */
 export function SettingsForm({ org, canEdit, ownerEmails }: { org: Organization; canEdit: boolean; ownerEmails: string[] }) {
   const [state, action] = useActionState(updateOrganization, undefined);
   const f = { errors: state?.errors, values: state?.values };

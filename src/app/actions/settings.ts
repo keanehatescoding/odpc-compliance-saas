@@ -75,6 +75,12 @@ export type SettingsState =
     })
   | undefined;
 
+/**
+ * Saves the organisation's settings for an owner or admin, including its data
+ * protection officer, and dates any change to the officer's details that hasn't
+ * been sent to the Data Commissioner. Refuses a save once the organisation is
+ * deleted, and suggests a register update when the edit changes its particulars.
+ */
 export async function updateOrganization(_prev: SettingsState, formData: FormData): Promise<SettingsState> {
   const { user, org, role } = await requireOrgContext();
   const values = formValues(formData);
