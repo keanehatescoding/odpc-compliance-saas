@@ -95,6 +95,25 @@ describe("updateOrganization", () => {
     expect(dpoIssues(row)).toEqual([{ kind: "changed_since_notified", changedOn: todayInKenya(), notifiedOn: saved.dpoNotifiedOn }]);
   });
 
+  it("saves edits to both dates without dating a change to the details", async () => {
+    // Sent before the recorded change, so the change now shows as not yet sent.
+    await updateOrganization(undefined, form({ dpoAppointedOn: "2026-01-02", dpoNotifiedOn: "2026-01-10" }));
+    const row = await stored();
+    expect(row).toMatchObject({ dpoAppointedOn: "2026-01-02", dpoNotifiedOn: "2026-01-10", dpoDetailsChangedOn: saved.dpoDetailsChangedOn });
+    expect(dpoIssues(row)).toEqual([{ kind: "changed_since_notified", changedOn: saved.dpoDetailsChangedOn, notifiedOn: "2026-01-10" }]);
+  });
+
+  it("records that the organisation has no officer, leaving nothing to follow up", async () => {
+    const r = await updateOrganization(
+      undefined,
+      form({ dpoDesignated: "no", dpoName: "", dpoEmail: "", dpoPhone: "", dpoAppointedOn: "", dpoNotifiedOn: "" }),
+    );
+    expect(r).toMatchObject({ message: "Saved." });
+    const row = await stored();
+    expect(row).toMatchObject({ dpoDesignated: false, dpoName: null, dpoEmail: null, dpoPhone: null, dpoAppointedOn: null, dpoNotifiedOn: null });
+    expect(dpoIssues(row)).toEqual([]);
+  });
+
   it("keeps the change date when only other settings change", async () => {
     await updateOrganization(undefined, form({ address: "Kisumu" }));
     expect((await stored()).dpoDetailsChangedOn).toBe(saved.dpoDetailsChangedOn);
