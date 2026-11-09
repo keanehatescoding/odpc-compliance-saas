@@ -1,3 +1,4 @@
+import { AUTOMATED_DECISION_GROUNDS, AUTOMATED_DECISION_PROVISION, automatedDecisionFinding, automatedDecisionIssues } from "./automated-decision";
 import { notificationDeadline, notificationRequired, notifiedLate, outstandingTasks, type BreachLike } from "./breach";
 import {
   awaitsResponse,
@@ -206,7 +207,7 @@ export interface ReportInput {
   now: Date;
 }
 
-export type ReportSectionKey = "registration" | "ropa" | "notice" | "dpo" | "consent" | "lia" | "dpia" | "breach" | "request" | "complaint" | "processor" | "transfer" | "disposal" | "training" | "policy";
+export type ReportSectionKey = "registration" | "ropa" | "notice" | "dpo" | "consent" | "lia" | "dpia" | "automated" | "breach" | "request" | "complaint" | "processor" | "transfer" | "disposal" | "training" | "policy";
 
 export interface ReportSection {
   key: ReportSectionKey;
@@ -456,6 +457,39 @@ function dpiaSection(input: ReportInput, today: string): ReportSection {
     table:
       rows.length > 0
         ? { columns: ["Assessment", "Covers", "Status", "Approved", "Next review", "Highest risk after measures", "ODPC consulted"], rows }
+        : undefined,
+    open,
+  };
+}
+
+/** Activities that take decisions about people by automated means alone, and what s.35 and reg. 22 still need. */
+function automatedSection(input: ReportInput): ReportSection {
+  const deciding = input.activities.filter((a) => a.automatedDecisions);
+  const open: string[] = [];
+  const recorded = (v: string) => (v.trim() ? "Yes" : "No");
+  const rows = deciding.map((a) => {
+    const issues = automatedDecisionIssues(a);
+    if (issues.length > 0) open.push(automatedDecisionFinding(a, issues));
+    return [
+      a.name,
+      a.automatedDecisionGround ? AUTOMATED_DECISION_GROUNDS[a.automatedDecisionGround] : "Not recorded",
+      recorded(a.automatedDecisionLogic),
+      recorded(a.automatedDecisionReview),
+      recorded(a.automatedDecisionChecks),
+    ];
+  });
+  return {
+    key: "automated",
+    heading: "Automated decisions",
+    basis: AUTOMATED_DECISION_PROVISION,
+    href: "/ropa?filter=automated",
+    facts: [
+      { label: "Activities taking decisions by automated means alone", value: count(deciding.length) },
+      { label: "Of those, fully recorded", value: count(deciding.length - open.length) },
+    ],
+    table:
+      rows.length > 0
+        ? { columns: ["Activity", "Allowed because", "Logic described", "How to ask for a person", "Checks for errors and bias"], rows }
         : undefined,
     open,
   };
@@ -990,6 +1024,7 @@ export function buildComplianceReport(input: ReportInput): ComplianceReport {
     consentSection(input, today),
     liaSection(input, today),
     dpiaSection(input, today),
+    automatedSection(input),
     breachSection(input, periodFrom),
     requestSection(input, today, periodFrom),
     complaintSection(input, today, periodFrom),

@@ -200,6 +200,11 @@ describe("draftDpia", () => {
     largeScale: false,
     systematicMonitoring: false,
     involvesChildren: false,
+    automatedDecisions: false,
+    automatedDecisionGround: null,
+    automatedDecisionLogic: "",
+    automatedDecisionReview: "",
+    automatedDecisionChecks: "",
     templateId: null,
   };
 
@@ -223,6 +228,18 @@ describe("draftDpia", () => {
     expect(risks).toMatch(/kept longer than needed/);
     // Measures are left for the organisation to fill in, so a fresh draft can't be approved as is.
     expect(d.risks.every((r) => r.mitigation === "")).toBe(true);
+  });
+
+  it("adds the risk of automated decisions, with or without a template", () => {
+    const automated = { ...activity, automatedDecisions: true, automatedDecisionLogic: "Flags repeat visitors for a search" };
+    const fresh = draftDpia(automated, undefined);
+    expect(fresh.risks[0].description).toMatch(/automated decision/);
+    expect(fresh.risks[0].mitigation).toBe("");
+    expect(fresh.description).toContain("Decisions taken by automated means alone: Flags repeat visitors for a search");
+    const templated = draftDpia({ ...automated, templateId: "cctv" }, undefined);
+    expect(templated.risks[0].description).toMatch(/automated decision/);
+    expect(templated.risks.slice(1)).toEqual(getDpiaTemplate("cctv")!.risks);
+    expect(draftDpia(activity, undefined).risks.map((r) => r.description).join(" ")).not.toMatch(/automated decision/);
   });
 
   it("starts new processing from a template or blank", () => {

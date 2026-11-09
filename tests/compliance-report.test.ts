@@ -43,6 +43,11 @@ function activity(over: Partial<ReportActivity> = {}): ReportActivity {
     largeScale: false,
     systematicMonitoring: false,
     involvesChildren: false,
+    automatedDecisions: false,
+    automatedDecisionGround: null,
+    automatedDecisionLogic: "",
+    automatedDecisionReview: "",
+    automatedDecisionChecks: "",
     createdAt: at("2026-01-05T10:00"),
     updatedAt: at("2026-09-01T10:00"),
     ...over,
@@ -215,7 +220,7 @@ describe("buildComplianceReport", () => {
   it("finds nothing open when every record is in order", () => {
     const report = buildComplianceReport(input());
     expect(report.openCount).toBe(0);
-    expect(report.sections.map((s) => s.key)).toEqual(["registration", "ropa", "notice", "dpo", "consent", "lia", "dpia", "breach", "request", "complaint", "processor", "transfer", "disposal", "training", "policy"]);
+    expect(report.sections.map((s) => s.key)).toEqual(["registration", "ropa", "notice", "dpo", "consent", "lia", "dpia", "automated", "breach", "request", "complaint", "processor", "transfer", "disposal", "training", "policy"]);
     expect(report.preparedOn).toBe("2026-10-10");
     expect(report.periodFrom).toBe("2025-10-10");
   });
@@ -536,6 +541,47 @@ describe("breaches", () => {
     const done = section({ breaches: [breach({ ...old, subjectsNotifiedAt: at("2025-06-03T09:00") })] }, "breach");
     expect(done.table).toBeUndefined();
     expect(done.open).toEqual([]);
+  });
+});
+
+describe("automated decisions", () => {
+  const scoring = activity({
+    id: "a2",
+    name: "Loan scoring",
+    automatedDecisions: true,
+    automatedDecisionGround: "contract",
+    automatedDecisionLogic: "A model scores repayment history",
+    automatedDecisionReview: "Reply to the SMS",
+    automatedDecisionChecks: "Quarterly bias review",
+  });
+
+  it("has nothing to report when no activity takes them", () => {
+    const s = section({}, "automated");
+    expect(fact(s, "Activities taking decisions by automated means alone")).toBe("0");
+    expect(s.table).toBeUndefined();
+    expect(s.open).toEqual([]);
+  });
+
+  it("lists what each activity has recorded", () => {
+    const s = section({ activities: [activity(), scoring] }, "automated");
+    expect(fact(s, "Activities taking decisions by automated means alone")).toBe("1");
+    expect(fact(s, "Of those, fully recorded")).toBe("1");
+    expect(s.table!.rows).toEqual([["Loan scoring", "Necessary to enter into or carry out a contract with the person", "Yes", "Yes", "Yes"]]);
+    expect(s.open).toEqual([]);
+  });
+
+  it("reports what a record leaves out", () => {
+    const s = section({ activities: [{ ...scoring, automatedDecisionGround: null, automatedDecisionChecks: "" }] }, "automated");
+    expect(fact(s, "Of those, fully recorded")).toBe("0");
+    expect(s.table!.rows[0]).toEqual(["Loan scoring", "Not recorded", "Yes", "Yes", "No"]);
+    expect(s.open).toEqual([
+      "Loan scoring takes decisions by automated means alone, and the record doesn't say what s.35(2) ground allows them and how errors and bias are checked for.",
+    ]);
+  });
+
+  it("is flagged for an impact assessment on its own", () => {
+    const s = section({ activities: [scoring] }, "dpia");
+    expect(fact(s, "Activities flagged by screening")).toBe("1");
   });
 });
 

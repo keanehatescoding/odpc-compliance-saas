@@ -7,6 +7,13 @@ import { RecordHistory } from "@/components/activity-list";
 import { DeleteButton } from "@/components/delete-button";
 import { SubmitButton } from "@/components/submit-button";
 import { BackLink, buttonClass, Card, ConsentStatusBadge, DpiaStatusBadge, LiaStatusBadge, PageHeader, ProcessorStatusBadge, TransferStatusBadge } from "@/components/ui";
+import {
+  AUTOMATED_DECISION_CHECKLIST,
+  AUTOMATED_DECISION_GAP,
+  AUTOMATED_DECISION_GROUND_DETAIL,
+  AUTOMATED_DECISION_GROUNDS,
+  automatedDecisionIssues,
+} from "@/lib/automated-decision";
 import { formatDate, todayInKenya } from "@/lib/dates";
 import { dpiaStatus } from "@/lib/dpia";
 import { consentStatus, reliesOnConsent } from "@/lib/consent";
@@ -42,6 +49,7 @@ export default async function EditActivityPage({ params }: PageProps<"/ropa/[id]
   const period = describeRetention(activity);
   const cutoff = retentionCutoff(activity, today);
   const next = activityNextRound(activity, disposals, today);
+  const decisionGaps = automatedDecisionIssues(activity);
 
   return (
     <>
@@ -194,6 +202,34 @@ export default async function EditActivityPage({ params }: PageProps<"/ropa/[id]
             </Link>
           </Card>
         )
+      )}
+      {activity.automatedDecisions && (
+        <Card className={`mb-6 max-w-3xl ${decisionGaps.length > 0 ? "border-amber-300 bg-amber-50" : ""}`}>
+          <h2 className="font-semibold">Automated decisions</h2>
+          <p className="mt-1 text-sm text-stone-700">
+            {activity.automatedDecisionGround
+              ? `Allowed because: ${AUTOMATED_DECISION_GROUNDS[activity.automatedDecisionGround]}. ${AUTOMATED_DECISION_GROUND_DETAIL[activity.automatedDecisionGround]}`
+              : "This activity takes decisions about people by automated means alone. Section 35 of the Act gives people the right not to be subject to them, unless an exception applies."}
+          </p>
+          {decisionGaps.length > 0 && (
+            <>
+              <h3 className="mt-3 text-sm font-medium">What the record still needs</h3>
+              <ul className="mt-1 list-disc pl-5 text-sm text-stone-700">
+                {decisionGaps.map((g) => (
+                  <li key={g}>{AUTOMATED_DECISION_GAP[g]}</li>
+                ))}
+              </ul>
+            </>
+          )}
+          <details className="mt-3 text-sm">
+            <summary className="cursor-pointer font-medium">What the Act and the Regulations ask</summary>
+            <ul className="mt-2 list-disc pl-5 text-stone-700">
+              {AUTOMATED_DECISION_CHECKLIST.map((c) => (
+                <li key={c}>{c}</li>
+              ))}
+            </ul>
+          </details>
+        </Card>
       )}
       <Card className="mb-6 max-w-3xl">
         <div className="flex flex-wrap items-center justify-between gap-3">

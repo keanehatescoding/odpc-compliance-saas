@@ -24,6 +24,11 @@ const activity = (over: Partial<NoticeActivity>): NoticeActivity => ({
   largeScale: false,
   systematicMonitoring: false,
   involvesChildren: false,
+  automatedDecisions: false,
+  automatedDecisionGround: null,
+  automatedDecisionLogic: "",
+  automatedDecisionReview: "",
+  automatedDecisionChecks: "",
   ...over,
 });
 
@@ -145,6 +150,47 @@ describe("transfers outside Kenya", () => {
     for (const a of [mailing({ transfers: [{ basis: "pending" }, { basis: "safeguards" }] }), mailing()]) {
       expect(build({ activities: [a] }).checks.join(" ")).not.toContain("Transfers outside Kenya");
     }
+  });
+});
+
+describe("automated decisions", () => {
+  const scoring = activity({
+    name: "Bursary applications",
+    automatedDecisions: true,
+    automatedDecisionGround: "contract",
+    automatedDecisionLogic: "A score from your fee history decides whether you qualify",
+    automatedDecisionReview: "Write to the Bursar to have it looked at again.",
+  });
+  const decisions = (n: ReturnType<typeof build>) =>
+    section(n, "What we collect and why")!
+      .blocks.flatMap((b) => (b.kind === "facts" ? b.items : []))
+      .find((f) => f.label === "Automated decisions")?.value;
+
+  it("tells people about the decisions, their right to a person, and how to ask", () => {
+    const n = build({ activities: [scoring] });
+    expect(decisions(n)).toBe(
+      "A score from your fee history decides whether you qualify. We'll tell you in writing when a decision has been made this way, and you can ask us to reconsider it or to have a person take it again. Write to the Bursar to have it looked at again.",
+    );
+    expect(n.checks.join(" ")).not.toContain("Automated decisions");
+  });
+
+  it("asks for the logic and the way to a person when the record doesn't say", () => {
+    const n = build({ activities: [{ ...scoring, automatedDecisionReview: "" }] });
+    expect(decisions(n)).toContain("ask us to reconsider it");
+    expect(n.checks).toContain(
+      "Describe how automated decisions are made and how people ask for a person to look again (Automated decisions), for: Bursary applications.",
+    );
+  });
+
+  it("reminds an organisation relying on consent to mention the decisions when it asks", () => {
+    const n = build({ activities: [{ ...scoring, lawfulBasis: "consent" }] });
+    expect(n.checks).toContain("Make sure the consent you ask for mentions the automated decisions, for: Bursary applications.");
+  });
+
+  it("says nothing for an activity without them", () => {
+    const n = build();
+    expect(decisions(n)).toBeUndefined();
+    expect(n.checks.join(" ")).not.toContain("automated");
   });
 });
 

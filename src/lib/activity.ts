@@ -121,6 +121,11 @@ export const FIELD_LABELS = {
     systematicMonitoring: "systematic monitoring",
     largeScale: "large scale",
     involvesChildren: "children's data",
+    automatedDecisions: "automated decisions",
+    automatedDecisionGround: "what allows the automated decisions",
+    automatedDecisionLogic: "how the automated decisions are made",
+    automatedDecisionReview: "how people ask for a person to reconsider",
+    automatedDecisionChecks: "checks for errors and bias",
   } satisfies Partial<Record<keyof ProcessingActivity, string>>,
   breach: {
     title: "title",

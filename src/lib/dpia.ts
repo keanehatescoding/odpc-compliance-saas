@@ -446,9 +446,19 @@ export interface DpiaDraft {
 /** A RoPA entry as stored (the lawful basis comes back from the database as a plain string). */
 type ActivityForDraft = Omit<ActivityInput, "lawfulBasis"> & { lawfulBasis: LawfulBasis | string; templateId?: string | null };
 
+/** The risk of decisions taken by automated means alone (reg. 49(1)(a)). */
+const automatedDecisionRisk = () =>
+  risk(
+    "An automated decision about a person is wrong or unfair, and they can't find out why or have a person look at it again.",
+    ["possible", "significant"],
+    "",
+    ["possible", "significant"],
+  );
+
 /** Starting risks for an activity with no matching template, based on its screening flags. */
 export function screeningRisks(a: ActivityForDraft): RiskInput[] {
   const out: RiskInput[] = [];
+  if (a.automatedDecisions) out.push(automatedDecisionRisk());
   if (a.systematicMonitoring)
     out.push(
       risk(
@@ -507,6 +517,7 @@ export function describeActivity(a: ActivityForDraft): string {
     a.systems && `Where it is held: ${a.systems}.`,
     a.recipients && `Shared with: ${a.recipients}.`,
     a.crossBorder && `Transferred outside Kenya: ${a.transferCountries}.`,
+    a.automatedDecisions && `Decisions taken by automated means alone${a.automatedDecisionLogic.trim() ? `: ${a.automatedDecisionLogic.trim()}` : "."}`,
     a.retentionPeriod && `Kept for: ${a.retentionPeriod}.`,
   ]
     .filter(Boolean)
@@ -538,6 +549,7 @@ export function draftDpia(activity: ActivityForDraft | null, template: DpiaTempl
     description: t ? `${t.description}\n\n${facts}` : facts,
     purposes: activity.purpose,
     necessity: t?.necessity ?? `Lawful basis: ${LAWFUL_BASES[activity.lawfulBasis as LawfulBasis] ?? activity.lawfulBasis}.`,
-    risks: t?.risks ?? screeningRisks(activity),
+    // No template expects automated decisions, so a templated activity that takes them gets the risk added.
+    risks: !t ? screeningRisks(activity) : activity.automatedDecisions ? [automatedDecisionRisk(), ...t.risks] : t.risks,
   };
 }

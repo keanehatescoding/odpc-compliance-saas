@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AUTOMATED_DECISION_GROUND_KEYS, AUTOMATED_DECISION_GROUNDS, type AutomatedDecisionGround } from "./automated-decision";
 import { LAWFUL_BASES, LAWFUL_BASIS_KEYS, SENSITIVE_CATEGORIES, type LawfulBasis, type Sector } from "./dpa";
 import { describeRetention, MAX_RETENTION_YEARS, RETENTION_UNIT_KEYS, type RetentionUnit } from "./retention";
 
@@ -38,6 +39,16 @@ export interface ActivityInput {
   largeScale: boolean;
   systematicMonitoring: boolean;
   involvesChildren: boolean;
+  /** Decisions about people taken by automated means alone, with legal or similarly significant effects (s.35). */
+  automatedDecisions: boolean;
+  /** What s.35(2) allows them under; null until someone says. */
+  automatedDecisionGround: AutomatedDecisionGround | null;
+  /** What is decided, the logic involved and what it means for the person. */
+  automatedDecisionLogic: string;
+  /** How people are told, and how they ask for a person to reconsider. */
+  automatedDecisionReview: string;
+  /** How errors and bias are checked for. */
+  automatedDecisionChecks: string;
 }
 
 const list = z
@@ -93,6 +104,16 @@ export const activityFormSchema = z
     largeScale: checkbox,
     systematicMonitoring: checkbox,
     involvesChildren: checkbox,
+    automatedDecisions: checkbox,
+    automatedDecisionGround: z
+      .union([z.literal(""), z.enum(AUTOMATED_DECISION_GROUND_KEYS as [AutomatedDecisionGround, ...AutomatedDecisionGround[]])], {
+        error: "Choose from the listed grounds.",
+      })
+      .default("")
+      .transform((v) => v || null),
+    automatedDecisionLogic: z.string().trim().max(2000).default(""),
+    automatedDecisionReview: z.string().trim().max(2000).default(""),
+    automatedDecisionChecks: z.string().trim().max(2000).default(""),
   })
   .refine((v) => !v.crossBorder || v.transferCountries !== "", {
     path: ["transferCountries"],
@@ -143,7 +164,29 @@ export function parseActivityForm(formData: FormData) {
     largeScale: get("largeScale"),
     systematicMonitoring: get("systematicMonitoring"),
     involvesChildren: get("involvesChildren"),
+    automatedDecisions: get("automatedDecisions"),
+    automatedDecisionGround: get("automatedDecisionGround"),
+    automatedDecisionLogic: get("automatedDecisionLogic"),
+    automatedDecisionReview: get("automatedDecisionReview"),
+    automatedDecisionChecks: get("automatedDecisionChecks"),
   });
+}
+
+/**
+ * The activity as saved: the transfer and automated decision details are kept
+ * only when the activity says it transfers data or takes such decisions, so
+ * unticking the box clears what was entered under it.
+ */
+export function activityToSave<T extends ActivityInput>(a: T): T {
+  return {
+    ...a,
+    transferCountries: a.crossBorder ? a.transferCountries : "",
+    transferSafeguards: a.crossBorder ? a.transferSafeguards : "",
+    automatedDecisionGround: a.automatedDecisions ? a.automatedDecisionGround : null,
+    automatedDecisionLogic: a.automatedDecisions ? a.automatedDecisionLogic : "",
+    automatedDecisionReview: a.automatedDecisions ? a.automatedDecisionReview : "",
+    automatedDecisionChecks: a.automatedDecisions ? a.automatedDecisionChecks : "",
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -152,7 +195,7 @@ export function parseActivityForm(formData: FormData) {
 
 type DpiaInput = Pick<
   ActivityInput,
-  "sensitiveCategories" | "crossBorder" | "largeScale" | "systematicMonitoring" | "involvesChildren"
+  "sensitiveCategories" | "crossBorder" | "largeScale" | "systematicMonitoring" | "involvesChildren" | "automatedDecisions"
 >;
 
 /**
@@ -162,6 +205,7 @@ type DpiaInput = Pick<
  */
 export function dpiaTriggers(a: DpiaInput): string[] {
   const reasons: string[] = [];
+  if (a.automatedDecisions) reasons.push("Decisions about people taken by automated means alone (reg. 49(1)(a) of the General Regulations)");
   if (a.systematicMonitoring) reasons.push("Systematic monitoring (e.g. CCTV, location or behaviour tracking)");
   if (a.sensitiveCategories.length > 0 && a.largeScale) reasons.push("Large-scale processing of sensitive personal data");
   else if (a.sensitiveCategories.length > 0) reasons.push("Processing of sensitive personal data");
@@ -170,10 +214,14 @@ export function dpiaTriggers(a: DpiaInput): string[] {
   return reasons;
 }
 
-/** Two or more triggers, or systematic monitoring alone, means a DPIA is recommended. */
+/**
+ * Two or more triggers, or systematic monitoring or automated decisions alone,
+ * means a DPIA is recommended. Regulation 49(1)(a) names automated decisions
+ * with legal or similarly significant effects as high risk in themselves.
+ */
 export function dpiaRecommended(a: DpiaInput): boolean {
   const reasons = dpiaTriggers(a);
-  return reasons.length >= 2 || a.systematicMonitoring;
+  return reasons.length >= 2 || a.systematicMonitoring || a.automatedDecisions;
 }
 
 // ---------------------------------------------------------------------------
@@ -200,6 +248,14 @@ export const ROPA_COLUMNS: { header: string; value: (a: ActivityInput) => string
   { header: "Security measures", value: (a) => a.securityMeasures },
   { header: "Systems / location", value: (a) => a.systems },
   { header: "Owner", value: (a) => a.owner },
+  {
+    header: "Automated decisions",
+    value: (a) =>
+      a.automatedDecisions ? `Yes: ${a.automatedDecisionGround ? AUTOMATED_DECISION_GROUNDS[a.automatedDecisionGround] : "ground not recorded"}` : "No",
+  },
+  { header: "Automated decision logic", value: (a) => (a.automatedDecisions ? a.automatedDecisionLogic : "") },
+  { header: "How people ask for a person to reconsider", value: (a) => (a.automatedDecisions ? a.automatedDecisionReview : "") },
+  { header: "Checks for errors and bias", value: (a) => (a.automatedDecisions ? a.automatedDecisionChecks : "") },
   { header: "DPIA recommended", value: (a) => (dpiaRecommended(a) ? "Yes" : "No") },
 ];
 
@@ -241,6 +297,11 @@ const base = {
   retentionLength: null,
   retentionUnit: null,
   retentionFrom: "",
+  automatedDecisions: false,
+  automatedDecisionGround: null,
+  automatedDecisionLogic: "",
+  automatedDecisionReview: "",
+  automatedDecisionChecks: "",
 } satisfies Partial<ActivityInput>;
 
 /** A template's retention period as a length, where its wording gives one. */
