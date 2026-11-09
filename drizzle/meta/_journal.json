@@ -232,6 +232,13 @@
       "when": 1794251361402,
       "tag": "0032_retention_periods",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1794255489075,
+      "tag": "0033_automated_decisions",
+      "breakpoints": true
     }
   ]
 }

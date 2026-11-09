@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ParticularsPrompt } from "@/components/particulars-prompt";
 import { buttonClass, Card, cx, EmptyState, PageHeader, Pill } from "@/components/ui";
 import type { ProcessingActivity } from "@/db/schema";
+import { automatedDecisionIssues } from "@/lib/automated-decision";
 import { LAWFUL_BASES, type LawfulBasis } from "@/lib/dpa";
 import { suggestionFromQuery } from "@/lib/particulars";
 import { listActivities, listDpias } from "@/lib/queries";
@@ -16,6 +17,7 @@ const FILTERS: Record<string, { label: string; test: (a: ProcessingActivity) => 
   dpia: { label: "DPIA recommended", test: dpiaRecommended },
   sensitive: { label: "Sensitive data", test: (a) => a.sensitiveCategories.length > 0 },
   "cross-border": { label: "Outside Kenya", test: (a) => a.crossBorder },
+  automated: { label: "Automated decisions", test: (a) => a.automatedDecisions },
 };
 
 export default async function RopaPage({ searchParams }: PageProps<"/ropa">) {
@@ -114,6 +116,7 @@ export default async function RopaPage({ searchParams }: PageProps<"/ropa">) {
                         {a.sensitiveCategories.length > 0 && <Pill tone="red">Sensitive</Pill>}
                         {a.crossBorder && <Pill>Outside Kenya</Pill>}
                         {a.involvesChildren && <Pill>Children</Pill>}
+                        {a.automatedDecisions && <Pill tone={automatedDecisionIssues(a).length > 0 ? "amber" : "stone"}>Automated decisions</Pill>}
                       </div>
                     </td>
                   </tr>

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Countdown } from "@/components/countdown";
 import { BreachStatusBadge, buttonClass, Card, cx, PageHeader, StatusBadge } from "@/components/ui";
+import { activitiesWithAutomatedDecisionIssues, automatedDecisionTodo } from "@/lib/automated-decision";
 import { breachStatus, notificationDeadline, NOTIFY_WHOM, outstandingTasks } from "@/lib/breach";
 import { awaitsResponse, complaintStatus, daysToAct, kindInfo as complaintKindInfo } from "@/lib/complaint";
 import { activitiesWithoutConsent, consentStatus } from "@/lib/consent";
@@ -121,6 +122,9 @@ export default async function DashboardPage() {
     const status = dpiaStatus(dpia, today);
     if (status === "draft") todos.push({ text: `Finish and approve the DPIA: ${dpia.title}`, href: `/dpia/${dpia.id}` });
     else if (status === "review_due") todos.push({ text: `Review the DPIA: ${dpia.title}`, href: `/dpia/${dpia.id}` });
+  }
+  for (const { activity, issues } of activitiesWithAutomatedDecisionIssues(activities)) {
+    todos.push({ text: automatedDecisionTodo(activity, issues), href: `/ropa/${activity.id}` });
   }
   for (const a of activitiesWithoutConsent(activities, consents)) {
     todos.push({ text: `Record how you get consent for ${a.name}`, href: `/consents/new?activity=${a.id}` });

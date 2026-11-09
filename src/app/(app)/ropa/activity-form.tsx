@@ -5,6 +5,7 @@ import { saveActivity } from "@/app/actions/ropa";
 import { SubmitButton } from "@/components/submit-button";
 import { Card, CheckboxField, FormMessage, SelectField, TextArea, TextField } from "@/components/ui";
 import type { ProcessingActivity } from "@/db/schema";
+import { AUTOMATED_DECISION_GROUNDS } from "@/lib/automated-decision";
 import { LAWFUL_BASES, SENSITIVE_CATEGORIES } from "@/lib/dpa";
 import { RETENTION_UNITS } from "@/lib/retention";
 import { ACTIVITY_ROLES } from "@/lib/ropa";
@@ -174,6 +175,58 @@ export function ActivityForm({ activity }: { activity?: ProcessingActivity }) {
           values={f.values}
         />
         <CheckboxField name="involvesChildren" label="Involves children's data" initial={activity?.involvesChildren} values={f.values} />
+      </Card>
+
+      {/* Like the transfer fields, the details are shown by CSS so they work before JS loads. */}
+      <Card className="group space-y-5">
+        <h2 className="font-semibold">Automated decisions</h2>
+        <label className="flex items-start gap-3 text-sm">
+          <input
+            type="checkbox"
+            name="automatedDecisions"
+            defaultChecked={state?.values ? state.values.automatedDecisions === "on" : Boolean(activity?.automatedDecisions)}
+            className="mt-0.5 size-4 accent-brand-600"
+          />
+          <span>
+            <span className="font-medium text-stone-800">Decisions about people are taken by automated means alone</span>
+            <span className="block text-xs text-stone-500">
+              Only decisions with legal or similarly significant effects, taken without a person involved, such as a loan declined by a
+              scoring model, applicants filtered out by software or an account blocked by a fraud rule (s.35).
+            </span>
+          </span>
+        </label>
+        <div className="hidden space-y-5 group-has-[[name=automatedDecisions]:checked]:block">
+          <SelectField
+            name="automatedDecisionGround"
+            label="What allows it (s.35(2))"
+            hint="If none of these applies, a person has to take the decision."
+            options={AUTOMATED_DECISION_GROUNDS}
+            placeholder="Not decided yet"
+            initial={activity?.automatedDecisionGround ?? ""}
+            {...f}
+          />
+          <TextArea
+            name="automatedDecisionLogic"
+            label="What is decided, and how"
+            hint="What the decision is, the information and logic it uses, and what it means for the person. The privacy notice shows this."
+            initial={activity?.automatedDecisionLogic}
+            {...f}
+          />
+          <TextArea
+            name="automatedDecisionReview"
+            label="How people ask for a person to look again"
+            hint="How you tell people in writing that a decision was automated, and how they ask you to reconsider it or have a person take it again. The privacy notice shows this."
+            initial={activity?.automatedDecisionReview}
+            {...f}
+          />
+          <TextArea
+            name="automatedDecisionChecks"
+            label="Checks for errors and bias"
+            hint="How you test the method, check the results for mistakes and unfair treatment of any group, and put them right."
+            initial={activity?.automatedDecisionChecks}
+            {...f}
+          />
+        </div>
       </Card>
 
       <SubmitButton>{activity ? "Save changes" : "Add activity"}</SubmitButton>

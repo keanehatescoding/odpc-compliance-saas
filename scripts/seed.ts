@@ -388,6 +388,31 @@ await db.insert(trainingSessions).values([
   },
 ]);
 
+// The admissions portal turns applicants away without anyone looking (s.35). The record doesn't yet say how the
+// shortlisting is checked for errors and bias, so it shows on the dashboard and in the compliance report.
+await db.insert(processingActivities).values({
+  orgId: org.id,
+  name: "Online admissions shortlisting",
+  purpose: "Shortlist Grade 10 applicants for interview through the admissions portal.",
+  lawfulBasis: "contract",
+  role: "controller",
+  provision: "Yes. We can't consider an application without it.",
+  dataSubjects: ["Applicants", "Parents and guardians"],
+  dataCategories: ["Name", "Date of birth", "Assessment number", "KJSEA results", "Previous school"],
+  recipients: "Admissions portal provider",
+  retentionPeriod: "Until the intake closes, plus 1 year",
+  securityMeasures: "Portal accounts for the admissions office only, with two-step sign-in",
+  systems: "Admissions portal",
+  owner: "Admissions office",
+  involvesChildren: true,
+  automatedDecisions: true,
+  automatedDecisionGround: "contract",
+  automatedDecisionLogic:
+    "The portal ranks applications by KJSEA results and the subjects applied for, and turns away those below the cut-off without a member of staff seeing them.",
+  automatedDecisionReview:
+    "The rejection email says the decision was made by the portal. Reply to it, or write to the admissions office, and the deputy principal will look at the application again within 14 days.",
+});
+
 // Photographs are the one thing the school does on consent. One consent record is complete, the other can't be proved yet.
 const [photos] = await db
   .insert(processingActivities)
@@ -516,7 +541,7 @@ await db.insert(policies).values([
 ]);
 
 console.log(
-  `Seeded "${org.name}" with ${templates.length + 1} RoPA entries, one DPIA, one open breach, two data subject requests, two ODPC letters, two changes of registered particulars, two processors, two training sessions, two consent records, one legitimate interest assessment, one transfer outside Kenya, two disposals and three policies.`,
+  `Seeded "${org.name}" with ${templates.length + 2} RoPA entries, one DPIA, one open breach, two data subject requests, two ODPC letters, two changes of registered particulars, two processors, two training sessions, two consent records, one legitimate interest assessment, one transfer outside Kenya, two disposals and three policies.`,
 );
 console.log(`Sign in as ${EMAIL} / ${PASSWORD}`);
 process.exit(0);

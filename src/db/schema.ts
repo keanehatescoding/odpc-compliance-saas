@@ -15,6 +15,7 @@ import {
   uuid,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
+import { AUTOMATED_DECISION_GROUND_KEYS, type AutomatedDecisionGround } from "../lib/automated-decision";
 import { BREACH_KIND_KEYS, BREACH_RISK_KEYS } from "../lib/breach";
 import { COMPLAINT_KIND_KEYS } from "../lib/complaint";
 import { CONSENT_METHOD_KEYS } from "../lib/consent";
@@ -39,6 +40,10 @@ export const consentMethodEnum = pgEnum("consent_method", CONSENT_METHOD_KEYS as
 export const disposalMethodEnum = pgEnum("disposal_method", DISPOSAL_METHOD_KEYS as [string, ...string[]]);
 export const disposalReasonEnum = pgEnum("disposal_reason", DISPOSAL_REASON_KEYS as [string, ...string[]]);
 export const retentionUnitEnum = pgEnum("retention_unit", RETENTION_UNIT_KEYS as [RetentionUnit, ...RetentionUnit[]]);
+export const automatedDecisionGroundEnum = pgEnum(
+  "automated_decision_ground",
+  AUTOMATED_DECISION_GROUND_KEYS as [AutomatedDecisionGround, ...AutomatedDecisionGround[]],
+);
 export const policyKindEnum = pgEnum("policy_kind", POLICY_KIND_KEYS as [string, ...string[]]);
 export const liaOutcomeEnum = pgEnum("lia_outcome", LIA_OUTCOME_KEYS as [string, ...string[]]);
 export const transferBasisEnum = pgEnum("transfer_basis", TRANSFER_BASIS_KEYS as [string, ...string[]]);
@@ -479,6 +484,15 @@ export const processingActivities = pgTable(
     largeScale: boolean("large_scale").notNull().default(false),
     systematicMonitoring: boolean("systematic_monitoring").notNull().default(false),
     involvesChildren: boolean("involves_children").notNull().default(false),
+    // Decisions about people taken by automated means alone, with legal or
+    // similarly significant effects (s.35 of the Act, reg. 22 of the General
+    // Regulations). The details are empty unless the activity takes them.
+    automatedDecisions: boolean("automated_decisions").notNull().default(false),
+    // What s.35(2) allows them under. Null until someone says.
+    automatedDecisionGround: automatedDecisionGroundEnum("automated_decision_ground"),
+    automatedDecisionLogic: text("automated_decision_logic").notNull().default(""),
+    automatedDecisionReview: text("automated_decision_review").notNull().default(""),
+    automatedDecisionChecks: text("automated_decision_checks").notNull().default(""),
     templateId: text("template_id"),
     ...timestamps,
   },
@@ -487,6 +501,10 @@ export const processingActivities = pgTable(
     uniqueIndex("processing_activities_org_template_idx").on(t.orgId, t.templateId),
     check("processing_activities_retention_check", sql`(${t.retentionLength} is null) = (${t.retentionUnit} is null)`),
     check("processing_activities_retention_length_positive", sql`${t.retentionLength} > 0`),
+    check(
+      "processing_activities_automated_decision_check",
+      sql`${t.automatedDecisions} or (${t.automatedDecisionGround} is null and ${t.automatedDecisionLogic} = '' and ${t.automatedDecisionReview} = '' and ${t.automatedDecisionChecks} = '')`,
+    ),
   ],
 );
 

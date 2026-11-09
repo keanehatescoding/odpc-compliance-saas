@@ -9,7 +9,7 @@ import { changedFields, describe, editSummary, FIELD_LABELS, recordActivity } fr
 import { todayInKenya } from "@/lib/dates";
 import { fieldErrors, formValues, type FormState } from "@/lib/forms";
 import { addedActivitiesChange, ropaHref, ropaParticularChange, suggestionFor, type SuggestedChange } from "@/lib/particulars";
-import { ACTIVITY_TEMPLATES, parseActivityForm } from "@/lib/ropa";
+import { ACTIVITY_TEMPLATES, activityToSave, parseActivityForm } from "@/lib/ropa";
 import { requireActiveOrg } from "@/lib/session";
 import { isUuid } from "@/lib/uuid";
 
@@ -38,11 +38,7 @@ export async function saveActivity(_prev: FormState, formData: FormData): Promis
   const parsed = parseActivityForm(formData);
   if (!parsed.success) return { errors: fieldErrors(parsed.error), values: formValues(formData) };
 
-  const data = {
-    ...parsed.data,
-    transferCountries: parsed.data.crossBorder ? parsed.data.transferCountries : "",
-    transferSafeguards: parsed.data.crossBorder ? parsed.data.transferSafeguards : "",
-  };
+  const data = activityToSave(parsed.data);
   const next = await db.transaction(async (tx) => {
     const log = (subjectId: string, summary: string) =>
       recordActivity(tx, { orgId: org.id, actorId: user.id, area: "ropa", subjectId, summary });

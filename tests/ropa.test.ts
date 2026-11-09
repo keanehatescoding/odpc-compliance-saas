@@ -3,6 +3,7 @@ import { SECTOR_KEYS } from "@/lib/dpa";
 import {
   ACTIVITY_TEMPLATES,
   activityFormSchema,
+  activityToSave,
   dpiaRecommended,
   dpiaTriggers,
   parseActivityForm,
@@ -59,6 +60,34 @@ describe("parseActivityForm", () => {
     expect(r.success).toBe(false);
   });
 
+  it("reads the automated decision details, and leaves the ground empty when none is chosen", () => {
+    const r = parseActivityForm(
+      form({
+        ...valid,
+        automatedDecisions: "on",
+        automatedDecisionGround: "contract",
+        automatedDecisionLogic: " A model scores the application ",
+        automatedDecisionReview: "Reply to the decision email",
+        automatedDecisionChecks: "Monthly review of declines",
+      }),
+    );
+    expect(r.data).toMatchObject({
+      automatedDecisions: true,
+      automatedDecisionGround: "contract",
+      automatedDecisionLogic: "A model scores the application",
+      automatedDecisionReview: "Reply to the decision email",
+      automatedDecisionChecks: "Monthly review of declines",
+    });
+    const plain = parseActivityForm(form(valid));
+    expect(plain.data).toMatchObject({ automatedDecisions: false, automatedDecisionGround: null, automatedDecisionLogic: "" });
+  });
+
+  it("only accepts a listed ground for automated decisions", () => {
+    const r = parseActivityForm(form({ ...valid, automatedDecisions: "on", automatedDecisionGround: "convenience" }));
+    expect(r.success).toBe(false);
+    expect(r.error!.issues.map((i) => i.path.join("."))).toContain("automatedDecisionGround");
+  });
+
   it("reports the transfer error alongside other field errors", () => {
     const r = parseActivityForm(form({ ...valid, retentionPeriod: "", crossBorder: "on" }));
     expect(r.error!.issues.map((i) => i.path.join("."))).toEqual(
@@ -111,6 +140,7 @@ describe("DPIA screening", () => {
     largeScale: false,
     systematicMonitoring: false,
     involvesChildren: false,
+    automatedDecisions: false,
   };
 
   it("does not flag ordinary processing", () => {
@@ -126,6 +156,45 @@ describe("DPIA screening", () => {
     expect(dpiaRecommended({ ...plain, crossBorder: true })).toBe(false);
     expect(dpiaRecommended({ ...plain, crossBorder: true, involvesChildren: true })).toBe(true);
   });
+
+  it("flags automated decisions on their own (reg. 49(1)(a))", () => {
+    const automated = { ...plain, automatedDecisions: true };
+    expect(dpiaRecommended(automated)).toBe(true);
+    expect(dpiaTriggers(automated)[0]).toContain("reg. 49(1)(a)");
+  });
+});
+
+describe("activityToSave", () => {
+  const parsed = () =>
+    parseActivityForm(
+      form({
+        ...valid,
+        crossBorder: "on",
+        transferCountries: "Ireland",
+        transferSafeguards: "Contract clauses",
+        automatedDecisions: "on",
+        automatedDecisionGround: "consent",
+        automatedDecisionLogic: "Scores applicants",
+        automatedDecisionReview: "Email us",
+        automatedDecisionChecks: "Quarterly audit",
+      }),
+    ).data!;
+
+  it("keeps the details of what is ticked", () => {
+    expect(activityToSave(parsed())).toEqual(parsed());
+  });
+
+  it("drops the transfer and automated decision details when their boxes aren't ticked", () => {
+    const saved = activityToSave({ ...parsed(), crossBorder: false, automatedDecisions: false });
+    expect(saved).toMatchObject({
+      transferCountries: "",
+      transferSafeguards: "",
+      automatedDecisionGround: null,
+      automatedDecisionLogic: "",
+      automatedDecisionReview: "",
+      automatedDecisionChecks: "",
+    });
+  });
 });
 
 describe("ropaToCsv", () => {
@@ -137,6 +206,19 @@ describe("ropaToCsv", () => {
     expect(lines).toHaveLength(2);
     expect(lines[1]).toContain(`"'=HYPERLINK(""x"")"`);
     expect(lines[1]).toContain(`"He said ""hi"""`);
+  });
+
+  it("says whether an activity takes automated decisions, and on what ground", () => {
+    const [tpl] = ACTIVITY_TEMPLATES;
+    const header = ropaToCsv([]).trim().slice(1).split(",");
+    const row = (a: typeof tpl) => ropaToCsv([a]).trim().split("\r\n")[1];
+    const col = header.indexOf('"Automated decisions"');
+    expect(col).toBeGreaterThan(-1);
+    expect(row(tpl)).toContain('"No"');
+    expect(row({ ...tpl, automatedDecisions: true })).toContain('"Yes: ground not recorded"');
+    expect(row({ ...tpl, automatedDecisions: true, automatedDecisionGround: "contract", automatedDecisionLogic: "Scores loans" })).toContain(
+      '"Yes: Necessary to enter into or carry out a contract with the person","Scores loans"',
+    );
   });
 });
 
@@ -151,6 +233,8 @@ describe("templates", () => {
         largeScale: String(t.largeScale),
         systematicMonitoring: String(t.systematicMonitoring),
         involvesChildren: String(t.involvesChildren),
+        automatedDecisions: String(t.automatedDecisions),
+        automatedDecisionGround: t.automatedDecisionGround ?? "",
         retentionLength: t.retentionLength?.toString() ?? "",
         retentionUnit: t.retentionUnit ?? "",
       });

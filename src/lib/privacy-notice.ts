@@ -1,3 +1,4 @@
+import { automatedDecisionNotice } from "./automated-decision";
 import { formatDate } from "./dates";
 import type { LawfulBasis } from "./dpa";
 import { publishedDpo, type DpoLike } from "./dpo";
@@ -191,6 +192,9 @@ export function buildPrivacyNotice(input: {
         value: a.transferSafeguards ? `To ${a.transferCountries}. ${a.transferSafeguards}` : `To ${a.transferCountries}.`,
       });
     }
+    // s.35(3) and reg. 22(2): people are told about decisions taken without a person, and how to have one look again.
+    const decisions = automatedDecisionNotice(a);
+    if (decisions) facts.push({ label: "Automated decisions", value: decisions });
     facts.push({ label: "Kept for", value: a.retentionPeriod });
     if (a.securityMeasures) facts.push({ label: "Protected by", value: a.securityMeasures });
     what.push({ kind: "h3", text: a.name }, { kind: "facts", items: facts });
@@ -244,6 +248,16 @@ export function buildPrivacyNotice(input: {
   const unbased = activities.filter((a) => a.crossBorder && a.transfers && !a.transfers.some((t) => t.basis !== "pending"));
   if (unbased.length > 0) {
     checks.push(`Record what sending data outside Kenya relies on (Transfers outside Kenya), for: ${names(unbased)}.`);
+  }
+  // The notice tells people about automated decisions in general terms until the record says what they are.
+  const unexplained = activities.filter((a) => a.automatedDecisions && (!a.automatedDecisionLogic.trim() || !a.automatedDecisionReview.trim()));
+  if (unexplained.length > 0) {
+    checks.push(`Describe how automated decisions are made and how people ask for a person to look again (Automated decisions), for: ${names(unexplained)}.`);
+  }
+  // reg. 4(1)(d): asking for consent means telling people about automated decisions too.
+  const consentedDecisions = activities.filter((a) => a.automatedDecisions && a.lawfulBasis === "consent");
+  if (consentedDecisions.length > 0) {
+    checks.push(`Make sure the consent you ask for mentions the automated decisions, for: ${names(consentedDecisions)}.`);
   }
   const unprotected = activities.filter((a) => !a.securityMeasures);
   if (unprotected.length > 0) {
