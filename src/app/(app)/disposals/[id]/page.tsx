@@ -6,8 +6,9 @@ import { RecordHistory } from "@/components/activity-list";
 import { DeleteButton } from "@/components/delete-button";
 import { BackLink, buttonClass, Card, cx, DisposalStatusBadge, PageHeader } from "@/components/ui";
 import { formatDate, todayInKenya } from "@/lib/dates";
-import { daysToNextDisposal, DISPOSAL_CHECKS, disposalGaps, disposalStatus, followedUp, latestByActivity } from "@/lib/disposal";
+import { daysToNextDisposal, DISPOSAL_CHECKS, disposalGaps, disposalStatus, followedUp, latestRoundByActivity } from "@/lib/disposal";
 import { listActivities, listDisposals } from "@/lib/queries";
+import { retentionOf } from "@/lib/retention";
 import { requireOrgContext } from "@/lib/session";
 import { isUuid } from "@/lib/uuid";
 import { DisposalForm } from "../disposal-form";
@@ -25,7 +26,7 @@ export default async function DisposalPage({ params }: PageProps<"/disposals/[id
   const activity = activities.find((a) => a.id === disposal.activityId) ?? null;
 
   const today = todayInKenya();
-  const latest = latestByActivity(all);
+  const latest = latestRoundByActivity(all);
   const status = disposalStatus(disposal, latest, today);
   const superseded = followedUp(disposal, latest);
   const gaps = disposalGaps(disposal);
@@ -65,7 +66,7 @@ export default async function DisposalPage({ params }: PageProps<"/disposals/[id
           </p>
         )}
         {superseded && activity && (
-          <p className="mt-3 text-sm text-stone-700">A later disposal has been recorded for {activity.name}.</p>
+          <p className="mt-3 text-sm text-stone-700">A later disposal round has been recorded for {activity.name}.</p>
         )}
         {gaps.length > 0 && (
           <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-stone-700">
@@ -95,7 +96,7 @@ export default async function DisposalPage({ params }: PageProps<"/disposals/[id
         </details>
       </Card>
 
-      <DisposalForm disposal={disposal} activities={activities.map((a) => ({ id: a.id, name: a.name }))} today={today} />
+      <DisposalForm disposal={disposal} activities={activities.map(retentionOf)} today={today} />
       <RecordHistory orgId={org.id} subjectId={disposal.id} />
     </>
   );

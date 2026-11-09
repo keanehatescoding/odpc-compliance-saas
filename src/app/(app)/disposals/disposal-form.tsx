@@ -1,11 +1,13 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useRef, useState } from "react";
 import { saveDisposal } from "@/app/actions/disposals";
 import { SubmitButton } from "@/components/submit-button";
 import { Card, FormMessage, SelectField, TextArea, TextField } from "@/components/ui";
 import type { Disposal } from "@/db/schema";
+import { formatDate, isIsoDate } from "@/lib/dates";
 import { DISPOSAL_METHODS, DISPOSAL_REASONS } from "@/lib/disposal";
+import { describeRetention, nextRoundOn, retentionCutoff, roundIntervalText, type ActivityRetention } from "@/lib/retention";
 
 export function DisposalForm({
   disposal,
@@ -14,16 +16,40 @@ export function DisposalForm({
   today,
 }: {
   disposal?: Disposal;
-  activities: { id: string; name: string }[];
+  activities: ActivityRetention[];
   /** The activity to start a new record on. */
   activityId?: string;
   today: string;
 }) {
   const [state, action] = useActionState(saveDisposal, undefined);
   const f = { errors: state?.errors, values: state?.values };
+  const formRef = useRef<HTMLFormElement>(null);
+  // Followed as they change, to say where the activity's retention period draws the line.
+  const [chosenId, setChosenId] = useState(disposal ? (disposal.activityId ?? "") : (activityId ?? ""));
+  const [disposedOn, setDisposedOn] = useState(disposal?.disposedOn ?? "");
+  const chosen = activities.find((a) => a.id === chosenId) ?? null;
+  const on = isIsoDate(disposedOn) ? disposedOn : today;
+  const period = chosen && describeRetention(chosen);
+  const cutoff = chosen && retentionCutoff(chosen, on);
+  const suggested = chosen && nextRoundOn(chosen, on);
+
+  const applySuggested = () => {
+    const input = formRef.current?.elements.namedItem("nextOn");
+    if (input instanceof HTMLInputElement && suggested) input.value = suggested;
+  };
 
   return (
-    <form action={action} className="max-w-3xl space-y-6">
+    <form
+      ref={formRef}
+      action={action}
+      className="max-w-3xl space-y-6"
+      onChange={(e) => {
+        const t = e.target;
+        if (!(t instanceof HTMLInputElement || t instanceof HTMLSelectElement)) return;
+        if (t.name === "activityId") setChosenId(t.value);
+        if (t.name === "disposedOn") setDisposedOn(t.value);
+      }}
+    >
       {disposal && <input type="hidden" name="id" value={disposal.id} />}
       <FormMessage message={state?.message} />
       {state?.errors && <FormMessage message="Some fields need attention. See the messages below." />}
@@ -58,6 +84,20 @@ export function DisposalForm({
             {...f}
           />
         </div>
+        {chosen && (
+          <p className="rounded-md bg-stone-50 px-3 py-2 text-sm text-stone-700">
+            {period && cutoff ? (
+              <>
+                Kept for {period}. On {formatDate(on)}, that is anything from before <strong>{formatDate(cutoff)}</strong>.
+              </>
+            ) : (
+              <>
+                Kept for: {chosen.retentionPeriod}. Give the period as a length in the Records of processing and Kinga will
+                show where the line falls.
+              </>
+            )}
+          </p>
+        )}
       </Card>
 
       <Card className="space-y-5">
@@ -112,10 +152,20 @@ export function DisposalForm({
           name="nextOn"
           label="Go through this data again on"
           type="date"
-          hint="When more of it will have passed its retention period. Leave blank if this was a one-off."
+          hint="When more of it will have passed its retention period. Left blank, the next round follows from the activity's retention period where the Records of processing give it as a length."
           initial={disposal?.nextOn ?? ""}
           {...f}
         />
+        {suggested && (
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-stone-700">
+            <span>
+              Its retention period suggests {formatDate(suggested)}, going through it {roundIntervalText(chosen)}.
+            </span>
+            <button type="button" onClick={applySuggested} className="font-medium text-brand-700 hover:underline">
+              Use this date
+            </button>
+          </p>
+        )}
         <TextArea name="notes" label="Notes" rows={3} initial={disposal?.notes} {...f} />
       </Card>
 

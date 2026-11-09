@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { BackLink, PageHeader } from "@/components/ui";
 import { todayInKenya } from "@/lib/dates";
 import { listActivities } from "@/lib/queries";
+import { retentionOf } from "@/lib/retention";
 import { requireOrgContext } from "@/lib/session";
 import { DisposalForm } from "../disposal-form";
 
@@ -19,7 +20,7 @@ export default async function NewDisposalPage({ searchParams }: PageProps<"/disp
         description="Record it once the data has gone. Add it even if you can't fill everything in yet. Kinga will show what's missing."
       />
       <DisposalForm
-        activities={activities.map((a) => ({ id: a.id, name: a.name }))}
+        activities={activities.map(retentionOf)}
         activityId={activities.find((a) => a.id === wanted)?.id}
         today={todayInKenya()}
       />

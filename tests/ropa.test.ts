@@ -66,6 +66,36 @@ describe("parseActivityForm", () => {
     );
   });
 
+  it("reads the retention period as a length, and leaves it out when blank", () => {
+    const r = parseActivityForm(form({ ...valid, retentionLength: " 7 ", retentionUnit: "years", retentionFrom: "the end of employment" }));
+    expect(r.data).toMatchObject({ retentionLength: 7, retentionUnit: "years", retentionFrom: "the end of employment" });
+    const blank = parseActivityForm(form({ ...valid, retentionLength: "", retentionUnit: "" }));
+    expect(blank.data).toMatchObject({ retentionLength: null, retentionUnit: null, retentionFrom: "" });
+  });
+
+  it("needs the length and the unit together", () => {
+    const paths = (entries: Record<string, string>) =>
+      parseActivityForm(form({ ...valid, ...entries })).error?.issues.map((i) => i.path.join("."));
+    expect(paths({ retentionLength: "7" })).toEqual(["retentionUnit"]);
+    expect(paths({ retentionUnit: "years" })).toEqual(["retentionLength"]);
+    expect(paths({ retentionFrom: "the end of employment" })).toEqual(["retentionLength"]);
+  });
+
+  it("takes a whole number above zero, up to a hundred years", () => {
+    const ok = (retentionLength: string, retentionUnit: string) =>
+      parseActivityForm(form({ ...valid, retentionLength, retentionUnit })).success;
+    expect(ok("0", "days")).toBe(false);
+    expect(ok("2.5", "years")).toBe(false);
+    expect(ok("-1", "months")).toBe(false);
+    expect(ok("100", "years")).toBe(true);
+    expect(ok("101", "years")).toBe(false);
+    expect(ok("1200", "months")).toBe(true);
+    expect(ok("1201", "months")).toBe(false);
+    expect(ok("36525", "days")).toBe(true);
+    expect(ok("36526", "days")).toBe(false);
+    expect(ok("7", "decades")).toBe(false);
+  });
+
   it("rejects unknown lawful bases and empty subject lists", () => {
     const r = parseActivityForm(form({ ...valid, lawfulBasis: "because", dataSubjects: " , " }));
     expect(r.success).toBe(false);
@@ -121,6 +151,8 @@ describe("templates", () => {
         largeScale: String(t.largeScale),
         systematicMonitoring: String(t.systematicMonitoring),
         involvesChildren: String(t.involvesChildren),
+        retentionLength: t.retentionLength?.toString() ?? "",
+        retentionUnit: t.retentionUnit ?? "",
       });
       expect(r.success, `${t.id}: ${r.error?.message}`).toBe(true);
     }

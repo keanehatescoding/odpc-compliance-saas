@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "@/db";
 import * as schema from "@/db/schema";
 import { changedFields, describe as describeRecord, FIELD_LABELS, recordActivity, subjectLinks } from "@/lib/activity";
-import { daysToNextDisposal, disposalGaps, disposalStatus, followedUp, latestByActivity } from "@/lib/disposal";
+import { countsAsRound, daysToNextDisposal, disposalGaps, disposalStatus, followedUp, latestByActivity, latestRoundByActivity } from "@/lib/disposal";
 import { parseDisposalForm } from "@/lib/disposal-form";
 
 const { activityLog, disposals, organizations, processingActivities, users } = schema;
@@ -42,6 +42,17 @@ describe("disposal status", () => {
     const other = { id: "d2", activityId: "a2", disposedOn: "2026-10-08", nextOn: null };
     const loose = { id: "d3", activityId: null, disposedOn: "2026-10-08", nextOn: null };
     expect(disposalStatus(files, latestByActivity([files, other, loose]), today)).toBe("next_due");
+  });
+
+  it("isn't followed up by an erasure or withdrawn consent, which aren't rounds", () => {
+    const erasure = { id: "d2", activityId: "a1", disposedOn: "2026-10-08", nextOn: null, reason: "erasure" };
+    const withdrawn = { ...erasure, id: "d3", reason: "consent_withdrawn" };
+    const rounds = latestRoundByActivity([{ ...files, reason: "retention" }, erasure, withdrawn]);
+    expect(rounds.get("a1")).toBe("2025-10-01");
+    expect(disposalStatus(files, rounds, today)).toBe("next_due");
+    expect(countsAsRound(erasure)).toBe(false);
+    expect(countsAsRound({ reason: "purpose_ended" })).toBe(true);
+    expect(countsAsRound({})).toBe(true);
   });
 
   it("can't be followed up without an activity to match on", () => {
@@ -160,6 +171,17 @@ describe("in the database", () => {
   it("goes with its organisation", async () => {
     await db.delete(organizations).where(eq(organizations.id, orgId));
     expect(await db.select().from(disposals)).toEqual([]);
+  });
+
+  it("stores an activity's retention length only with its unit, and above zero", async () => {
+    const update = (set: Partial<typeof processingActivities.$inferInsert>) =>
+      db.update(processingActivities).set(set).where(eq(processingActivities.id, activityId));
+    await expect(update({ retentionLength: 7 })).rejects.toThrow();
+    await expect(update({ retentionUnit: "years" })).rejects.toThrow();
+    await expect(update({ retentionLength: 0, retentionUnit: "years" })).rejects.toThrow();
+    await update({ retentionLength: 7, retentionUnit: "years", retentionFrom: "the pupil leaving" });
+    const [row] = await db.select().from(processingActivities).where(eq(processingActivities.id, activityId));
+    expect(row).toMatchObject({ retentionLength: 7, retentionUnit: "years", retentionFrom: "the pupil leaving" });
   });
 
   it("only stores a method and a reason it knows, and a count above zero", async () => {

@@ -2,8 +2,16 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { buttonClass, Card, DisposalStatusBadge, EmptyState, PageHeader } from "@/components/ui";
 import { formatDate, todayInKenya } from "@/lib/dates";
-import { DISPOSAL_METHODS, DISPOSAL_REASONS, disposalStatus, latestByActivity, type DisposalMethod, type DisposalReason } from "@/lib/disposal";
+import {
+  DISPOSAL_METHODS,
+  DISPOSAL_REASONS,
+  disposalStatus,
+  latestRoundByActivity,
+  type DisposalMethod,
+  type DisposalReason,
+} from "@/lib/disposal";
 import { listActivities, listDisposals } from "@/lib/queries";
+import { activityNextRound, describeRetention, retentionCutoff } from "@/lib/retention";
 import { requireOrgContext } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Data disposal" };
@@ -12,9 +20,15 @@ export default async function DisposalsPage() {
   const { org } = await requireOrgContext();
   const today = todayInKenya();
   const [disposals, activities] = await Promise.all([listDisposals(org.id), listActivities(org.id)]);
-  const latest = latestByActivity(disposals);
+  const lastRound = latestRoundByActivity(disposals);
   const activityName = new Map(activities.map((a) => [a.id, a.name]));
-  const rows = disposals.map((d) => ({ ...d, status: disposalStatus(d, latest, today) }));
+  const rows = disposals.map((d) => ({ ...d, status: disposalStatus(d, lastRound, today) }));
+  const schedule = activities.map((a) => ({
+    ...a,
+    period: describeRetention(a),
+    cutoff: retentionCutoff(a, today),
+    next: activityNextRound(a, disposals, today),
+  }));
 
   return (
     <>
@@ -85,8 +99,10 @@ export default async function DisposalsPage() {
         <>
           <h2 className="mt-10 mb-1 text-lg font-semibold">Retention schedule</h2>
           <p className="mb-4 max-w-2xl text-sm text-stone-600">
-            How long each activity in your Records of processing says it keeps personal data, and when you last disposed
-            of any. Go through each one for data that is past its period.
+            How long each activity in your Records of processing says it keeps personal data, and when to go through it
+            again. Where the period is given as a length, Kinga shows where the line falls today and plans a round once
+            the period has passed, or every year if that comes sooner. Erasure requests and withdrawn consent don&apos;t
+            count as rounds.
           </p>
           <Card className="overflow-x-auto p-0">
             <table className="w-full text-left text-sm">
@@ -94,23 +110,43 @@ export default async function DisposalsPage() {
                 <tr>
                   <th className="px-4 py-3 font-medium">Activity</th>
                   <th className="px-4 py-3 font-medium">Kept for</th>
-                  <th className="px-4 py-3 font-medium">Last disposal</th>
+                  <th className="px-4 py-3 font-medium">Past its period</th>
+                  <th className="px-4 py-3 font-medium">Last round</th>
+                  <th className="px-4 py-3 font-medium">Next round</th>
                   <th className="px-4 py-3 font-medium">
                     <span className="sr-only">Record</span>
                   </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
-                {activities.map((a) => (
+                {schedule.map((a) => (
                   <tr key={a.id} className="align-top">
                     <td className="px-4 py-3">
                       <Link href={`/ropa/${a.id}`} className="font-medium hover:underline">
                         {a.name}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-stone-700">{a.retentionPeriod}</td>
+                    <td className="px-4 py-3 text-stone-700">
+                      <p>{a.retentionPeriod}</p>
+                      {a.period && <p className="mt-0.5 text-xs text-stone-600">{a.period}</p>}
+                    </td>
                     <td className="px-4 py-3 whitespace-nowrap text-stone-700">
-                      {latest.has(a.id) ? formatDate(latest.get(a.id)!) : <span className="text-stone-500">None recorded</span>}
+                      {a.cutoff ? `From before ${formatDate(a.cutoff)}` : <span className="text-stone-500">No fixed length</span>}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-stone-700">
+                      {lastRound.has(a.id) ? formatDate(lastRound.get(a.id)!) : <span className="text-stone-500">None recorded</span>}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {a.next?.due ? (
+                        <>
+                          <DisposalStatusBadge status="next_due" />
+                          <p className="mt-1 text-xs text-stone-600">Was due {formatDate(a.next.on)}</p>
+                        </>
+                      ) : a.next ? (
+                        <span className="text-stone-700">{formatDate(a.next.on)}</span>
+                      ) : (
+                        <span className="text-stone-500">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right whitespace-nowrap">
                       <Link href={`/disposals/new?activity=${a.id}`} className="font-medium text-brand-700 hover:underline">

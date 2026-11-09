@@ -455,7 +455,8 @@ await db.insert(interestAssessments).values({
   reviewOn: addMonths(today, 5),
 });
 
-// Two disposals: last year's clear-out of old pupil files, whose next round is now due, and a routine wipe of CCTV footage.
+// Two disposals: last year's clear-out of old pupil files, whose next round is now due, and a wipe of CCTV footage
+// that set no next date, so its 30-day retention period puts the next wipe 10 days overdue.
 await db.insert(disposals).values([
   {
     orgId: org.id,
@@ -474,7 +475,7 @@ await db.insert(disposals).values([
     orgId: org.id,
     activityId: activities.find((a) => a.templateId === "cctv")?.id ?? null,
     description: "CCTV footage older than 30 days",
-    disposedOn: addDays(today, -10),
+    disposedOn: addDays(today, -40),
     method: "deleted",
     reason: "retention",
     carriedOutBy: "The security supervisor",

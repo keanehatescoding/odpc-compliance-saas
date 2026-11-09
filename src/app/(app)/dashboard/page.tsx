@@ -6,7 +6,7 @@ import { breachStatus, notificationDeadline, NOTIFY_WHOM, outstandingTasks } fro
 import { awaitsResponse, complaintStatus, daysToAct, kindInfo as complaintKindInfo } from "@/lib/complaint";
 import { activitiesWithoutConsent, consentStatus } from "@/lib/consent";
 import { formatDate, formatDateTime, todayInKenya } from "@/lib/dates";
-import { disposalStatus, latestByActivity } from "@/lib/disposal";
+import { disposalStatus, latestRoundByActivity } from "@/lib/disposal";
 import { ODPC_FEES, REGISTRATION_ROLES, formatKsh, type OrgSize, type RegistrationRole } from "@/lib/dpa";
 import { dpiaStatus } from "@/lib/dpia";
 import { dpoIssues, dpoTodo } from "@/lib/dpo";
@@ -34,6 +34,7 @@ import {
 } from "@/lib/queries";
 import { daysUntilExpiry, registrationStatus, STATUS_SEVERITY, worstStatus } from "@/lib/registration";
 import { dpiaRecommended } from "@/lib/ropa";
+import { retentionRoundsDue } from "@/lib/retention";
 import { requireOrgContext } from "@/lib/session";
 import { daysToRespond, formatDaysLeft, isOpen, kindInfo, requestStatus } from "@/lib/subject-request";
 import { refreshedIds, trainingStatus } from "@/lib/training";
@@ -158,12 +159,20 @@ export default async function DashboardPage() {
     if (status === "incomplete" || gaps.length > 0) todos.push({ text: `Finish the record of the transfer to ${t.recipient}`, href: `/transfers/${t.id}` });
     else if (status === "review_due") todos.push({ text: `Review the transfer to ${t.recipient}`, href: `/transfers/${t.id}` });
   }
-  if (activities.length > 0 && disposals.length === 0) {
+  const roundsDue = retentionRoundsDue(activities, disposals, today);
+  // Where retention periods already name the rounds that are due, they say it more precisely.
+  if (activities.length > 0 && disposals.length === 0 && roundsDue.length === 0) {
     todos.push({ text: "Check for personal data past its retention period, and record what you dispose of", href: "/disposals" });
   }
-  const lastDisposal = latestByActivity(disposals);
+  for (const { activity, on } of roundsDue) {
+    todos.push({
+      text: `Go through ${activity.name} for data past its retention period (due ${formatDate(on)})`,
+      href: `/disposals/new?activity=${activity.id}`,
+    });
+  }
+  const lastRound = latestRoundByActivity(disposals);
   for (const d of disposals) {
-    if (disposalStatus(d, lastDisposal, today) === "next_due") {
+    if (disposalStatus(d, lastRound, today) === "next_due") {
       todos.push({ text: `Go through your data for disposal again (due ${formatDate(d.nextOn)})`, href: `/disposals/${d.id}` });
     }
   }

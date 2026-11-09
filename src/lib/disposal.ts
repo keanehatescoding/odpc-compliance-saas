@@ -47,14 +47,31 @@ export function latestByActivity(disposals: { activityId: string | null; dispose
   return latest;
 }
 
-/** Whether a later disposal has been recorded for the same activity. */
+/**
+ * Reasons that deal with one person's records rather than going through the
+ * activity's data. Getting rid of someone's records after an erasure request
+ * or a withdrawn consent doesn't do the round for everything else.
+ */
+const INDIVIDUAL_REASONS: readonly string[] = ["erasure", "consent_withdrawn"] satisfies DisposalReason[];
+
+/** Whether a disposal went through the activity's data, rather than one person's. A disposal with no reason given counts. */
+export function countsAsRound(d: { reason?: string }): boolean {
+  return d.reason === undefined || !INDIVIDUAL_REASONS.includes(d.reason);
+}
+
+/** The date of the most recent disposal round for each activity, leaving out disposals for one person. */
+export function latestRoundByActivity(disposals: { activityId: string | null; disposedOn: string; reason?: string }[]): Map<string, string> {
+  return latestByActivity(disposals.filter(countsAsRound));
+}
+
+/** Whether a later round has been recorded for the same activity. Pass `latest` from `latestRoundByActivity`. */
 export function followedUp(d: DisposalLike, latest: Map<string, string>): boolean {
   return d.activityId !== null && (latest.get(d.activityId) ?? "") > d.disposedOn;
 }
 
 /**
  * Where a disposal stands. The next round counts as due once its date arrives,
- * unless a later disposal for the same activity shows it has been done.
+ * unless a later round for the same activity shows it has been done.
  */
 export function disposalStatus(d: DisposalLike, latest: Map<string, string>, today: string): DisposalStatus {
   if (followedUp(d, latest)) return "done";

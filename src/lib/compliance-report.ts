@@ -61,11 +61,13 @@ import {
   DISPOSAL_STATUS_LABEL,
   disposalStatus,
   latestByActivity,
+  latestRoundByActivity,
   type DisposalLike,
   type DisposalMethod,
   type DisposalReason,
 } from "./disposal";
 import { POLICY_KINDS, POLICY_STATUS_LABEL, policyStatus, type PolicyKind, type PolicyLike } from "./policy";
+import { describeRetention, hasRetentionSchedule, retentionRoundsDue } from "./retention";
 import { refreshedIds, TRAINING_STATUS_LABEL, trainingStatus, type TrainingLike } from "./training";
 
 /**
@@ -98,7 +100,7 @@ export interface ReportParticularChange extends ParticularChangeLike {
   description: string;
 }
 
-export type ReportActivity = ActivityInput & { id: string; updatedAt: Date };
+export type ReportActivity = ActivityInput & { id: string; createdAt: Date; updatedAt: Date };
 
 export interface ReportDpia extends DpiaLike {
   id: string;
@@ -830,7 +832,10 @@ function transferSection(input: ReportInput, today: string): ReportSection {
 function disposalSection(input: ReportInput, today: string, periodFrom: string): ReportSection {
   const disposals = [...input.disposals].sort((a, b) => b.disposedOn.localeCompare(a.disposedOn));
   const latest = latestByActivity(disposals);
-  const statusOf = new Map(disposals.map((d) => [d.id, disposalStatus(d, latest, today)]));
+  const lastRound = latestRoundByActivity(disposals);
+  const statusOf = new Map(disposals.map((d) => [d.id, disposalStatus(d, lastRound, today)]));
+  const roundsDue = retentionRoundsDue(input.activities, disposals, today);
+  const scheduled = input.activities.filter((a) => hasRetentionSchedule(a)).length;
   const activityName = new Map(input.activities.map((a) => [a.id, a.name]));
   const inPeriod = disposals.filter((d) => d.disposedOn >= periodFrom);
   const due = disposals.filter((d) => statusOf.get(d.id) === "next_due");
@@ -843,6 +848,9 @@ function disposalSection(input: ReportInput, today: string, periodFrom: string):
   if (disposals.length === 0 && input.activities.length > 0) open.push("No disposal of personal data is recorded.");
   for (const d of due) {
     open.push(`The next disposal after ${formatDate(d.disposedOn)}${d.activityId && activityName.has(d.activityId) ? ` for ${nameOf(d)}` : ""} was due on ${formatDate(d.nextOn)}.`);
+  }
+  for (const { activity, on } of roundsDue) {
+    open.push(`Going through the ${activity.name} data was due on ${formatDate(on)}, given its retention period of ${describeRetention(activity)}.`);
   }
   if (disposals.length > 0 && inPeriod.length === 0 && due.length === 0) {
     open.push(`No disposal is recorded in the last ${REPORT_PERIOD_MONTHS} months. The most recent was on ${formatDate(disposals[0].disposedOn)}.`);
@@ -878,6 +886,7 @@ function disposalSection(input: ReportInput, today: string, periodFrom: string):
       },
       { label: "Most recent disposal", value: disposals.length > 0 ? formatDate(disposals[0].disposedOn) : "None recorded" },
       { label: "Activities with a disposal on record", value: `${covered} of ${input.activities.length}` },
+      { label: "Activities giving their retention period as a length", value: `${scheduled} of ${input.activities.length}` },
     ],
     table: rows.length > 0 ? { columns: ["Disposed of", "Activity", "Why", "How", "Records", "Next round", "Status"], rows } : undefined,
     open,

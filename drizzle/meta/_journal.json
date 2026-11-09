@@ -225,6 +225,13 @@
       "when": 1794166756423,
       "tag": "0031_dpo",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1794251361402,
+      "tag": "0032_retention_periods",
+      "breakpoints": true
     }
   ]
 }
