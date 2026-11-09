@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Countdown } from "@/components/countdown";
 import { BreachStatusBadge, buttonClass, Card, cx, PageHeader, StatusBadge } from "@/components/ui";
 import { activitiesWithAutomatedDecisionIssues, automatedDecisionTodo } from "@/lib/automated-decision";
+import { activitiesWithDirectMarketingIssues, directMarketingTodo } from "@/lib/direct-marketing";
 import { breachStatus, notificationDeadline, NOTIFY_WHOM, outstandingTasks } from "@/lib/breach";
 import { awaitsResponse, complaintStatus, daysToAct, kindInfo as complaintKindInfo } from "@/lib/complaint";
 import { activitiesWithoutConsent, consentStatus } from "@/lib/consent";
@@ -125,6 +126,9 @@ export default async function DashboardPage() {
   }
   for (const { activity, issues } of activitiesWithAutomatedDecisionIssues(activities)) {
     todos.push({ text: automatedDecisionTodo(activity, issues), href: `/ropa/${activity.id}` });
+  }
+  for (const { activity, issues } of activitiesWithDirectMarketingIssues(activities)) {
+    todos.push({ text: directMarketingTodo(activity, issues), href: `/ropa/${activity.id}` });
   }
   for (const a of activitiesWithoutConsent(activities, consents)) {
     todos.push({ text: `Record how you get consent for ${a.name}`, href: `/consents/new?activity=${a.id}` });

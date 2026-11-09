@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "@/db";
 import * as schema from "@/db/schema";
 import { changedFields, describe as describeRecord, FIELD_LABELS, recordActivity, subjectLinks } from "@/lib/activity";
-import { activitiesWithoutConsent, consentGaps, consentStatus, daysToConsentReview } from "@/lib/consent";
+import { activitiesWithoutConsent, asksForConsent, consentGaps, consentStatus, daysToConsentReview } from "@/lib/consent";
 import { parseConsentForm } from "@/lib/consent-form";
 
 const { activityLog, consentRecords, organizations, processingActivities, users } = schema;
@@ -56,6 +56,13 @@ describe("consentGaps", () => {
   it("notices an activity whose lawful basis isn't consent", () => {
     const [gap] = consentGaps(complete, { ...marketing, name: "Payroll", lawfulBasis: "contract" });
     expect(gap).toContain("“Performance of a contract with the data subject” as the lawful basis for Payroll");
+    expect(gap).toContain("doesn't say it markets to people on their consent");
+  });
+
+  it("accepts consent for marketing on an activity with another lawful basis (s.37(1)(a))", () => {
+    const shop = { ...marketing, name: "Online orders", lawfulBasis: "contract", directMarketing: true, marketingGround: "consent" };
+    expect(consentGaps(complete, shop)).toEqual([]);
+    expect(consentGaps(complete, { ...shop, marketingGround: "law" })).toHaveLength(1);
   });
 
   it("wants a parent's or guardian's consent where children are involved, and how they are verified", () => {
@@ -70,17 +77,31 @@ describe("consentGaps", () => {
   });
 });
 
+describe("asksForConsent", () => {
+  it("is true for consent as the lawful basis, or for marketing on consent", () => {
+    expect(asksForConsent({ lawfulBasis: "consent" })).toBe(true);
+    expect(asksForConsent({ lawfulBasis: "contract" })).toBe(false);
+    expect(asksForConsent({ lawfulBasis: "contract", directMarketing: true, marketingGround: "consent" })).toBe(true);
+    expect(asksForConsent({ lawfulBasis: "contract", directMarketing: true, marketingGround: "law" })).toBe(false);
+    expect(asksForConsent({ lawfulBasis: "contract", directMarketing: true, marketingGround: null })).toBe(false);
+    expect(asksForConsent({ lawfulBasis: "contract", directMarketing: false, marketingGround: "consent" })).toBe(false);
+  });
+});
+
 describe("activitiesWithoutConsent", () => {
   const activities = [
     { id: "a1", name: "Marketing", lawfulBasis: "consent", role: "controller" },
     { id: "a2", name: "Payroll", lawfulBasis: "contract", role: "controller" },
     { id: "a3", name: "Loyalty", lawfulBasis: "consent", role: null },
     { id: "a4", name: "Client campaigns", lawfulBasis: "consent", role: "processor" },
+    { id: "a5", name: "Order offers", lawfulBasis: "contract", role: "controller", directMarketing: true, marketingGround: "consent" },
   ];
 
   it("lists what relies on consent with no record, leaving out what is processed for someone else", () => {
-    expect(activitiesWithoutConsent(activities, []).map((a) => a.name)).toEqual(["Marketing", "Loyalty"]);
-    expect(activitiesWithoutConsent(activities, [{ activityId: "a1" }, { activityId: null }]).map((a) => a.name)).toEqual(["Loyalty"]);
+    expect(activitiesWithoutConsent(activities, []).map((a) => a.name)).toEqual(["Marketing", "Loyalty", "Order offers"]);
+    expect(activitiesWithoutConsent(activities, [{ activityId: "a1" }, { activityId: null }, { activityId: "a5" }]).map((a) => a.name)).toEqual([
+      "Loyalty",
+    ]);
   });
 });
 

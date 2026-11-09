@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AUTOMATED_DECISION_GROUND_KEYS, AUTOMATED_DECISION_GROUNDS, type AutomatedDecisionGround } from "./automated-decision";
+import { MARKETING_GROUND_KEYS, MARKETING_GROUNDS, type MarketingGround } from "./direct-marketing";
 import { LAWFUL_BASES, LAWFUL_BASIS_KEYS, SENSITIVE_CATEGORIES, type LawfulBasis, type Sector } from "./dpa";
 import { describeRetention, MAX_RETENTION_YEARS, RETENTION_UNIT_KEYS, type RetentionUnit } from "./retention";
 
@@ -49,6 +50,16 @@ export interface ActivityInput {
   automatedDecisionReview: string;
   /** How errors and bias are checked for. */
   automatedDecisionChecks: string;
+  /** Personal data used for direct marketing (s.37; regs. 14-18 of the General Regulations). */
+  directMarketing: boolean;
+  /** What s.37(1) allows it under; null until someone says. */
+  marketingGround: MarketingGround | null;
+  /** How people are marketed to: the channels and what is sent. */
+  marketingChannels: string;
+  /** How people opt out, free of charge. */
+  marketingOptOut: string;
+  /** Where opt-outs are kept and how they're checked before anything is sent. */
+  marketingOptOutRecords: string;
 }
 
 const list = z
@@ -114,6 +125,16 @@ export const activityFormSchema = z
     automatedDecisionLogic: z.string().trim().max(2000).default(""),
     automatedDecisionReview: z.string().trim().max(2000).default(""),
     automatedDecisionChecks: z.string().trim().max(2000).default(""),
+    directMarketing: checkbox,
+    marketingGround: z
+      .union([z.literal(""), z.enum(MARKETING_GROUND_KEYS as [MarketingGround, ...MarketingGround[]])], {
+        error: "Choose from the listed grounds.",
+      })
+      .default("")
+      .transform((v) => v || null),
+    marketingChannels: z.string().trim().max(2000).default(""),
+    marketingOptOut: z.string().trim().max(2000).default(""),
+    marketingOptOutRecords: z.string().trim().max(2000).default(""),
   })
   .refine((v) => !v.crossBorder || v.transferCountries !== "", {
     path: ["transferCountries"],
@@ -169,13 +190,19 @@ export function parseActivityForm(formData: FormData) {
     automatedDecisionLogic: get("automatedDecisionLogic"),
     automatedDecisionReview: get("automatedDecisionReview"),
     automatedDecisionChecks: get("automatedDecisionChecks"),
+    directMarketing: get("directMarketing"),
+    marketingGround: get("marketingGround"),
+    marketingChannels: get("marketingChannels"),
+    marketingOptOut: get("marketingOptOut"),
+    marketingOptOutRecords: get("marketingOptOutRecords"),
   });
 }
 
 /**
- * The activity as saved: the transfer and automated decision details are kept
- * only when the activity says it transfers data or takes such decisions, so
- * unticking the box clears what was entered under it.
+ * The activity as saved: the transfer, automated decision and direct marketing
+ * details are kept only when the activity says it transfers data, takes such
+ * decisions or markets to people, so unticking the box clears what was entered
+ * under it.
  */
 export function activityToSave<T extends ActivityInput>(a: T): T {
   return {
@@ -186,6 +213,10 @@ export function activityToSave<T extends ActivityInput>(a: T): T {
     automatedDecisionLogic: a.automatedDecisions ? a.automatedDecisionLogic : "",
     automatedDecisionReview: a.automatedDecisions ? a.automatedDecisionReview : "",
     automatedDecisionChecks: a.automatedDecisions ? a.automatedDecisionChecks : "",
+    marketingGround: a.directMarketing ? a.marketingGround : null,
+    marketingChannels: a.directMarketing ? a.marketingChannels : "",
+    marketingOptOut: a.directMarketing ? a.marketingOptOut : "",
+    marketingOptOutRecords: a.directMarketing ? a.marketingOptOutRecords : "",
   };
 }
 
@@ -256,6 +287,13 @@ export const ROPA_COLUMNS: { header: string; value: (a: ActivityInput) => string
   { header: "Automated decision logic", value: (a) => (a.automatedDecisions ? a.automatedDecisionLogic : "") },
   { header: "How people ask for a person to reconsider", value: (a) => (a.automatedDecisions ? a.automatedDecisionReview : "") },
   { header: "Checks for errors and bias", value: (a) => (a.automatedDecisions ? a.automatedDecisionChecks : "") },
+  {
+    header: "Direct marketing",
+    value: (a) => (a.directMarketing ? `Yes: ${a.marketingGround ? MARKETING_GROUNDS[a.marketingGround] : "ground not recorded"}` : "No"),
+  },
+  { header: "How people are marketed to", value: (a) => (a.directMarketing ? a.marketingChannels : "") },
+  { header: "How people opt out of marketing", value: (a) => (a.directMarketing ? a.marketingOptOut : "") },
+  { header: "Where marketing opt-outs are kept", value: (a) => (a.directMarketing ? a.marketingOptOutRecords : "") },
   { header: "DPIA recommended", value: (a) => (dpiaRecommended(a) ? "Yes" : "No") },
 ];
 
@@ -302,6 +340,11 @@ const base = {
   automatedDecisionLogic: "",
   automatedDecisionReview: "",
   automatedDecisionChecks: "",
+  directMarketing: false,
+  marketingGround: null,
+  marketingChannels: "",
+  marketingOptOut: "",
+  marketingOptOutRecords: "",
 } satisfies Partial<ActivityInput>;
 
 /** A template's retention period as a length, where its wording gives one. */
@@ -361,8 +404,14 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     transferSafeguards: "Contractual clauses with provider; provider's data protection terms",
     retentionPeriod: "Until consent is withdrawn, or 2 years after last interaction",
     ...keep(2, "years", "the last interaction"),
-    securityMeasures: "Opt-out on every message; unsubscribe list honoured",
+    securityMeasures: "Access to the CRM and bulk SMS platform limited to the marketing team",
     systems: "CRM, bulk SMS platform",
+    directMarketing: true,
+    marketingGround: "consent",
+    marketingChannels: "Offers and news by SMS and WhatsApp, and a monthly email newsletter.",
+    marketingOptOut: "Reply STOP to any SMS or WhatsApp message, free of charge, or use the unsubscribe link in any email.",
+    marketingOptOutRecords:
+      "Opt-outs go on the unsubscribe list in the CRM within a day, and the list is removed from every send. It is never deleted while we hold the person's number or email.",
   },
   {
     ...base,

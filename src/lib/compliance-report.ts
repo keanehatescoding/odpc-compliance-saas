@@ -10,11 +10,13 @@ import {
   type ComplaintLike,
 } from "./complaint";
 import { addMonths, formatDate, formatDateTime, todayInKenya } from "./dates";
+import { DIRECT_MARKETING_PROVISION, directMarketingFinding, directMarketingIssues, MARKETING_GROUNDS } from "./direct-marketing";
 import { LAWFUL_BASES, REGISTRATION_ROLES, type LawfulBasis, type RegistrationRole } from "./dpa";
 import { DPO_PROVISION, dpoFinding, dpoIssues, type DpoLike } from "./dpo";
 import { DPIA_STATUS_LABEL, dpiaStatus, highestLevel, residualLevel, RISK_LEVEL_LABEL, type DpiaLike, type RiskLevel } from "./dpia";
 import {
   activitiesWithoutConsent,
+  asksForConsent,
   CONSENT_METHODS,
   CONSENT_STATUS_LABEL,
   consentStatus,
@@ -207,7 +209,7 @@ export interface ReportInput {
   now: Date;
 }
 
-export type ReportSectionKey = "registration" | "ropa" | "notice" | "dpo" | "consent" | "lia" | "dpia" | "automated" | "breach" | "request" | "complaint" | "processor" | "transfer" | "disposal" | "training" | "policy";
+export type ReportSectionKey = "registration" | "ropa" | "notice" | "dpo" | "consent" | "lia" | "dpia" | "automated" | "marketing" | "breach" | "request" | "complaint" | "processor" | "transfer" | "disposal" | "training" | "policy";
 
 export interface ReportSection {
   key: ReportSectionKey;
@@ -495,6 +497,39 @@ function automatedSection(input: ReportInput): ReportSection {
   };
 }
 
+/** Activities that use personal data for direct marketing, and what s.37 and regs. 14-18 still need. */
+function marketingSection(input: ReportInput): ReportSection {
+  const marketing = input.activities.filter((a) => a.directMarketing);
+  const open: string[] = [];
+  const recorded = (v: string) => (v.trim() ? "Yes" : "No");
+  const rows = marketing.map((a) => {
+    const issues = directMarketingIssues(a);
+    if (issues.length > 0) open.push(directMarketingFinding(a, issues));
+    return [
+      a.name,
+      a.marketingGround ? MARKETING_GROUNDS[a.marketingGround] : "Not recorded",
+      recorded(a.marketingChannels),
+      recorded(a.marketingOptOut),
+      recorded(a.marketingOptOutRecords),
+    ];
+  });
+  return {
+    key: "marketing",
+    heading: "Direct marketing",
+    basis: DIRECT_MARKETING_PROVISION,
+    href: "/ropa?filter=marketing",
+    facts: [
+      { label: "Activities using personal data for direct marketing", value: count(marketing.length) },
+      { label: "Of those, fully recorded", value: count(marketing.length - open.length) },
+    ],
+    table:
+      rows.length > 0
+        ? { columns: ["Activity", "Allowed because", "Channels described", "How to opt out", "Where opt-outs are kept"], rows }
+        : undefined,
+    open,
+  };
+}
+
 /** What the record says about notifying the ODPC, or the controller. */
 function breachNotification(b: ReportBreach, now: Date): string {
   if (b.notifiedAt) return `${formatDateTime(b.notifiedAt)} (${notifiedLate(b) ? "after the deadline" : "on time"})`;
@@ -663,7 +698,9 @@ function consentSection(input: ReportInput, today: string): ReportSection {
   for (const c of consents) {
     const a = c.activityId ? activity.get(c.activityId) : undefined;
     if (!a) continue;
-    if (a.lawfulBasis !== "consent") open.push(`${c.name} is recorded for ${a.name}, whose lawful basis in the RoPA isn't consent.`);
+    if (!asksForConsent(a)) {
+      open.push(`${c.name} is recorded for ${a.name}, whose lawful basis in the RoPA isn't consent and which doesn't market to people on their consent.`);
+    }
     if (a.involvesChildren && !c.parental) {
       open.push(`${a.name} involves children's data, but ${c.name} doesn't record a parent's or guardian's consent.`);
     }
@@ -1025,6 +1062,7 @@ export function buildComplianceReport(input: ReportInput): ComplianceReport {
     liaSection(input, today),
     dpiaSection(input, today),
     automatedSection(input),
+    marketingSection(input),
     breachSection(input, periodFrom),
     requestSection(input, today, periodFrom),
     complaintSection(input, today, periodFrom),

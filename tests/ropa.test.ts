@@ -82,6 +82,30 @@ describe("parseActivityForm", () => {
     expect(plain.data).toMatchObject({ automatedDecisions: false, automatedDecisionGround: null, automatedDecisionLogic: "" });
   });
 
+  it("reads the direct marketing details, and leaves the ground empty when none is chosen", () => {
+    const r = parseActivityForm(
+      form({
+        ...valid,
+        directMarketing: "on",
+        marketingGround: "consent",
+        marketingChannels: " Offers by SMS ",
+        marketingOptOut: "Reply STOP",
+        marketingOptOutRecords: "Unsubscribe list in the CRM",
+      }),
+    );
+    expect(r.data).toMatchObject({
+      directMarketing: true,
+      marketingGround: "consent",
+      marketingChannels: "Offers by SMS",
+      marketingOptOut: "Reply STOP",
+      marketingOptOutRecords: "Unsubscribe list in the CRM",
+    });
+    const plain = parseActivityForm(form(valid));
+    expect(plain.data).toMatchObject({ directMarketing: false, marketingGround: null, marketingChannels: "" });
+    const bad = parseActivityForm(form({ ...valid, directMarketing: "on", marketingGround: "legitimate_interests" }));
+    expect(bad.error!.issues.map((i) => i.path.join("."))).toContain("marketingGround");
+  });
+
   it("only accepts a listed ground for automated decisions", () => {
     const r = parseActivityForm(form({ ...valid, automatedDecisions: "on", automatedDecisionGround: "convenience" }));
     expect(r.success).toBe(false);
@@ -177,6 +201,11 @@ describe("activityToSave", () => {
         automatedDecisionLogic: "Scores applicants",
         automatedDecisionReview: "Email us",
         automatedDecisionChecks: "Quarterly audit",
+        directMarketing: "on",
+        marketingGround: "law",
+        marketingChannels: "SMS",
+        marketingOptOut: "Reply STOP",
+        marketingOptOutRecords: "CRM",
       }),
     ).data!;
 
@@ -184,8 +213,8 @@ describe("activityToSave", () => {
     expect(activityToSave(parsed())).toEqual(parsed());
   });
 
-  it("drops the transfer and automated decision details when their boxes aren't ticked", () => {
-    const saved = activityToSave({ ...parsed(), crossBorder: false, automatedDecisions: false });
+  it("drops the transfer, automated decision and marketing details when their boxes aren't ticked", () => {
+    const saved = activityToSave({ ...parsed(), crossBorder: false, automatedDecisions: false, directMarketing: false });
     expect(saved).toMatchObject({
       transferCountries: "",
       transferSafeguards: "",
@@ -193,6 +222,10 @@ describe("activityToSave", () => {
       automatedDecisionLogic: "",
       automatedDecisionReview: "",
       automatedDecisionChecks: "",
+      marketingGround: null,
+      marketingChannels: "",
+      marketingOptOut: "",
+      marketingOptOutRecords: "",
     });
   });
 });
@@ -220,6 +253,15 @@ describe("ropaToCsv", () => {
       '"Yes: Necessary to enter into or carry out a contract with the person","Scores loans"',
     );
   });
+
+  it("says whether an activity is used for direct marketing, on what ground and how people opt out", () => {
+    const tpl = ACTIVITY_TEMPLATES.find((t) => t.id === "marketing")!;
+    const header = ropaToCsv([]).trim().slice(1).split(",");
+    expect(header).toEqual(expect.arrayContaining(['"Direct marketing"', '"How people opt out of marketing"', '"Where marketing opt-outs are kept"']));
+    const row = (a: typeof tpl) => ropaToCsv([a]).trim().split("\r\n")[1];
+    expect(row(tpl)).toContain(`"Yes: The person's express consent","${tpl.marketingChannels}","${tpl.marketingOptOut}"`);
+    expect(row({ ...tpl, marketingGround: null })).toContain('"Yes: ground not recorded"');
+  });
 });
 
 describe("templates", () => {
@@ -235,6 +277,8 @@ describe("templates", () => {
         involvesChildren: String(t.involvesChildren),
         automatedDecisions: String(t.automatedDecisions),
         automatedDecisionGround: t.automatedDecisionGround ?? "",
+        directMarketing: String(t.directMarketing),
+        marketingGround: t.marketingGround ?? "",
         retentionLength: t.retentionLength?.toString() ?? "",
         retentionUnit: t.retentionUnit ?? "",
       });

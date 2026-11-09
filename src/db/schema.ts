@@ -19,6 +19,7 @@ import { AUTOMATED_DECISION_GROUND_KEYS, type AutomatedDecisionGround } from "..
 import { BREACH_KIND_KEYS, BREACH_RISK_KEYS } from "../lib/breach";
 import { COMPLAINT_KIND_KEYS } from "../lib/complaint";
 import { CONSENT_METHOD_KEYS } from "../lib/consent";
+import { MARKETING_GROUND_KEYS, type MarketingGround } from "../lib/direct-marketing";
 import { DISPOSAL_METHOD_KEYS, DISPOSAL_REASON_KEYS } from "../lib/disposal";
 import { LIKELIHOOD_KEYS, SEVERITY_KEYS } from "../lib/dpia";
 import { LIA_OUTCOME_KEYS } from "../lib/lia";
@@ -44,6 +45,7 @@ export const automatedDecisionGroundEnum = pgEnum(
   "automated_decision_ground",
   AUTOMATED_DECISION_GROUND_KEYS as [AutomatedDecisionGround, ...AutomatedDecisionGround[]],
 );
+export const marketingGroundEnum = pgEnum("marketing_ground", MARKETING_GROUND_KEYS as [MarketingGround, ...MarketingGround[]]);
 export const policyKindEnum = pgEnum("policy_kind", POLICY_KIND_KEYS as [string, ...string[]]);
 export const liaOutcomeEnum = pgEnum("lia_outcome", LIA_OUTCOME_KEYS as [string, ...string[]]);
 export const transferBasisEnum = pgEnum("transfer_basis", TRANSFER_BASIS_KEYS as [string, ...string[]]);
@@ -493,6 +495,14 @@ export const processingActivities = pgTable(
     automatedDecisionLogic: text("automated_decision_logic").notNull().default(""),
     automatedDecisionReview: text("automated_decision_review").notNull().default(""),
     automatedDecisionChecks: text("automated_decision_checks").notNull().default(""),
+    // Personal data used for direct marketing (s.37 of the Act, regs. 14-18 of
+    // the General Regulations). The details are empty unless it is.
+    directMarketing: boolean("direct_marketing").notNull().default(false),
+    // What s.37(1) allows it under. Null until someone says.
+    marketingGround: marketingGroundEnum("marketing_ground"),
+    marketingChannels: text("marketing_channels").notNull().default(""),
+    marketingOptOut: text("marketing_opt_out").notNull().default(""),
+    marketingOptOutRecords: text("marketing_opt_out_records").notNull().default(""),
     templateId: text("template_id"),
     ...timestamps,
   },
@@ -504,6 +514,10 @@ export const processingActivities = pgTable(
     check(
       "processing_activities_automated_decision_check",
       sql`${t.automatedDecisions} or (${t.automatedDecisionGround} is null and ${t.automatedDecisionLogic} = '' and ${t.automatedDecisionReview} = '' and ${t.automatedDecisionChecks} = '')`,
+    ),
+    check(
+      "processing_activities_direct_marketing_check",
+      sql`${t.directMarketing} or (${t.marketingGround} is null and ${t.marketingChannels} = '' and ${t.marketingOptOut} = '' and ${t.marketingOptOutRecords} = '')`,
     ),
   ],
 );

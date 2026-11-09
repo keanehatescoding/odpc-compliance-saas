@@ -413,7 +413,33 @@ await db.insert(processingActivities).values({
     "The rejection email says the decision was made by the portal. Reply to it, or write to the admissions office, and the deputy principal will look at the application again within 14 days.",
 });
 
-// Photographs are the one thing the school does on consent. One consent record is complete, the other can't be proved yet.
+// Open day invitations are marketing (s.37): the school is selling places to parents who enquired. They agreed
+// to the messages, but the record doesn't say where opt-outs are kept, so it shows on the dashboard and in the
+// compliance report.
+const [openDays] = await db
+  .insert(processingActivities)
+  .values({
+    orgId: org.id,
+    name: "Open day invitations",
+    purpose: "Invite parents who have enquired about a place to open days and tell them when admissions open.",
+    lawfulBasis: "consent",
+    role: "controller",
+    dataSubjects: ["Prospective parents and guardians"],
+    dataCategories: ["Name", "Phone number", "Grade enquired about"],
+    recipients: "Bulk SMS provider",
+    retentionPeriod: "Until they opt out, or 2 years after the enquiry",
+    securityMeasures: "Bulk SMS account used only by the admissions office, with its own password",
+    systems: "Bulk SMS platform, enquiries spreadsheet",
+    owner: "Admissions office",
+    directMarketing: true,
+    marketingGround: "consent",
+    marketingChannels: "An SMS before each open day, and one when admissions for the next year open. No more than four a year.",
+    marketingOptOut: "Every SMS ends with “Reply STOP to opt out”, free of charge, and parents can also tell the admissions office.",
+  })
+  .returning({ id: processingActivities.id });
+
+// Photographs and open day invitations are what the school does on consent. One photographs consent record is
+// complete, the other can't be proved yet.
 const [photos] = await db
   .insert(processingActivities)
   .values({
@@ -447,6 +473,19 @@ await db.insert(consentRecords).values([
     guardianCheck: "The signature is checked against the guardian named on the admission record",
     inUseFrom: addMonths(today, -9),
     reviewOn: addMonths(today, 3),
+  },
+  {
+    orgId: org.id,
+    activityId: openDays.id,
+    name: "Open day invitations by SMS",
+    wording: "Send me SMS invitations to Sunrise Academy open days and tell me when admissions open. I can reply STOP at any time.",
+    method: "written",
+    collection: "An unticked box on the enquiry form, separate from the enquiry itself",
+    evidence: "The enquiry forms, filed by term in the admissions office",
+    withdrawal: "Reply STOP to any message, or tell the admissions office.",
+    parental: false,
+    inUseFrom: addMonths(today, -6),
+    reviewOn: addMonths(today, 6),
   },
   {
     orgId: org.id,
@@ -541,7 +580,7 @@ await db.insert(policies).values([
 ]);
 
 console.log(
-  `Seeded "${org.name}" with ${templates.length + 2} RoPA entries, one DPIA, one open breach, two data subject requests, two ODPC letters, two changes of registered particulars, two processors, two training sessions, two consent records, one legitimate interest assessment, one transfer outside Kenya, two disposals and three policies.`,
+  `Seeded "${org.name}" with ${templates.length + 3} RoPA entries, one DPIA, one open breach, two data subject requests, two ODPC letters, two changes of registered particulars, two processors, two training sessions, three consent records, one legitimate interest assessment, one transfer outside Kenya, two disposals and three policies.`,
 );
 console.log(`Sign in as ${EMAIL} / ${PASSWORD}`);
 process.exit(0);

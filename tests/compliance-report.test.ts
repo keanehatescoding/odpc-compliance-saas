@@ -48,6 +48,11 @@ function activity(over: Partial<ReportActivity> = {}): ReportActivity {
     automatedDecisionLogic: "",
     automatedDecisionReview: "",
     automatedDecisionChecks: "",
+    directMarketing: false,
+    marketingGround: null,
+    marketingChannels: "",
+    marketingOptOut: "",
+    marketingOptOutRecords: "",
     createdAt: at("2026-01-05T10:00"),
     updatedAt: at("2026-09-01T10:00"),
     ...over,
@@ -220,7 +225,7 @@ describe("buildComplianceReport", () => {
   it("finds nothing open when every record is in order", () => {
     const report = buildComplianceReport(input());
     expect(report.openCount).toBe(0);
-    expect(report.sections.map((s) => s.key)).toEqual(["registration", "ropa", "notice", "dpo", "consent", "lia", "dpia", "automated", "breach", "request", "complaint", "processor", "transfer", "disposal", "training", "policy"]);
+    expect(report.sections.map((s) => s.key)).toEqual(["registration", "ropa", "notice", "dpo", "consent", "lia", "dpia", "automated", "marketing", "breach", "request", "complaint", "processor", "transfer", "disposal", "training", "policy"]);
     expect(report.preparedOn).toBe("2026-10-10");
     expect(report.periodFrom).toBe("2025-10-10");
   });
@@ -585,6 +590,46 @@ describe("automated decisions", () => {
   });
 });
 
+describe("direct marketing", () => {
+  const offers = activity({
+    id: "a2",
+    name: "Customer offers",
+    directMarketing: true,
+    marketingGround: "consent",
+    marketingChannels: "Offers by SMS",
+    marketingOptOut: "Reply STOP",
+    marketingOptOutRecords: "Unsubscribe list in the CRM",
+  });
+
+  it("has nothing to report when no activity markets", () => {
+    const s = section({}, "marketing");
+    expect(fact(s, "Activities using personal data for direct marketing")).toBe("0");
+    expect(s.table).toBeUndefined();
+    expect(s.open).toEqual([]);
+  });
+
+  it("lists what each activity has recorded", () => {
+    const s = section({ activities: [activity(), offers] }, "marketing");
+    expect(fact(s, "Activities using personal data for direct marketing")).toBe("1");
+    expect(fact(s, "Of those, fully recorded")).toBe("1");
+    expect(s.table!.rows).toEqual([["Customer offers", "The person's express consent", "Yes", "Yes", "Yes"]]);
+  });
+
+  it("reports what a record leaves out, and sensitive data used for marketing", () => {
+    const s = section({ activities: [{ ...offers, marketingGround: null, marketingOptOutRecords: "", sensitiveCategories: ["Health data"] }] }, "marketing");
+    expect(fact(s, "Of those, fully recorded")).toBe("0");
+    expect(s.table!.rows[0]).toEqual(["Customer offers", "Not recorded", "Yes", "Yes", "No"]);
+    expect(s.open).toEqual([
+      "Customer offers is used for direct marketing, and the record doesn't say what s.37(1) ground allows it and where opt-outs are kept or how they're honoured. Customer offers is used for direct marketing and involves sensitive personal data, which reg. 15(1) doesn't allow to be used for it.",
+    ]);
+  });
+
+  it("expects a consent record for marketing on consent, and accepts one", () => {
+    expect(section({ activities: [offers], consents: [] }, "consent").open).toEqual(["No consent record covers: Customer offers."]);
+    expect(section({ activities: [offers], consents: [consent()] }, "consent").open).toEqual([]);
+  });
+});
+
 describe("data subject requests", () => {
   const request = { kind: "access", receivedOn: "2026-09-01", outcome: "completed", respondedOn: "2026-09-05" };
 
@@ -729,7 +774,7 @@ describe("consent", () => {
     expect(s.open).toEqual([
       "Not linked to a processing activity: Old form.",
       "Newsletter involves children's data, but Newsletter emails doesn't record a parent's or guardian's consent.",
-      "Fee reminders is recorded for Fee payments, whose lawful basis in the RoPA isn't consent.",
+      "Fee reminders is recorded for Fee payments, whose lawful basis in the RoPA isn't consent and which doesn't market to people on their consent.",
       "How the parent or guardian is verified isn't recorded for: Trip photos.",
       "A service is refused to people who don't agree, so the consent may not be freely given (s.32(4)), for: Fee reminders.",
     ]);

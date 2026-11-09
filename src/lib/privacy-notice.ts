@@ -1,5 +1,7 @@
 import { automatedDecisionNotice } from "./automated-decision";
+import { asksForConsent } from "./consent";
 import { formatDate } from "./dates";
+import { directMarketingNotice } from "./direct-marketing";
 import type { LawfulBasis } from "./dpa";
 import { publishedDpo, type DpoLike } from "./dpo";
 import type { ActivityInput } from "./ropa";
@@ -195,6 +197,9 @@ export function buildPrivacyNotice(input: {
     // s.35(3) and reg. 22(2): people are told about decisions taken without a person, and how to have one look again.
     const decisions = automatedDecisionNotice(a);
     if (decisions) facts.push({ label: "Automated decisions", value: decisions });
+    // reg. 15(1)(b) and (d): people are told the data is used for marketing, and how to opt out.
+    const marketing = directMarketingNotice(a);
+    if (marketing) facts.push({ label: "Marketing", value: marketing });
     facts.push({ label: "Kept for", value: a.retentionPeriod });
     if (a.securityMeasures) facts.push({ label: "Protected by", value: a.securityMeasures });
     what.push({ kind: "h3", text: a.name }, { kind: "facts", items: facts });
@@ -214,7 +219,7 @@ export function buildPrivacyNotice(input: {
     checks.push(`Say whether people have to give the data, and what happens if they don't, for: ${names(undecided)}.`);
   }
   // The notice promises people can withdraw consent, so the organisation should know how they do.
-  const byConsent = activities.filter((a) => a.lawfulBasis === "consent" && a.consents);
+  const byConsent = activities.filter((a) => asksForConsent(a) && a.consents);
   const unrecorded = byConsent.filter((a) => a.consents!.length === 0);
   if (unrecorded.length > 0) {
     checks.push(`Record how you ask for consent and how people withdraw it (Consent records), for: ${names(unrecorded)}.`);
@@ -259,6 +264,16 @@ export function buildPrivacyNotice(input: {
   if (consentedDecisions.length > 0) {
     checks.push(`Make sure the consent you ask for mentions the automated decisions, for: ${names(consentedDecisions)}.`);
   }
+  // The notice promises people can opt out of marketing, so it should say how (regs. 15(2), 16 and 17).
+  const noOptOut = activities.filter((a) => a.directMarketing && !a.marketingOptOut.trim());
+  if (noOptOut.length > 0) {
+    checks.push(`Say how people opt out of marketing, free of charge (Direct marketing), for: ${names(noOptOut)}.`);
+  }
+  // reg. 15(1): sensitive personal data can't be used for direct marketing.
+  const sensitiveMarketing = activities.filter((a) => a.directMarketing && a.sensitiveCategories.length > 0);
+  if (sensitiveMarketing.length > 0) {
+    checks.push(`Make sure no sensitive personal data is used for marketing (Direct marketing), for: ${names(sensitiveMarketing)}.`);
+  }
   const unprotected = activities.filter((a) => !a.securityMeasures);
   if (unprotected.length > 0) {
     checks.push(`Describe the security measures for: ${names(unprotected)}.`);
@@ -299,7 +314,8 @@ export function buildPrivacyNotice(input: {
   });
 
   // Your rights
-  const consent = activities.some((a) => a.lawfulBasis === "consent");
+  const consent = activities.some(asksForConsent);
+  const marketing = activities.some((a) => a.directMarketing);
   const days = (kind: keyof typeof REQUEST_KINDS) => `within ${REQUEST_KINDS[kind].days} days`;
   const rights = [
     "be told how your personal data is used (this notice)",
@@ -311,6 +327,7 @@ export function buildPrivacyNotice(input: {
     `stop us sharing it with others for their marketing (${days("marketing")})`,
     "not be subject to a decision based only on automated processing that significantly affects you",
   ];
+  if (marketing) rights.push("opt out of our marketing at any time, free of charge");
   if (consent) rights.push("withdraw your consent at any time");
   const reach = [org.privacyEmail, org.privacyPhone].filter(Boolean).join(" or ");
   sections.push({

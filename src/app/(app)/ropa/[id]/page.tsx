@@ -15,6 +15,13 @@ import {
   automatedDecisionIssues,
 } from "@/lib/automated-decision";
 import { formatDate, todayInKenya } from "@/lib/dates";
+import {
+  DIRECT_MARKETING_CHECKLIST,
+  directMarketingGap,
+  directMarketingIssues,
+  MARKETING_GROUND_DETAIL,
+  MARKETING_GROUNDS,
+} from "@/lib/direct-marketing";
 import { dpiaStatus } from "@/lib/dpia";
 import { consentStatus, reliesOnConsent } from "@/lib/consent";
 import { liaStatus, reliesOnLegitimateInterests } from "@/lib/lia";
@@ -50,6 +57,7 @@ export default async function EditActivityPage({ params }: PageProps<"/ropa/[id]
   const cutoff = retentionCutoff(activity, today);
   const next = activityNextRound(activity, disposals, today);
   const decisionGaps = automatedDecisionIssues(activity);
+  const marketingGaps = directMarketingIssues(activity);
 
   return (
     <>
@@ -126,7 +134,9 @@ export default async function EditActivityPage({ params }: PageProps<"/ropa/[id]
             <div>
               <h2 className="font-semibold">No consent record</h2>
               <p className="mt-1 text-sm text-stone-700">
-                This activity relies on consent, and section 32 of the Act says it is for you to prove it was given.
+                {activity.lawfulBasis === "consent"
+                  ? "This activity relies on consent, and section 32 of the Act says it is for you to prove it was given."
+                  : "This activity markets to people on their consent (s.37(1)(a)), and section 32 of the Act says it is for you to prove it was given."}
               </p>
             </div>
             <Link href={`/consents/new?activity=${activity.id}`} className={buttonClass.secondary}>
@@ -225,6 +235,34 @@ export default async function EditActivityPage({ params }: PageProps<"/ropa/[id]
             <summary className="cursor-pointer font-medium">What the Act and the Regulations ask</summary>
             <ul className="mt-2 list-disc pl-5 text-stone-700">
               {AUTOMATED_DECISION_CHECKLIST.map((c) => (
+                <li key={c}>{c}</li>
+              ))}
+            </ul>
+          </details>
+        </Card>
+      )}
+      {activity.directMarketing && (
+        <Card className={`mb-6 max-w-3xl ${marketingGaps.length > 0 ? "border-amber-300 bg-amber-50" : ""}`}>
+          <h2 className="font-semibold">Direct marketing</h2>
+          <p className="mt-1 text-sm text-stone-700">
+            {activity.marketingGround
+              ? `Allowed because: ${MARKETING_GROUNDS[activity.marketingGround]}. ${MARKETING_GROUND_DETAIL[activity.marketingGround]}`
+              : "This activity uses personal data to market to people. Section 37 of the Act allows that only with their express consent, or where a written law authorises it and they were told when their data was collected."}
+          </p>
+          {marketingGaps.length > 0 && (
+            <>
+              <h3 className="mt-3 text-sm font-medium">What the record still needs</h3>
+              <ul className="mt-1 list-disc pl-5 text-sm text-stone-700">
+                {marketingGaps.map((g) => (
+                  <li key={g}>{directMarketingGap(activity, g)}</li>
+                ))}
+              </ul>
+            </>
+          )}
+          <details className="mt-3 text-sm">
+            <summary className="cursor-pointer font-medium">What the Act and the Regulations ask</summary>
+            <ul className="mt-2 list-disc pl-5 text-stone-700">
+              {DIRECT_MARKETING_CHECKLIST.map((c) => (
                 <li key={c}>{c}</li>
               ))}
             </ul>

@@ -239,6 +239,13 @@
       "when": 1794255489075,
       "tag": "0033_automated_decisions",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1794262504688,
+      "tag": "0034_direct_marketing",
+      "breakpoints": true
     }
   ]
 }

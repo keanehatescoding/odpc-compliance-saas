@@ -205,6 +205,11 @@ describe("draftDpia", () => {
     automatedDecisionLogic: "",
     automatedDecisionReview: "",
     automatedDecisionChecks: "",
+    directMarketing: false,
+    marketingGround: null,
+    marketingChannels: "",
+    marketingOptOut: "",
+    marketingOptOutRecords: "",
     templateId: null,
   };
 

@@ -91,11 +91,14 @@ export function dueParticularChangeAlert(
  * What the registration application describes (s.19(2) of the Act): the
  * purpose, who the data is about, what data, who receives it, transfers abroad
  * and the safeguards. A change to any
- * of these in the RoPA may change the registered particulars. Retention,
- * systems, the owner and the DPIA flags aren't part of the register.
+ * of these in the RoPA may change the registered particulars. Starting or
+ * stopping direct marketing changes what the data is used for, so it counts
+ * with the purpose. Retention, systems, the owner and the DPIA flags aren't
+ * part of the register.
  */
 export const ROPA_PARTICULARS = {
   purpose: "purpose",
+  directMarketing: "use for direct marketing",
   role: "controller or processor",
   dataSubjects: "data subjects",
   dataCategories: "personal data",

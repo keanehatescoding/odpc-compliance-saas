@@ -29,6 +29,11 @@ const activity = (over: Partial<NoticeActivity>): NoticeActivity => ({
   automatedDecisionLogic: "",
   automatedDecisionReview: "",
   automatedDecisionChecks: "",
+  directMarketing: false,
+  marketingGround: null,
+  marketingChannels: "",
+  marketingOptOut: "",
+  marketingOptOutRecords: "",
   ...over,
 });
 
@@ -191,6 +196,51 @@ describe("automated decisions", () => {
     const n = build();
     expect(decisions(n)).toBeUndefined();
     expect(n.checks.join(" ")).not.toContain("automated");
+  });
+});
+
+describe("direct marketing", () => {
+  const offers = activity({
+    name: "Open day invitations",
+    directMarketing: true,
+    marketingGround: "consent",
+    marketingChannels: "Invitations to open days by SMS",
+    marketingOptOut: "Reply STOP to any message, free of charge.",
+    marketingOptOutRecords: "Opt-out list in the SMS platform",
+  });
+  const marketing = (n: ReturnType<typeof build>) =>
+    section(n, "What we collect and why")!
+      .blocks.flatMap((b) => (b.kind === "facts" ? b.items : []))
+      .find((f) => f.label === "Marketing")?.value;
+  const rights = (n: ReturnType<typeof build>) => JSON.stringify(section(n, "Your rights"));
+
+  it("tells people about the marketing, their right to opt out, and how", () => {
+    const n = build({ activities: [offers] });
+    expect(marketing(n)).toBe(
+      "We use your details to send you marketing. Invitations to open days by SMS. You can opt out at any time, free of charge, and we'll stop. Reply STOP to any message, free of charge.",
+    );
+    expect(rights(n)).toContain("opt out of our marketing at any time, free of charge");
+    expect(n.checks.join(" ")).not.toContain("Direct marketing");
+  });
+
+  it("counts marketing on consent as relying on consent, whatever the activity's lawful basis", () => {
+    const n = build({ activities: [{ ...offers, consents: [] }] });
+    expect(rights(n)).toContain("withdraw your consent at any time.");
+    expect(n.checks).toContain("Record how you ask for consent and how people withdraw it (Consent records), for: Open day invitations.");
+    expect(rights(build({ activities: [{ ...offers, marketingGround: "law" }] }))).not.toContain("withdraw your consent");
+  });
+
+  it("asks how people opt out, and for sensitive data to be kept out", () => {
+    const n = build({ activities: [{ ...offers, marketingOptOut: " ", sensitiveCategories: ["Health data"] }] });
+    expect(n.checks).toContain("Say how people opt out of marketing, free of charge (Direct marketing), for: Open day invitations.");
+    expect(n.checks).toContain("Make sure no sensitive personal data is used for marketing (Direct marketing), for: Open day invitations.");
+  });
+
+  it("says nothing for an activity not used for marketing", () => {
+    const n = build();
+    expect(marketing(n)).toBeUndefined();
+    expect(rights(n)).not.toContain("opt out of our marketing");
+    expect(n.checks.join(" ")).not.toContain("marketing");
   });
 });
 

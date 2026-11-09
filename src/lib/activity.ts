@@ -126,6 +126,11 @@ export const FIELD_LABELS = {
     automatedDecisionLogic: "how the automated decisions are made",
     automatedDecisionReview: "how people ask for a person to reconsider",
     automatedDecisionChecks: "checks for errors and bias",
+    directMarketing: "direct marketing",
+    marketingGround: "what allows the marketing",
+    marketingChannels: "how people are marketed to",
+    marketingOptOut: "how people opt out of marketing",
+    marketingOptOutRecords: "where marketing opt-outs are kept",
   } satisfies Partial<Record<keyof ProcessingActivity, string>>,
   breach: {
     title: "title",

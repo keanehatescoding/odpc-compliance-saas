@@ -69,10 +69,26 @@ export interface ConsentGapInput {
   conditional: boolean;
 }
 
-export interface ConsentActivity {
+export interface ConsentActivity extends ConsentBasis {
   name: string;
-  lawfulBasis: string;
   involvesChildren: boolean;
+}
+
+/** What says whether an activity asks people for consent: its lawful basis, or marketing on their consent. */
+export interface ConsentBasis {
+  lawfulBasis: string;
+  /** Absent where the caller doesn't know, which counts as no marketing. */
+  directMarketing?: boolean;
+  marketingGround?: string | null;
+}
+
+/**
+ * Whether the activity asks people for consent: its lawful basis is consent, or
+ * it markets to them on their express consent (s.37(1)(a)), which an activity
+ * on another basis, such as a contract, can do too.
+ */
+export function asksForConsent(a: ConsentBasis): boolean {
+  return a.lawfulBasis === "consent" || (Boolean(a.directMarketing) && a.marketingGround === "consent");
 }
 
 /**
@@ -87,9 +103,9 @@ export function consentGaps(c: ConsentGapInput, activity: ConsentActivity | null
   if (!activity) {
     gaps.push("Link the processing activity that relies on this consent.");
   } else {
-    if (activity.lawfulBasis !== "consent") {
+    if (!asksForConsent(activity)) {
       gaps.push(
-        `Your RoPA gives “${LAWFUL_BASES[activity.lawfulBasis as LawfulBasis] ?? activity.lawfulBasis}” as the lawful basis for ${activity.name}, not consent. Update whichever is wrong.`,
+        `Your RoPA gives “${LAWFUL_BASES[activity.lawfulBasis as LawfulBasis] ?? activity.lawfulBasis}” as the lawful basis for ${activity.name}, not consent, and doesn't say it markets to people on their consent. Update whichever is wrong.`,
       );
     }
     if (activity.involvesChildren && !c.parental) {
@@ -105,13 +121,16 @@ export function consentGaps(c: ConsentGapInput, activity: ConsentActivity | null
   return gaps;
 }
 
-/** Whether it falls to the organisation to get consent for the activity: not when it only processes for someone else. */
-export function reliesOnConsent(a: { lawfulBasis: string; role?: string | null }): boolean {
-  return a.lawfulBasis === "consent" && a.role !== "processor";
+/**
+ * Whether it falls to the organisation to get consent for the activity, for the
+ * activity itself or for marketing: not when it only processes for someone else.
+ */
+export function reliesOnConsent(a: ConsentBasis & { role?: string | null }): boolean {
+  return asksForConsent(a) && a.role !== "processor";
 }
 
 /** The activities that rely on consent but have no consent record behind them. */
-export function activitiesWithoutConsent<A extends { id: string; lawfulBasis: string; role?: string | null }>(
+export function activitiesWithoutConsent<A extends ConsentBasis & { id: string; role?: string | null }>(
   activities: A[],
   records: { activityId: string | null }[],
 ): A[] {
