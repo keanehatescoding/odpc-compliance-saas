@@ -82,7 +82,7 @@ beforeEach(async () => {
 
   const [o] = await db
     .insert(organizations)
-    .values({ name: "Sunrise Academy", sector: "education", size: "micro_small", kraPin: "P051234567X", reminderEmail: "dpo@sunrise.ke", dpoDesignated: true, dpoName: "Achieng Otieno", dpoEmail: "dpo@sunrise.ke", dpoPhone: "+254 700 000 001", dpoAppointedOn: "2026-01-05", dpoNotifiedOn: "2026-01-20", dpoDetailsChangedOn: "2026-01-12" })
+    .values({ name: "Sunrise Academy", sector: "education", size: "micro_small", kraPin: "P051234567X", reminderEmail: "reminders@sunrise.ke", dpoDesignated: true, dpoName: "Achieng Otieno", dpoEmail: "dpo@sunrise.ke", dpoPhone: "+254 700 000 001", dpoAppointedOn: "2026-01-05", dpoNotifiedOn: "2026-01-20", dpoDetailsChangedOn: "2026-01-12" })
     .returning({ id: organizations.id });
   orgId = o.id;
   owner = await addUser("owner@sunrise.ke");
