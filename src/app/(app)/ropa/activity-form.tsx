@@ -6,6 +6,7 @@ import { SubmitButton } from "@/components/submit-button";
 import { Card, CheckboxField, FormMessage, SelectField, TextArea, TextField } from "@/components/ui";
 import type { ProcessingActivity } from "@/db/schema";
 import { AUTOMATED_DECISION_GROUNDS } from "@/lib/automated-decision";
+import { MARKETING_GROUNDS } from "@/lib/direct-marketing";
 import { LAWFUL_BASES, SENSITIVE_CATEGORIES } from "@/lib/dpa";
 import { RETENTION_UNITS } from "@/lib/retention";
 import { ACTIVITY_ROLES } from "@/lib/ropa";
@@ -224,6 +225,58 @@ export function ActivityForm({ activity }: { activity?: ProcessingActivity }) {
             label="Checks for errors and bias"
             hint="How you test the method, check the results for mistakes and unfair treatment of any group, and put them right."
             initial={activity?.automatedDecisionChecks}
+            {...f}
+          />
+        </div>
+      </Card>
+
+      <Card className="group space-y-5">
+        <h2 className="font-semibold">Direct marketing</h2>
+        <label className="flex items-start gap-3 text-sm">
+          <input
+            type="checkbox"
+            name="directMarketing"
+            defaultChecked={state?.values ? state.values.directMarketing === "on" : Boolean(activity?.directMarketing)}
+            className="mt-0.5 size-4 accent-brand-600"
+          />
+          <span>
+            <span className="font-medium text-stone-800">The data is used to market to people</span>
+            <span className="block text-xs text-stone-500">
+              Messages, calls, catalogues or adverts sent to particular people about what you sell, such as SMS offers, a newsletter or
+              adverts shown to people who are signed in (s.37; reg. 14). Advertising that doesn&apos;t pick out who sees it isn&apos;t direct
+              marketing.
+            </span>
+          </span>
+        </label>
+        <div className="hidden space-y-5 group-has-[[name=directMarketing]:checked]:block">
+          <SelectField
+            name="marketingGround"
+            label="What allows it (s.37(1))"
+            hint="If neither applies, stop the marketing. Marketing on consent needs a consent record, even when the activity itself has another lawful basis."
+            options={MARKETING_GROUNDS}
+            placeholder="Not decided yet"
+            initial={activity?.marketingGround ?? ""}
+            {...f}
+          />
+          <TextArea
+            name="marketingChannels"
+            label="How you market"
+            hint="The channels (SMS, WhatsApp, email, calls, post, targeted adverts) and what you send. The privacy notice shows this."
+            initial={activity?.marketingChannels}
+            {...f}
+          />
+          <TextArea
+            name="marketingOptOut"
+            label="How people opt out"
+            hint="What every message says about opting out, such as replying STOP or an unsubscribe link. It must be free, or cost no more than a nominal amount. The privacy notice shows this."
+            initial={activity?.marketingOptOut}
+            {...f}
+          />
+          <TextArea
+            name="marketingOptOutRecords"
+            label="Where opt-outs are kept"
+            hint="Where you record who has opted out, and how that list is checked before every send so they aren't contacted again."
+            initial={activity?.marketingOptOutRecords}
             {...f}
           />
         </div>
