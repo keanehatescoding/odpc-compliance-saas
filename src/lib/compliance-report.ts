@@ -11,6 +11,14 @@ import {
 } from "./complaint";
 import { addMonths, formatDate, formatDateTime, todayInKenya } from "./dates";
 import { DIRECT_MARKETING_PROVISION, directMarketingFinding, directMarketingIssues, MARKETING_GROUNDS } from "./direct-marketing";
+import {
+  HEALTH_DATA_CONDITIONS,
+  involvesHealthData,
+  SENSITIVE_DATA_GROUNDS,
+  SENSITIVE_DATA_PROVISION,
+  sensitiveDataFinding,
+  sensitiveDataIssues,
+} from "./sensitive-data";
 import { LAWFUL_BASES, REGISTRATION_ROLES, type LawfulBasis, type RegistrationRole } from "./dpa";
 import { DPO_PROVISION, dpoFinding, dpoIssues, type DpoLike } from "./dpo";
 import { DPIA_STATUS_LABEL, dpiaStatus, highestLevel, residualLevel, RISK_LEVEL_LABEL, type DpiaLike, type RiskLevel } from "./dpia";
@@ -209,7 +217,7 @@ export interface ReportInput {
   now: Date;
 }
 
-export type ReportSectionKey = "registration" | "ropa" | "notice" | "dpo" | "consent" | "lia" | "dpia" | "automated" | "marketing" | "breach" | "request" | "complaint" | "processor" | "transfer" | "disposal" | "training" | "policy";
+export type ReportSectionKey = "registration" | "ropa" | "notice" | "dpo" | "consent" | "lia" | "dpia" | "sensitive" | "automated" | "marketing" | "breach" | "request" | "complaint" | "processor" | "transfer" | "disposal" | "training" | "policy";
 
 export interface ReportSection {
   key: ReportSectionKey;
@@ -459,6 +467,41 @@ function dpiaSection(input: ReportInput, today: string): ReportSection {
     table:
       rows.length > 0
         ? { columns: ["Assessment", "Covers", "Status", "Approved", "Next review", "Highest risk after measures", "ODPC consulted"], rows }
+        : undefined,
+    open,
+  };
+}
+
+/** Activities that involve sensitive personal data, and what ss.44-46 and reg. 32(i) still need. */
+function sensitiveSection(input: ReportInput): ReportSection {
+  const sensitive = input.activities.filter((a) => a.sensitiveCategories.length > 0);
+  const open: string[] = [];
+  const recorded = (v: string) => (v.trim() ? "Yes" : "No");
+  const rows = sensitive.map((a) => {
+    const issues = sensitiveDataIssues(a);
+    if (issues.length > 0) open.push(sensitiveDataFinding(a, issues));
+    return [
+      a.name,
+      a.sensitiveCategories.join(", "),
+      a.sensitiveDataGround ? SENSITIVE_DATA_GROUNDS[a.sensitiveDataGround] : a.role === "processor" ? "For the controller to say" : "Not recorded",
+      recorded(a.sensitiveDataBasis),
+      involvesHealthData(a) ? (a.healthDataCondition ? HEALTH_DATA_CONDITIONS[a.healthDataCondition] : "Not recorded") : "No health data",
+      recorded(a.sensitiveDataSafeguards),
+    ];
+  });
+  return {
+    key: "sensitive",
+    heading: "Sensitive personal data",
+    basis: SENSITIVE_DATA_PROVISION,
+    href: "/ropa?filter=sensitive",
+    facts: [
+      { label: "Activities involving sensitive personal data", value: count(sensitive.length) },
+      { label: "Of those, involving health data", value: count(sensitive.filter(involvesHealthData).length) },
+      { label: "Of those, fully recorded", value: count(sensitive.length - open.length) },
+    ],
+    table:
+      rows.length > 0
+        ? { columns: ["Activity", "Categories", "Allowed because", "What it rests on", "Health data handled", "Safeguards"], rows }
         : undefined,
     open,
   };
@@ -1061,6 +1104,7 @@ export function buildComplianceReport(input: ReportInput): ComplianceReport {
     consentSection(input, today),
     liaSection(input, today),
     dpiaSection(input, today),
+    sensitiveSection(input),
     automatedSection(input),
     marketingSection(input),
     breachSection(input, periodFrom),

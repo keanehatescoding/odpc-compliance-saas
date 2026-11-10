@@ -1,0 +1,8 @@
+CREATE TYPE "public"."health_data_condition" AS ENUM('health_care_provider', 'professional_secrecy', 'confidentiality', 'public_health');--> statement-breakpoint
+CREATE TYPE "public"."sensitive_data_ground" AS ENUM('obligations', 'legal_claim', 'vital_interests', 'made_public', 'not_for_profit');--> statement-breakpoint
+ALTER TABLE "processing_activities" ADD COLUMN "sensitive_data_ground" "sensitive_data_ground";--> statement-breakpoint
+ALTER TABLE "processing_activities" ADD COLUMN "sensitive_data_basis" text DEFAULT '' NOT NULL;--> statement-breakpoint
+ALTER TABLE "processing_activities" ADD COLUMN "health_data_condition" "health_data_condition";--> statement-breakpoint
+ALTER TABLE "processing_activities" ADD COLUMN "sensitive_data_safeguards" text DEFAULT '' NOT NULL;--> statement-breakpoint
+ALTER TABLE "processing_activities" ADD CONSTRAINT "processing_activities_sensitive_data_check" CHECK (cardinality("processing_activities"."sensitive_categories") > 0 or ("processing_activities"."sensitive_data_ground" is null and "processing_activities"."sensitive_data_basis" = '' and "processing_activities"."sensitive_data_safeguards" = ''));--> statement-breakpoint
+ALTER TABLE "processing_activities" ADD CONSTRAINT "processing_activities_health_data_check" CHECK ("processing_activities"."health_data_condition" is null or 'Health status' = any("processing_activities"."sensitive_categories"));

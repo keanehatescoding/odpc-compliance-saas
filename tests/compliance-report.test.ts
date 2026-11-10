@@ -29,6 +29,10 @@ function activity(over: Partial<ReportActivity> = {}): ReportActivity {
     dataSubjects: ["Parents"],
     dataCategories: ["Name", "Phone number"],
     sensitiveCategories: [],
+    sensitiveDataGround: null,
+    sensitiveDataBasis: "",
+    healthDataCondition: null,
+    sensitiveDataSafeguards: "",
     recipients: "",
     crossBorder: false,
     transferCountries: "",
@@ -225,7 +229,7 @@ describe("buildComplianceReport", () => {
   it("finds nothing open when every record is in order", () => {
     const report = buildComplianceReport(input());
     expect(report.openCount).toBe(0);
-    expect(report.sections.map((s) => s.key)).toEqual(["registration", "ropa", "notice", "dpo", "consent", "lia", "dpia", "automated", "marketing", "breach", "request", "complaint", "processor", "transfer", "disposal", "training", "policy"]);
+    expect(report.sections.map((s) => s.key)).toEqual(["registration", "ropa", "notice", "dpo", "consent", "lia", "dpia", "sensitive", "automated", "marketing", "breach", "request", "complaint", "processor", "transfer", "disposal", "training", "policy"]);
     expect(report.preparedOn).toBe("2026-10-10");
     expect(report.periodFrom).toBe("2025-10-10");
   });
@@ -546,6 +550,60 @@ describe("breaches", () => {
     const done = section({ breaches: [breach({ ...old, subjectsNotifiedAt: at("2025-06-03T09:00") })] }, "breach");
     expect(done.table).toBeUndefined();
     expect(done.open).toEqual([]);
+  });
+});
+
+describe("sensitive personal data", () => {
+  const clinic = activity({
+    name: "Staff sick leave",
+    sensitiveCategories: ["Health status"],
+    sensitiveDataGround: "obligations",
+    sensitiveDataBasis: "Employment Act, s.30: sick leave on a medical certificate",
+    healthDataCondition: "confidentiality",
+    sensitiveDataSafeguards: "Certificates kept in a locked HR file only HR can open",
+  });
+
+  it("has nothing to report when no activity involves sensitive data", () => {
+    const s = section({}, "sensitive");
+    expect(fact(s, "Activities involving sensitive personal data")).toBe("0");
+    expect(s.table).toBeUndefined();
+    expect(s.open).toEqual([]);
+  });
+
+  it("lists what each activity has recorded", () => {
+    const s = section({ activities: [activity(), clinic] }, "sensitive");
+    expect(fact(s, "Activities involving sensitive personal data")).toBe("1");
+    expect(fact(s, "Of those, involving health data")).toBe("1");
+    expect(fact(s, "Of those, fully recorded")).toBe("1");
+    expect(s.table!.rows).toEqual([
+      [
+        "Staff sick leave",
+        "Health status",
+        "Needed to carry out your obligations, or exercise your or the person's specific rights",
+        "Yes",
+        "By someone who owes a duty of confidentiality under a law",
+        "Yes",
+      ],
+    ]);
+    expect(s.open).toEqual([]);
+  });
+
+  it("reports what a record leaves out", () => {
+    const s = section({ activities: [{ ...clinic, sensitiveDataGround: null, healthDataCondition: null, sensitiveDataSafeguards: "" }] }, "sensitive");
+    expect(fact(s, "Of those, fully recorded")).toBe("0");
+    expect(s.table!.rows[0]).toEqual(["Staff sick leave", "Health status", "Not recorded", "Yes", "Not recorded", "No"]);
+    expect(s.open).toEqual([
+      "Staff sick leave involves sensitive personal data, and the record doesn't say what s.45 ground allows it, which s.46 condition the health data is handled under and how it's protected or kept apart.",
+    ]);
+  });
+
+  it("leaves the ground to the controller when the organisation is a processor", () => {
+    const s = section(
+      { activities: [activity({ name: "Payroll for clients", role: "processor", sensitiveCategories: ["Marital status"], sensitiveDataSafeguards: "Encrypted at rest" })] },
+      "sensitive",
+    );
+    expect(s.table!.rows[0]).toEqual(["Payroll for clients", "Marital status", "For the controller to say", "No", "No health data", "Yes"]);
+    expect(s.open).toEqual([]);
   });
 });
 

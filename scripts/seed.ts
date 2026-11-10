@@ -168,7 +168,12 @@ await db.insert(registrations).values([
   },
 ]);
 
-const templates = templatesForSector("education");
+// The school nurse keeps the pupils' medical forms, so the student records say a health care provider handles the
+// health data (s.46). The staff records don't yet say who handles the sick notes, so they show on the dashboard and
+// in the compliance report.
+const templates = templatesForSector("education").map((t) =>
+  t.id === "student-records" ? { ...t, healthDataCondition: "health_care_provider" as const } : t,
+);
 const activities = await db
   .insert(processingActivities)
   .values(templates.map(({ id, sectors: _s, ...t }) => ({ ...t, orgId: org.id, templateId: id })))
