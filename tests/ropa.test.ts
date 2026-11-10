@@ -330,6 +330,9 @@ describe("ropaToCsv", () => {
       `"Needed to carry out your obligations, or exercise your or the person's specific rights (s.45(c)(ii))","${tpl.sensitiveDataBasis}","By or under the responsibility of a health care provider (s.46(1)(a))"`,
     );
     expect(row({ ...tpl, sensitiveDataGround: null, healthDataCondition: null })).toContain(`"Not recorded","${tpl.sensitiveDataBasis}","Not recorded"`);
+    // A processor isn't asked for the ground, but keeps one it has recorded.
+    expect(row({ ...tpl, role: "processor", sensitiveDataGround: null })).toContain(`"For the controller to say","${tpl.sensitiveDataBasis}"`);
+    expect(row({ ...tpl, role: "processor" })).toContain(`"Needed to carry out your obligations, or exercise your or the person's specific rights (s.45(c)(ii))"`);
     const plain = ACTIVITY_TEMPLATES.find((t) => t.id === "cctv")!;
     expect(row(plain)).toContain('"None","","","",""');
   });

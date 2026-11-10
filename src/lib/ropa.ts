@@ -311,7 +311,12 @@ export const ROPA_COLUMNS: { header: string; value: (a: ActivityInput) => string
   { header: "Sensitive personal data", value: (a) => a.sensitiveCategories.join("; ") || "None" },
   {
     header: "What allows the sensitive data (s.45)",
-    value: (a) => (a.sensitiveCategories.length > 0 ? (describeSensitiveDataGround(a.sensitiveDataGround) ?? "Not recorded") : ""),
+    // A processor isn't asked for the ground, which is the controller's to
+    // give, so a blank one isn't shown as missing (as in the compliance report).
+    value: (a) =>
+      a.sensitiveCategories.length > 0
+        ? (describeSensitiveDataGround(a.sensitiveDataGround) ?? (a.role === "processor" ? "For the controller to say" : "Not recorded"))
+        : "",
   },
   { header: "What the s.45 ground rests on", value: (a) => (a.sensitiveCategories.length > 0 ? a.sensitiveDataBasis : "") },
   {
