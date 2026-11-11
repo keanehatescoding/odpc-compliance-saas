@@ -169,8 +169,8 @@ await db.insert(registrations).values([
 ]);
 
 // The school nurse keeps the pupils' medical forms, so the student records say a health care provider handles the
-// health data (s.46). The staff records don't yet say who handles the sick notes, so they show on the dashboard and
-// in the compliance report.
+// health data (s.46). The staff records don't yet say who handles the sick notes, or how next of kin and referees are
+// told the school has their details (reg. 6(3)), so they show on the dashboard and in the compliance report.
 const templates = templatesForSector("education").map((t) =>
   t.id === "student-records" ? { ...t, healthDataCondition: "health_care_provider" as const } : t,
 );

@@ -4,6 +4,7 @@ import { formatDate } from "./dates";
 import { directMarketingNotice } from "./direct-marketing";
 import type { LawfulBasis } from "./dpa";
 import { publishedDpo, type DpoLike } from "./dpo";
+import { indirectCollectionNotice } from "./indirect-collection";
 import type { ActivityInput } from "./ropa";
 import { REQUEST_KINDS } from "./subject-request";
 
@@ -184,6 +185,9 @@ export function buildPrivacyNotice(input: {
       { label: "What", value: a.dataCategories.join(", ") },
     ];
     if (a.sensitiveCategories.length > 0) facts.push({ label: "Sensitive data", value: a.sensitiveCategories.join(", ") });
+    // s.28 and reg. 9(1)(e): people can learn where data that didn't come from them came from.
+    const source = indirectCollectionNotice(a);
+    if (source) facts.push({ label: "Where it comes from", value: source });
     facts.push({ label: "Legal basis", value: BASIS_TEXT[a.lawfulBasis] });
     const provision = provisionOf(a);
     if (provision) facts.push({ label: "Do you have to give it?", value: provision });
@@ -273,6 +277,16 @@ export function buildPrivacyNotice(input: {
   const sensitiveMarketing = activities.filter((a) => a.directMarketing && a.sensitiveCategories.length > 0);
   if (sensitiveMarketing.length > 0) {
     checks.push(`Make sure no sensitive personal data is used for marketing (Direct marketing), for: ${names(sensitiveMarketing)}.`);
+  }
+  // The notice says some data comes from others, so it should say from whom (reg. 6(1)).
+  const unsourced = activities.filter((a) => a.indirectCollection && !a.indirectSources.trim());
+  if (unsourced.length > 0) {
+    checks.push(`Say where the data that doesn't come from the person comes from (Where the data comes from), for: ${names(unsourced)}.`);
+  }
+  // reg. 15(1)(a): data used for direct marketing should have been collected from the person.
+  const indirectMarketing = activities.filter((a) => a.directMarketing && a.indirectCollection);
+  if (indirectMarketing.length > 0) {
+    checks.push(`Make sure the data used for marketing was collected from the person, not from others (Direct marketing), for: ${names(indirectMarketing)}.`);
   }
   const unprotected = activities.filter((a) => !a.securityMeasures);
   if (unprotected.length > 0) {

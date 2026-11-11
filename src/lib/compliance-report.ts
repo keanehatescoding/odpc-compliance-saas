@@ -19,6 +19,12 @@ import {
   sensitiveDataFinding,
   sensitiveDataIssues,
 } from "./sensitive-data";
+import {
+  describeIndirectCollectionGrounds,
+  INDIRECT_COLLECTION_PROVISION,
+  indirectCollectionFinding,
+  indirectCollectionIssues,
+} from "./indirect-collection";
 import { LAWFUL_BASES, REGISTRATION_ROLES, type LawfulBasis, type RegistrationRole } from "./dpa";
 import { DPO_PROVISION, dpoFinding, dpoIssues, type DpoLike } from "./dpo";
 import { DPIA_STATUS_LABEL, dpiaStatus, highestLevel, residualLevel, RISK_LEVEL_LABEL, type DpiaLike, type RiskLevel } from "./dpia";
@@ -217,7 +223,7 @@ export interface ReportInput {
   now: Date;
 }
 
-export type ReportSectionKey = "registration" | "ropa" | "notice" | "dpo" | "consent" | "lia" | "dpia" | "sensitive" | "automated" | "marketing" | "breach" | "request" | "complaint" | "processor" | "transfer" | "disposal" | "training" | "policy";
+export type ReportSectionKey = "registration" | "ropa" | "notice" | "dpo" | "consent" | "lia" | "dpia" | "sensitive" | "indirect" | "automated" | "marketing" | "breach" | "request" | "complaint" | "processor" | "transfer" | "disposal" | "training" | "policy";
 
 export interface ReportSection {
   key: ReportSectionKey;
@@ -503,6 +509,35 @@ function sensitiveSection(input: ReportInput): ReportSection {
       rows.length > 0
         ? { columns: ["Activity", "Categories", "Allowed because", "What it rests on", "Health data handled", "Safeguards"], rows }
         : undefined,
+    open,
+  };
+}
+
+/** Activities that collect data from someone other than the person it's about, and what s.28 and reg. 6 still need. */
+function indirectSection(input: ReportInput): ReportSection {
+  const indirect = input.activities.filter((a) => a.indirectCollection);
+  const open: string[] = [];
+  const rows = indirect.map((a) => {
+    const issues = indirectCollectionIssues(a);
+    if (issues.length > 0) open.push(indirectCollectionFinding(a, issues));
+    const grounds = describeIndirectCollectionGrounds(a.indirectCollectionGrounds);
+    return [
+      a.name,
+      a.indirectSources.trim() || "Not recorded",
+      grounds.length > 0 ? grounds.join("; ") : a.role === "processor" ? "For the controller to say" : "Not recorded",
+      a.indirectCollectionNotice.trim() || "Not recorded",
+    ];
+  });
+  return {
+    key: "indirect",
+    heading: "Data collected from others",
+    basis: INDIRECT_COLLECTION_PROVISION,
+    href: "/ropa?filter=indirect",
+    facts: [
+      { label: "Activities collecting data from someone other than the person", value: count(indirect.length) },
+      { label: "Of those, fully recorded", value: count(indirect.length - open.length) },
+    ],
+    table: rows.length > 0 ? { columns: ["Activity", "Where it comes from", "Allowed because", "How people are told"], rows } : undefined,
     open,
   };
 }
@@ -1105,6 +1140,7 @@ export function buildComplianceReport(input: ReportInput): ComplianceReport {
     liaSection(input, today),
     dpiaSection(input, today),
     sensitiveSection(input),
+    indirectSection(input),
     automatedSection(input),
     marketingSection(input),
     breachSection(input, periodFrom),
