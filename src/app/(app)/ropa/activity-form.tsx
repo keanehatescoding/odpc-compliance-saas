@@ -10,6 +10,7 @@ import { MARKETING_GROUNDS } from "@/lib/direct-marketing";
 import { LAWFUL_BASES, SENSITIVE_CATEGORIES } from "@/lib/dpa";
 import { RETENTION_UNITS } from "@/lib/retention";
 import { ACTIVITY_ROLES } from "@/lib/ropa";
+import { HEALTH_DATA_CONDITIONS, SENSITIVE_DATA_GROUNDS } from "@/lib/sensitive-data";
 
 export function ActivityForm({ activity }: { activity?: ProcessingActivity }) {
   const [state, action] = useActionState(saveActivity, undefined);
@@ -55,7 +56,8 @@ export function ActivityForm({ activity }: { activity?: ProcessingActivity }) {
         <TextField name="owner" label="Responsible person or team" initial={activity?.owner} {...f} />
       </Card>
 
-      <Card className="space-y-5">
+      {/* The sensitive data fields are shown by CSS once a category is ticked, so they also work before JS loads. */}
+      <Card className="group space-y-5">
         <h2 className="font-semibold">Whose data, and what data</h2>
         <TextArea
           name="dataSubjects"
@@ -88,6 +90,42 @@ export function ActivityForm({ activity }: { activity?: ProcessingActivity }) {
             ))}
           </div>
         </fieldset>
+        <div className="hidden space-y-5 group-has-[[name=sensitiveCategories]:checked]:block">
+          <SelectField
+            name="sensitiveDataGround"
+            label="What allows you to process the sensitive data (s.45)"
+            hint="The Act lists no consent ground for sensitive data, so if you rely on people's consent, check with counsel which of these applies. A processor can leave this to the controller it works for."
+            options={SENSITIVE_DATA_GROUNDS}
+            placeholder="Not decided yet"
+            initial={activity?.sensitiveDataGround ?? ""}
+            {...f}
+          />
+          <TextArea
+            name="sensitiveDataBasis"
+            label="What the ground rests on"
+            hint="The law that sets the obligation or gives the right, the claim, or where the person made the data public."
+            initial={activity?.sensitiveDataBasis}
+            {...f}
+          />
+          <div className="hidden group-has-[[name=sensitiveCategories][value='Health_status']:checked]:block">
+            <SelectField
+              name="healthDataCondition"
+              label="Who handles the health data (s.46)"
+              hint="Only a health care provider or someone working under one, or someone bound by professional secrecy or a duty of confidentiality under a law, unless it's needed for public health."
+              options={HEALTH_DATA_CONDITIONS}
+              placeholder="Not decided yet"
+              initial={activity?.healthDataCondition ?? ""}
+              {...f}
+            />
+          </div>
+          <TextArea
+            name="sensitiveDataSafeguards"
+            label="How the sensitive data is protected"
+            hint="What protects it beyond the rest of the data, and whether it's kept apart, such as a separate file or system only named people can open (reg. 32(i))."
+            initial={activity?.sensitiveDataSafeguards}
+            {...f}
+          />
+        </div>
       </Card>
 
       {/* The transfer fields are shown by CSS, so they also work before JS loads. */}

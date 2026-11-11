@@ -30,6 +30,15 @@ import { transferStatus } from "@/lib/transfer";
 import { activityAssessments, activityConsents, activityProcessors, activityTransfers, getActivity, getDpiaForActivity, listDisposals } from "@/lib/queries";
 import { dpiaRecommended, dpiaTriggers } from "@/lib/ropa";
 import { activityNextRound, describeRetention, retentionCutoff } from "@/lib/retention";
+import {
+  describeHealthDataCondition,
+  describeSensitiveDataGround,
+  involvesHealthData,
+  SENSITIVE_DATA_CHECKLIST,
+  SENSITIVE_DATA_GAP,
+  SENSITIVE_DATA_GROUND_DETAIL,
+  sensitiveDataIssues,
+} from "@/lib/sensitive-data";
 import { requireOrgContext } from "@/lib/session";
 import { isUuid } from "@/lib/uuid";
 import { ActivityForm } from "../activity-form";
@@ -58,6 +67,9 @@ export default async function EditActivityPage({ params }: PageProps<"/ropa/[id]
   const next = activityNextRound(activity, disposals, today);
   const decisionGaps = automatedDecisionIssues(activity);
   const marketingGaps = directMarketingIssues(activity);
+  const sensitiveGaps = sensitiveDataIssues(activity);
+  const sensitiveGround = describeSensitiveDataGround(activity.sensitiveDataGround);
+  const healthCondition = describeHealthDataCondition(activity.healthDataCondition);
 
   return (
     <>
@@ -212,6 +224,39 @@ export default async function EditActivityPage({ params }: PageProps<"/ropa/[id]
             </Link>
           </Card>
         )
+      )}
+      {activity.sensitiveCategories.length > 0 && (
+        <Card className={`mb-6 max-w-3xl ${sensitiveGaps.length > 0 ? "border-amber-300 bg-amber-50" : ""}`}>
+          <h2 className="font-semibold">Sensitive personal data</h2>
+          <p className="mt-1 text-sm text-stone-700">
+            {sensitiveGround && activity.sensitiveDataGround
+              ? `Allowed because: ${sensitiveGround}. ${SENSITIVE_DATA_GROUND_DETAIL[activity.sensitiveDataGround]}`
+              : `This activity involves ${activity.sensitiveCategories.join(", ").toLowerCase()}. Section 45 of the Act allows sensitive personal data to be processed only on the grounds it lists.`}
+          </p>
+          {activity.sensitiveDataBasis && <p className="mt-1 text-sm text-stone-700">Rests on: {activity.sensitiveDataBasis}</p>}
+          {involvesHealthData(activity) && healthCondition && (
+            <p className="mt-1 text-sm text-stone-700">Health data handled: {healthCondition}.</p>
+          )}
+          {activity.sensitiveDataSafeguards && <p className="mt-1 text-sm text-stone-700">Safeguards: {activity.sensitiveDataSafeguards}</p>}
+          {sensitiveGaps.length > 0 && (
+            <>
+              <h3 className="mt-3 text-sm font-medium">What the record still needs</h3>
+              <ul className="mt-1 list-disc pl-5 text-sm text-stone-700">
+                {sensitiveGaps.map((g) => (
+                  <li key={g}>{SENSITIVE_DATA_GAP[g]}</li>
+                ))}
+              </ul>
+            </>
+          )}
+          <details className="mt-3 text-sm">
+            <summary className="cursor-pointer font-medium">What the Act and the Regulations ask</summary>
+            <ul className="mt-2 list-disc pl-5 text-stone-700">
+              {SENSITIVE_DATA_CHECKLIST.map((c) => (
+                <li key={c}>{c}</li>
+              ))}
+            </ul>
+          </details>
+        </Card>
       )}
       {activity.automatedDecisions && (
         <Card className={`mb-6 max-w-3xl ${decisionGaps.length > 0 ? "border-amber-300 bg-amber-50" : ""}`}>

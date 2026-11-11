@@ -3,6 +3,15 @@ import { AUTOMATED_DECISION_GROUND_KEYS, AUTOMATED_DECISION_GROUNDS, type Automa
 import { MARKETING_GROUND_KEYS, MARKETING_GROUNDS, type MarketingGround } from "./direct-marketing";
 import { LAWFUL_BASES, LAWFUL_BASIS_KEYS, SENSITIVE_CATEGORIES, type LawfulBasis, type Sector } from "./dpa";
 import { describeRetention, MAX_RETENTION_YEARS, RETENTION_UNIT_KEYS, type RetentionUnit } from "./retention";
+import {
+  describeHealthDataCondition,
+  describeSensitiveDataGround,
+  HEALTH_DATA_CONDITION_KEYS,
+  type HealthDataCondition,
+  involvesHealthData,
+  SENSITIVE_DATA_GROUND_KEYS,
+  type SensitiveDataGround,
+} from "./sensitive-data";
 
 /** The organisation's part in an activity: deciding why and how the data is used, or handling it for someone who does. */
 export const ACTIVITY_ROLES = {
@@ -24,6 +33,14 @@ export interface ActivityInput {
   dataSubjects: string[];
   dataCategories: string[];
   sensitiveCategories: string[];
+  /** What s.45 allows the sensitive data to be processed under; null until someone says. */
+  sensitiveDataGround: SensitiveDataGround | null;
+  /** What the ground rests on: the law, the claim, where the person made the data public. */
+  sensitiveDataBasis: string;
+  /** Who handles data about people's health (s.46); null until someone says, or when there is none. */
+  healthDataCondition: HealthDataCondition | null;
+  /** How the sensitive data is protected and kept apart from the rest (reg. 32(i)). */
+  sensitiveDataSafeguards: string;
   recipients: string;
   crossBorder: boolean;
   transferCountries: string;
@@ -91,6 +108,20 @@ export const activityFormSchema = z
       .array(z.enum(SENSITIVE_CATEGORIES, { error: "Choose from the listed categories." }))
       .max(SENSITIVE_CATEGORIES.length)
       .default([]),
+    sensitiveDataGround: z
+      .union([z.literal(""), z.enum(SENSITIVE_DATA_GROUND_KEYS as [SensitiveDataGround, ...SensitiveDataGround[]])], {
+        error: "Choose from the listed grounds.",
+      })
+      .default("")
+      .transform((v) => v || null),
+    sensitiveDataBasis: z.string().trim().max(2000).default(""),
+    healthDataCondition: z
+      .union([z.literal(""), z.enum(HEALTH_DATA_CONDITION_KEYS as [HealthDataCondition, ...HealthDataCondition[]])], {
+        error: "Choose from the listed conditions.",
+      })
+      .default("")
+      .transform((v) => v || null),
+    sensitiveDataSafeguards: z.string().trim().max(2000).default(""),
     recipients: z.string().trim().max(2000).default(""),
     crossBorder: checkbox,
     transferCountries: z.string().trim().max(500).default(""),
@@ -171,6 +202,10 @@ export function parseActivityForm(formData: FormData) {
     dataSubjects: get("dataSubjects") ?? "",
     dataCategories: get("dataCategories") ?? "",
     sensitiveCategories: formData.getAll("sensitiveCategories").map(String),
+    sensitiveDataGround: get("sensitiveDataGround"),
+    sensitiveDataBasis: get("sensitiveDataBasis"),
+    healthDataCondition: get("healthDataCondition"),
+    sensitiveDataSafeguards: get("sensitiveDataSafeguards"),
     recipients: get("recipients"),
     crossBorder: get("crossBorder"),
     transferCountries: get("transferCountries"),
@@ -202,11 +237,17 @@ export function parseActivityForm(formData: FormData) {
  * The activity as saved: the transfer, automated decision and direct marketing
  * details are kept only when the activity says it transfers data, takes such
  * decisions or markets to people, so unticking the box clears what was entered
- * under it.
+ * under it. Likewise the sensitive data details go when no sensitive category
+ * is ticked, and the health condition when health status isn't.
  */
 export function activityToSave<T extends ActivityInput>(a: T): T {
+  const sensitive = a.sensitiveCategories.length > 0;
   return {
     ...a,
+    sensitiveDataGround: sensitive ? a.sensitiveDataGround : null,
+    sensitiveDataBasis: sensitive ? a.sensitiveDataBasis : "",
+    healthDataCondition: involvesHealthData(a) ? a.healthDataCondition : null,
+    sensitiveDataSafeguards: sensitive ? a.sensitiveDataSafeguards : "",
     transferCountries: a.crossBorder ? a.transferCountries : "",
     transferSafeguards: a.crossBorder ? a.transferSafeguards : "",
     automatedDecisionGround: a.automatedDecisions ? a.automatedDecisionGround : null,
@@ -268,6 +309,21 @@ export const ROPA_COLUMNS: { header: string; value: (a: ActivityInput) => string
   { header: "Categories of data subjects", value: (a) => a.dataSubjects.join("; ") },
   { header: "Categories of personal data", value: (a) => a.dataCategories.join("; ") },
   { header: "Sensitive personal data", value: (a) => a.sensitiveCategories.join("; ") || "None" },
+  {
+    header: "What allows the sensitive data (s.45)",
+    // A processor isn't asked for the ground, which is the controller's to
+    // give, so a blank one isn't shown as missing (as in the compliance report).
+    value: (a) =>
+      a.sensitiveCategories.length > 0
+        ? (describeSensitiveDataGround(a.sensitiveDataGround) ?? (a.role === "processor" ? "For the controller to say" : "Not recorded"))
+        : "",
+  },
+  { header: "What the s.45 ground rests on", value: (a) => (a.sensitiveCategories.length > 0 ? a.sensitiveDataBasis : "") },
+  {
+    header: "Who handles the health data (s.46)",
+    value: (a) => (involvesHealthData(a) ? (describeHealthDataCondition(a.healthDataCondition) ?? "Not recorded") : ""),
+  },
+  { header: "Sensitive data safeguards", value: (a) => (a.sensitiveCategories.length > 0 ? a.sensitiveDataSafeguards : "") },
   { header: "Recipients", value: (a) => a.recipients },
   {
     header: "Transfers outside Kenya",
@@ -325,6 +381,10 @@ const base = {
   role: "controller",
   provision: "",
   sensitiveCategories: [],
+  sensitiveDataGround: null,
+  sensitiveDataBasis: "",
+  healthDataCondition: null,
+  sensitiveDataSafeguards: "",
   crossBorder: false,
   transferCountries: "",
   transferSafeguards: "",
@@ -366,6 +426,11 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     dataSubjects: ["Employees", "Job applicants", "Next of kin"],
     dataCategories: ["Name", "National ID number", "KRA PIN", "Bank details", "Contact details", "Employment history"],
     sensitiveCategories: ["Health status", "Family details (children, parents, spouse)", "Marital status"],
+    sensitiveDataGround: "obligations",
+    sensitiveDataBasis:
+      "The Employment Act, 2007 (sick leave on a medical certificate) and the tax and social security laws that set deductions, reliefs and dependants' cover.",
+    sensitiveDataSafeguards:
+      "Medical certificates and dependants' details are kept in a separate, locked HR file, not in the payroll system, and only HR can open it.",
     recipients: "KRA, NSSF, SHA, payroll provider, bank",
     retentionPeriod: "7 years after employment ends",
     ...keep(7, "years", "the end of employment"),
@@ -424,6 +489,9 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     dataSubjects: ["Students", "Parents and guardians"],
     dataCategories: ["Name", "Date of birth", "Birth certificate number", "Photograph", "Academic results", "Parent contact details"],
     sensitiveCategories: ["Health status", "Family details (children, parents, spouse)"],
+    sensitiveDataGround: "obligations",
+    sensitiveDataBasis: "The Basic Education Act, 2013 and the Children Act, 2022: the school's duty of care for its pupils, including their health needs.",
+    sensitiveDataSafeguards: "Medical forms are kept in a separate locked file held by the school nurse or the head teacher, not in the general student file.",
     recipients: "Ministry of Education, KNEC, examination bodies",
     retentionPeriod: "Duration of enrolment plus 7 years; academic transcripts permanently",
     ...keep(7, "years", "the pupil leaving"),
@@ -460,6 +528,11 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     dataSubjects: ["Patients", "Next of kin"],
     dataCategories: ["Name", "National ID number", "Contact details", "Clinical notes", "Lab results", "Prescriptions"],
     sensitiveCategories: ["Health status", "Genetic data", "Family details (children, parents, spouse)"],
+    sensitiveDataGround: "obligations",
+    sensitiveDataBasis: "The Health Act, 2017: a health care provider's duty to keep a record of each patient's care.",
+    healthDataCondition: "health_care_provider",
+    sensitiveDataSafeguards:
+      "Clinical records are kept in the EMR, apart from billing and front-desk data. Each role sees only what it needs, and every access is logged.",
     recipients: "Referral facilities, laboratories, SHA, insurers (with consent)",
     retentionPeriod: "Per Ministry of Health records retention guidelines",
     securityMeasures: "EMR with individual logins and audit trail; paper files in restricted records room",
@@ -478,6 +551,10 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     dataCategories: ["Name", "Member number", "Diagnosis codes", "Treatment costs"],
     sensitiveCategories: ["Health status"],
     recipients: "SHA, private insurers",
+    sensitiveDataGround: "obligations",
+    sensitiveDataBasis: "The Social Health Insurance Act, 2023 and the patient's insurance cover: a claim must state the diagnosis and treatment to be paid.",
+    healthDataCondition: "health_care_provider",
+    sensitiveDataSafeguards: "Only the diagnosis codes and costs the payer asks for are sent. Claim files are kept apart from clinical notes, and only billing staff can open them.",
     retentionPeriod: "7 years",
     ...keep(7, "years", "the claim"),
     securityMeasures: "Claims submitted through insurer portals; access limited to billing staff",
@@ -494,6 +571,11 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     dataSubjects: ["Members / customers", "Guarantors", "Nominees"],
     dataCategories: ["Name", "National ID number", "KRA PIN", "Photograph", "Address", "Phone number", "Income details"],
     sensitiveCategories: ["Biometric data", "Family details (children, parents, spouse)"],
+    sensitiveDataGround: "obligations",
+    sensitiveDataBasis:
+      "The Proceeds of Crime and Anti-Money Laundering Act, 2009 and its regulations, which require customers to be identified and verified, and the nominee rules for members' deposits.",
+    sensitiveDataSafeguards:
+      "Fingerprints are held encrypted in the verification system only and never exported. Nominee and family details sit in the member file, which only member services can open.",
     recipients: "SASRA / CBK on request, Financial Reporting Centre, IPRS verification",
     retentionPeriod: "7 years after the relationship ends (POCAMLA)",
     ...keep(7, "years", "the end of the relationship"),

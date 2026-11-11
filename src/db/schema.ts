@@ -20,6 +20,13 @@ import { BREACH_KIND_KEYS, BREACH_RISK_KEYS } from "../lib/breach";
 import { COMPLAINT_KIND_KEYS } from "../lib/complaint";
 import { CONSENT_METHOD_KEYS } from "../lib/consent";
 import { MARKETING_GROUND_KEYS, type MarketingGround } from "../lib/direct-marketing";
+import {
+  HEALTH_CATEGORY,
+  HEALTH_DATA_CONDITION_KEYS,
+  type HealthDataCondition,
+  SENSITIVE_DATA_GROUND_KEYS,
+  type SensitiveDataGround,
+} from "../lib/sensitive-data";
 import { DISPOSAL_METHOD_KEYS, DISPOSAL_REASON_KEYS } from "../lib/disposal";
 import { LIKELIHOOD_KEYS, SEVERITY_KEYS } from "../lib/dpia";
 import { LIA_OUTCOME_KEYS } from "../lib/lia";
@@ -46,6 +53,8 @@ export const automatedDecisionGroundEnum = pgEnum(
   AUTOMATED_DECISION_GROUND_KEYS as [AutomatedDecisionGround, ...AutomatedDecisionGround[]],
 );
 export const marketingGroundEnum = pgEnum("marketing_ground", MARKETING_GROUND_KEYS as [MarketingGround, ...MarketingGround[]]);
+export const sensitiveDataGroundEnum = pgEnum("sensitive_data_ground", SENSITIVE_DATA_GROUND_KEYS as [SensitiveDataGround, ...SensitiveDataGround[]]);
+export const healthDataConditionEnum = pgEnum("health_data_condition", HEALTH_DATA_CONDITION_KEYS as [HealthDataCondition, ...HealthDataCondition[]]);
 export const policyKindEnum = pgEnum("policy_kind", POLICY_KIND_KEYS as [string, ...string[]]);
 export const liaOutcomeEnum = pgEnum("lia_outcome", LIA_OUTCOME_KEYS as [string, ...string[]]);
 export const transferBasisEnum = pgEnum("transfer_basis", TRANSFER_BASIS_KEYS as [string, ...string[]]);
@@ -469,6 +478,15 @@ export const processingActivities = pgTable(
     dataSubjects: text("data_subjects").array().notNull().default(sql`'{}'::text[]`),
     dataCategories: text("data_categories").array().notNull().default(sql`'{}'::text[]`),
     sensitiveCategories: text("sensitive_categories").array().notNull().default(sql`'{}'::text[]`),
+    // What allows the sensitive data to be processed (ss.44-46 of the Act). The
+    // details are empty unless the activity involves some. Null until someone says.
+    sensitiveDataGround: sensitiveDataGroundEnum("sensitive_data_ground"),
+    // What the ground rests on: the law, the claim, where it was made public.
+    sensitiveDataBasis: text("sensitive_data_basis").notNull().default(""),
+    // Who handles data about people's health (s.46). Null unless the activity involves it.
+    healthDataCondition: healthDataConditionEnum("health_data_condition"),
+    // How the sensitive data is protected and kept apart from the rest (reg. 32(i)).
+    sensitiveDataSafeguards: text("sensitive_data_safeguards").notNull().default(""),
     recipients: text("recipients").notNull().default(""),
     crossBorder: boolean("cross_border").notNull().default(false),
     transferCountries: text("transfer_countries").notNull().default(""),
@@ -518,6 +536,14 @@ export const processingActivities = pgTable(
     check(
       "processing_activities_direct_marketing_check",
       sql`${t.directMarketing} or (${t.marketingGround} is null and ${t.marketingChannels} = '' and ${t.marketingOptOut} = '' and ${t.marketingOptOutRecords} = '')`,
+    ),
+    check(
+      "processing_activities_sensitive_data_check",
+      sql`cardinality(${t.sensitiveCategories}) > 0 or (${t.sensitiveDataGround} is null and ${t.sensitiveDataBasis} = '' and ${t.sensitiveDataSafeguards} = '')`,
+    ),
+    check(
+      "processing_activities_health_data_check",
+      sql`${t.healthDataCondition} is null or ${sql.raw(`'${HEALTH_CATEGORY}'`)} = any(${t.sensitiveCategories})`,
     ),
   ],
 );

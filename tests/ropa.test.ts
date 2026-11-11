@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SECTOR_KEYS } from "@/lib/dpa";
+import { sensitiveDataIssues } from "@/lib/sensitive-data";
 import {
   ACTIVITY_TEMPLATES,
   activityFormSchema,
@@ -53,6 +54,33 @@ describe("parseActivityForm", () => {
     const r = parseActivityForm(form({ ...valid, crossBorder: "on" }));
     expect(r.success).toBe(false);
     expect(r.error!.issues.map((i) => i.path.join("."))).toContain("transferCountries");
+  });
+
+  it("reads what allows the sensitive data and who handles the health data", () => {
+    const r = parseActivityForm(
+      form({
+        ...valid,
+        sensitiveCategories: ["Health status"],
+        sensitiveDataGround: "obligations",
+        sensitiveDataBasis: " Employment Act, 2007 ",
+        healthDataCondition: "confidentiality",
+        sensitiveDataSafeguards: "Locked HR file",
+      }),
+    );
+    expect(r.data).toMatchObject({
+      sensitiveDataGround: "obligations",
+      sensitiveDataBasis: "Employment Act, 2007",
+      healthDataCondition: "confidentiality",
+      sensitiveDataSafeguards: "Locked HR file",
+    });
+    const blank = parseActivityForm(form(valid));
+    expect(blank.data).toMatchObject({ sensitiveDataGround: null, healthDataCondition: null, sensitiveDataBasis: "", sensitiveDataSafeguards: "" });
+  });
+
+  it("rejects a sensitive data ground or health condition the Act doesn't list", () => {
+    const r = parseActivityForm(form({ ...valid, sensitiveCategories: ["Health status"], sensitiveDataGround: "consent", healthDataCondition: "anyone" }));
+    expect(r.success).toBe(false);
+    expect(r.error!.issues.map((i) => i.path.join("."))).toEqual(expect.arrayContaining(["sensitiveDataGround", "healthDataCondition"]));
   });
 
   it("rejects sensitive categories outside the statutory list", () => {
@@ -206,6 +234,11 @@ describe("activityToSave", () => {
         marketingChannels: "SMS",
         marketingOptOut: "Reply STOP",
         marketingOptOutRecords: "CRM",
+        sensitiveCategories: ["Health status", "Biometric data"],
+        sensitiveDataGround: "obligations",
+        sensitiveDataBasis: "Employment Act, 2007",
+        healthDataCondition: "confidentiality",
+        sensitiveDataSafeguards: "Locked HR file",
       }),
     ).data!;
 
@@ -226,6 +259,24 @@ describe("activityToSave", () => {
       marketingChannels: "",
       marketingOptOut: "",
       marketingOptOutRecords: "",
+    });
+  });
+
+  it("drops the sensitive data details when no sensitive category is ticked", () => {
+    expect(activityToSave({ ...parsed(), sensitiveCategories: [] })).toMatchObject({
+      sensitiveDataGround: null,
+      sensitiveDataBasis: "",
+      healthDataCondition: null,
+      sensitiveDataSafeguards: "",
+    });
+  });
+
+  it("drops only the health condition when health status isn't ticked", () => {
+    expect(activityToSave({ ...parsed(), sensitiveCategories: ["Biometric data"] })).toMatchObject({
+      sensitiveDataGround: "obligations",
+      sensitiveDataBasis: "Employment Act, 2007",
+      healthDataCondition: null,
+      sensitiveDataSafeguards: "Locked HR file",
     });
   });
 });
@@ -262,6 +313,29 @@ describe("ropaToCsv", () => {
     expect(row(tpl)).toContain(`"Yes: The person's express consent","${tpl.marketingChannels}","${tpl.marketingOptOut}"`);
     expect(row({ ...tpl, marketingGround: null })).toContain('"Yes: ground not recorded"');
   });
+
+  it("says what allows the sensitive data and who handles the health data", () => {
+    const tpl = ACTIVITY_TEMPLATES.find((t) => t.id === "patient-records")!;
+    const header = ropaToCsv([]).trim().slice(1).split(",");
+    const at = header.indexOf('"Sensitive personal data"');
+    expect(header.slice(at, at + 5)).toEqual([
+      '"Sensitive personal data"',
+      '"What allows the sensitive data (s.45)"',
+      '"What the s.45 ground rests on"',
+      '"Who handles the health data (s.46)"',
+      '"Sensitive data safeguards"',
+    ]);
+    const row = (a: typeof tpl) => ropaToCsv([a]).trim().split("\r\n")[1];
+    expect(row(tpl)).toContain(
+      `"Needed to carry out your obligations, or exercise your or the person's specific rights (s.45(c)(ii))","${tpl.sensitiveDataBasis}","By or under the responsibility of a health care provider (s.46(1)(a))"`,
+    );
+    expect(row({ ...tpl, sensitiveDataGround: null, healthDataCondition: null })).toContain(`"Not recorded","${tpl.sensitiveDataBasis}","Not recorded"`);
+    // A processor isn't asked for the ground, but keeps one it has recorded.
+    expect(row({ ...tpl, role: "processor", sensitiveDataGround: null })).toContain(`"For the controller to say","${tpl.sensitiveDataBasis}"`);
+    expect(row({ ...tpl, role: "processor" })).toContain(`"Needed to carry out your obligations, or exercise your or the person's specific rights (s.45(c)(ii))"`);
+    const plain = ACTIVITY_TEMPLATES.find((t) => t.id === "cctv")!;
+    expect(row(plain)).toContain('"None","","","",""');
+  });
 });
 
 describe("templates", () => {
@@ -279,6 +353,8 @@ describe("templates", () => {
         automatedDecisionGround: t.automatedDecisionGround ?? "",
         directMarketing: String(t.directMarketing),
         marketingGround: t.marketingGround ?? "",
+        sensitiveDataGround: t.sensitiveDataGround ?? "",
+        healthDataCondition: t.healthDataCondition ?? "",
         retentionLength: t.retentionLength?.toString() ?? "",
         retentionUnit: t.retentionUnit ?? "",
       });
@@ -289,6 +365,17 @@ describe("templates", () => {
   it("say whether the data is required, unless they rely on consent", () => {
     const unanswered = ACTIVITY_TEMPLATES.filter((t) => t.lawfulBasis !== "consent" && !t.provision);
     expect(unanswered.map((t) => t.id)).toEqual([]);
+  });
+
+  it("say what allows any sensitive data they hold and how it's protected", () => {
+    const sensitive = ACTIVITY_TEMPLATES.filter((t) => t.sensitiveCategories.length > 0);
+    expect(sensitive.length).toBeGreaterThan(0);
+    for (const t of sensitive) {
+      // Who handles health data outside a clinic is for the organisation to say, so that's the only gap left.
+      expect(sensitiveDataIssues(t).filter((i) => i !== "no_health_condition"), t.id).toEqual([]);
+    }
+    expect(sensitiveDataIssues(ACTIVITY_TEMPLATES.find((t) => t.id === "patient-records")!)).toEqual([]);
+    expect(ACTIVITY_TEMPLATES.filter((t) => t.sensitiveCategories.length === 0 && (t.sensitiveDataGround || t.sensitiveDataSafeguards)).map((t) => t.id)).toEqual([]);
   });
 
   it("have unique ids and cover every sector", () => {
