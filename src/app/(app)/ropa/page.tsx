@@ -6,6 +6,7 @@ import type { ProcessingActivity } from "@/db/schema";
 import { automatedDecisionIssues } from "@/lib/automated-decision";
 import { directMarketingIssues } from "@/lib/direct-marketing";
 import { LAWFUL_BASES, type LawfulBasis } from "@/lib/dpa";
+import { childrenDataIssues } from "@/lib/children-data";
 import { indirectCollectionIssues } from "@/lib/indirect-collection";
 import { suggestionFromQuery } from "@/lib/particulars";
 import { listActivities, listDpias } from "@/lib/queries";
@@ -24,6 +25,7 @@ const FILTERS: Record<string, { label: string; test: (a: ProcessingActivity) => 
   dpia: { label: "DPIA recommended", test: dpiaRecommended },
   sensitive: { label: "Sensitive data", test: (a) => a.sensitiveCategories.length > 0 },
   indirect: { label: "Collected from others", test: (a) => a.indirectCollection },
+  children: { label: "Children's data", test: (a) => a.involvesChildren },
   "cross-border": { label: "Outside Kenya", test: (a) => a.crossBorder },
   automated: { label: "Automated decisions", test: (a) => a.automatedDecisions },
   marketing: { label: "Direct marketing", test: (a) => a.directMarketing },
@@ -125,7 +127,7 @@ export default async function RopaPage({ searchParams }: PageProps<"/ropa">) {
                         {a.sensitiveCategories.length > 0 && <Pill tone="red">Sensitive</Pill>}
                         {a.indirectCollection && <FlagPill label="From others" incomplete={indirectCollectionIssues(a).length > 0} />}
                         {a.crossBorder && <Pill>Outside Kenya</Pill>}
-                        {a.involvesChildren && <Pill>Children</Pill>}
+                        {a.involvesChildren && <FlagPill label="Children" incomplete={childrenDataIssues(a).length > 0} />}
                         {a.automatedDecisions && <FlagPill label="Automated decisions" incomplete={automatedDecisionIssues(a).length > 0} />}
                         {a.directMarketing && <FlagPill label="Marketing" incomplete={directMarketingIssues(a).length > 0} />}
                       </div>

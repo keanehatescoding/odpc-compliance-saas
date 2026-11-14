@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AUTOMATED_DECISION_GROUND_KEYS, AUTOMATED_DECISION_GROUNDS, type AutomatedDecisionGround } from "./automated-decision";
+import { describeParentalConsent } from "./children-data";
 import { MARKETING_GROUND_KEYS, MARKETING_GROUNDS, type MarketingGround } from "./direct-marketing";
 import { LAWFUL_BASES, LAWFUL_BASIS_KEYS, SENSITIVE_CATEGORIES, type LawfulBasis, type Sector } from "./dpa";
 import { describeIndirectCollectionGrounds, INDIRECT_COLLECTION_GROUND_KEYS, type IndirectCollectionGround } from "./indirect-collection";
@@ -65,7 +66,16 @@ export interface ActivityInput {
   owner: string;
   largeScale: boolean;
   systematicMonitoring: boolean;
+  /** Children's data is processed (s.33; reg. 13(2) of the General Regulations). */
   involvesChildren: boolean;
+  /** How a child's data is told apart from an adult's (s.33(2)). */
+  childAgeCheck: string;
+  /** Only counselling or child protection services for children, so parental consent may not be needed (s.33(4)). */
+  childCounselling: boolean;
+  /** How a parent or guardian consents, and how they're identified (s.33(1)(a); reg. 13(2)(a)). */
+  parentalConsent: string;
+  /** How the processing protects the child, and how parents are told the risks and safeguards (s.33(1)(b); reg. 13(2)(c)). */
+  childSafeguards: string;
   /** Decisions about people taken by automated means alone, with legal or similarly significant effects (s.35). */
   automatedDecisions: boolean;
   /** What s.35(2) allows them under; null until someone says. */
@@ -163,6 +173,10 @@ export const activityFormSchema = z
     largeScale: checkbox,
     systematicMonitoring: checkbox,
     involvesChildren: checkbox,
+    childAgeCheck: z.string().trim().max(2000).default(""),
+    childCounselling: checkbox,
+    parentalConsent: z.string().trim().max(2000).default(""),
+    childSafeguards: z.string().trim().max(2000).default(""),
     automatedDecisions: checkbox,
     automatedDecisionGround: z
       .union([z.literal(""), z.enum(AUTOMATED_DECISION_GROUND_KEYS as [AutomatedDecisionGround, ...AutomatedDecisionGround[]])], {
@@ -241,6 +255,10 @@ export function parseActivityForm(formData: FormData) {
     largeScale: get("largeScale"),
     systematicMonitoring: get("systematicMonitoring"),
     involvesChildren: get("involvesChildren"),
+    childAgeCheck: get("childAgeCheck"),
+    childCounselling: get("childCounselling"),
+    parentalConsent: get("parentalConsent"),
+    childSafeguards: get("childSafeguards"),
     automatedDecisions: get("automatedDecisions"),
     automatedDecisionGround: get("automatedDecisionGround"),
     automatedDecisionLogic: get("automatedDecisionLogic"),
@@ -255,11 +273,14 @@ export function parseActivityForm(formData: FormData) {
 }
 
 /**
- * The activity as saved: the indirect collection, transfer, automated decision
- * and direct marketing details are kept only when the activity says it gets
- * data from others, transfers data, takes such decisions or markets to people,
- * so unticking the box clears what was entered under it. Likewise the sensitive data details go when no sensitive category
- * is ticked, and the health condition when health status isn't.
+ * The activity as saved: the indirect collection, children's data, transfer,
+ * automated decision and direct marketing details are kept only when the
+ * activity says it gets data from others, involves children, transfers data,
+ * takes such decisions or markets to people, so unticking the box clears what
+ * was entered under it. Likewise the sensitive data details go when no sensitive category
+ * is ticked, the health condition when health status isn't, and how a parent
+ * consents when the activity is counselling or child protection only (s.33(4)),
+ * since the form hides that question then.
  */
 export function activityToSave<T extends ActivityInput>(a: T): T {
   const sensitive = a.sensitiveCategories.length > 0;
@@ -272,6 +293,10 @@ export function activityToSave<T extends ActivityInput>(a: T): T {
     indirectSources: a.indirectCollection ? a.indirectSources : "",
     indirectCollectionGrounds: a.indirectCollection ? a.indirectCollectionGrounds : [],
     indirectCollectionNotice: a.indirectCollection ? a.indirectCollectionNotice : "",
+    childAgeCheck: a.involvesChildren ? a.childAgeCheck : "",
+    childCounselling: a.involvesChildren && a.childCounselling,
+    parentalConsent: a.involvesChildren && !a.childCounselling ? a.parentalConsent : "",
+    childSafeguards: a.involvesChildren ? a.childSafeguards : "",
     transferCountries: a.crossBorder ? a.transferCountries : "",
     transferSafeguards: a.crossBorder ? a.transferSafeguards : "",
     automatedDecisionGround: a.automatedDecisions ? a.automatedDecisionGround : null,
@@ -358,6 +383,11 @@ export const ROPA_COLUMNS: { header: string; value: (a: ActivityInput) => string
         : "",
   },
   { header: "How people are told it came from others", value: (a) => (a.indirectCollection ? a.indirectCollectionNotice : "") },
+  { header: "Children's data", value: (a) => (a.involvesChildren ? "Yes" : "No") },
+  { header: "How a child's data is told apart (s.33(2))", value: (a) => (a.involvesChildren ? a.childAgeCheck : "") },
+  // As with s.45, getting the consent is the controller's to do.
+  { header: "How a parent or guardian consents (s.33(1)(a))", value: describeParentalConsent },
+  { header: "How children are protected (s.33(1)(b))", value: (a) => (a.involvesChildren ? a.childSafeguards : "") },
   { header: "Recipients", value: (a) => a.recipients },
   {
     header: "Transfers outside Kenya",
@@ -429,6 +459,10 @@ const base = {
   largeScale: false,
   systematicMonitoring: false,
   involvesChildren: false,
+  childAgeCheck: "",
+  childCounselling: false,
+  parentalConsent: "",
+  childSafeguards: "",
   owner: "",
   retentionLength: null,
   retentionUnit: null,
@@ -549,6 +583,12 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     securityMeasures: "School management system with role-based access; paper files in locked cabinets",
     systems: "School management system, NEMIS",
     involvesChildren: true,
+    childAgeCheck:
+      "The admission form asks for the pupil's date of birth and birth certificate number, and the office checks them against the birth certificate.",
+    parentalConsent:
+      "A parent or guardian signs the admission form, which says what the school collects and why. The office checks their ID, and that the birth certificate or other proof names them as the parent or guardian.",
+    childSafeguards:
+      "Only the class teacher, the head teacher and the office open a pupil's file, and health details stay with the school nurse. Pupils' data is shared only with the bodies listed and never used for marketing. The admission pack tells parents who sees their child's data and how it's protected.",
     largeScale: true,
   },
   {
@@ -571,6 +611,11 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     securityMeasures: "Finance office access only",
     systems: "Accounting software",
     involvesChildren: true,
+    childAgeCheck: "Fees are billed only for pupils the school has admitted, whose dates of birth the admission records hold.",
+    parentalConsent:
+      "The parent or guardian who signs the admission form agrees to the fees terms on it, and statements go only to the phone number on that form.",
+    childSafeguards:
+      "Statements show only the pupil's name, class and balance, and go only to the parent or guardian. Arrears are never raised with the pupil or in front of others. The fees policy tells parents this.",
   },
   {
     ...base,

@@ -1,0 +1,5 @@
+ALTER TABLE "processing_activities" ADD COLUMN "child_age_check" text DEFAULT '' NOT NULL;--> statement-breakpoint
+ALTER TABLE "processing_activities" ADD COLUMN "child_counselling" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "processing_activities" ADD COLUMN "parental_consent" text DEFAULT '' NOT NULL;--> statement-breakpoint
+ALTER TABLE "processing_activities" ADD COLUMN "child_safeguards" text DEFAULT '' NOT NULL;--> statement-breakpoint
+ALTER TABLE "processing_activities" ADD CONSTRAINT "processing_activities_children_data_check" CHECK ("processing_activities"."involves_children" or ("processing_activities"."child_age_check" = '' and not "processing_activities"."child_counselling" and "processing_activities"."parental_consent" = '' and "processing_activities"."child_safeguards" = ''));

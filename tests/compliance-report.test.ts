@@ -51,6 +51,10 @@ function activity(over: Partial<ReportActivity> = {}): ReportActivity {
     largeScale: false,
     systematicMonitoring: false,
     involvesChildren: false,
+    childAgeCheck: "",
+    childCounselling: false,
+    parentalConsent: "",
+    childSafeguards: "",
     automatedDecisions: false,
     automatedDecisionGround: null,
     automatedDecisionLogic: "",
@@ -233,7 +237,7 @@ describe("buildComplianceReport", () => {
   it("finds nothing open when every record is in order", () => {
     const report = buildComplianceReport(input());
     expect(report.openCount).toBe(0);
-    expect(report.sections.map((s) => s.key)).toEqual(["registration", "ropa", "notice", "dpo", "consent", "lia", "dpia", "sensitive", "indirect", "automated", "marketing", "breach", "request", "complaint", "processor", "transfer", "disposal", "training", "policy"]);
+    expect(report.sections.map((s) => s.key)).toEqual(["registration", "ropa", "notice", "dpo", "consent", "lia", "dpia", "sensitive", "indirect", "children", "automated", "marketing", "breach", "request", "complaint", "processor", "transfer", "disposal", "training", "policy"]);
     expect(report.preparedOn).toBe("2026-10-10");
     expect(report.periodFrom).toBe("2025-10-10");
   });
@@ -653,6 +657,55 @@ describe("data collected from others", () => {
     const s = section({ activities: [{ ...references, role: "processor", indirectCollectionGrounds: [] }] }, "indirect");
     expect(s.table!.rows[0][2]).toBe("For the controller to say");
     expect(s.open).toEqual([]);
+  });
+});
+
+describe("children's data", () => {
+  const pupils = activity({
+    name: "Pupil records",
+    involvesChildren: true,
+    childAgeCheck: "Date of birth checked against the birth certificate",
+    parentalConsent: "A parent signs the admission form",
+    childSafeguards: "Only the class teacher and the office open the file",
+  });
+
+  it("has nothing to report when no activity involves children", () => {
+    const s = section({}, "children");
+    expect(fact(s, "Activities involving children's data")).toBe("0");
+    expect(s.table).toBeUndefined();
+    expect(s.open).toEqual([]);
+  });
+
+  it("lists how age is checked, how a parent consents and how children are protected", () => {
+    const s = section({ activities: [pupils] }, "children");
+    expect(s.href).toBe("/ropa?filter=children");
+    expect(s.basis).toContain("s.33");
+    expect(fact(s, "Of those, fully recorded")).toBe("1");
+    expect(s.table!.rows[0]).toEqual([
+      "Pupil records",
+      "Date of birth checked against the birth certificate",
+      "A parent signs the admission form",
+      "Only the class teacher and the office open the file",
+    ]);
+    expect(s.open).toEqual([]);
+  });
+
+  it("reports what a record leaves out", () => {
+    const s = section({ activities: [{ ...pupils, childAgeCheck: "", parentalConsent: " ", childSafeguards: "" }] }, "children");
+    expect(fact(s, "Of those, fully recorded")).toBe("0");
+    expect(s.table!.rows[0]).toEqual(["Pupil records", "Not recorded", "Not recorded", "Not recorded"]);
+    expect(s.open).toEqual([
+      "Pupil records involves children's data, and the record doesn't say how a child's data is told apart (s.33(2)), how a parent or guardian consents (s.33(1)(a)) and how the processing protects the child (s.33(1)(b)).",
+    ]);
+  });
+
+  it("doesn't ask for a parent's consent under s.33(4) or from a processor", () => {
+    const counselling = section({ activities: [{ ...pupils, parentalConsent: "", childCounselling: true }] }, "children");
+    expect(counselling.table!.rows[0][2]).toBe("Not needed: counselling or child protection services only (s.33(4))");
+    expect(counselling.open).toEqual([]);
+    const processor = section({ activities: [{ ...pupils, parentalConsent: "", role: "processor" }] }, "children");
+    expect(processor.table!.rows[0][2]).toBe("For the controller to get");
+    expect(processor.open).toEqual([]);
   });
 });
 
