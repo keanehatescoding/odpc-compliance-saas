@@ -232,18 +232,20 @@ export function ActivityForm({ activity }: { activity?: ProcessingActivity }) {
             <span>
               <span className="font-medium text-stone-800">Only counselling or child protection services for children</span>
               <span className="block text-xs text-stone-500">
-                Then a parent&apos;s consent may not be needed (s.33(4)). Leave it unticked for anything else, such as a school that also
-                has a counsellor.
+                Then a parent&apos;s consent may not be needed (s.33(4)), so you aren&apos;t asked how it&apos;s given. Leave it unticked
+                for anything else, such as a school that also has a counsellor.
               </span>
             </span>
           </label>
-          <TextArea
-            name="parentalConsent"
-            label="How a parent or guardian consents"
-            hint="How they agree, such as signing the admission form, and how you check they're the child's parent or guardian, such as their ID against the birth certificate (s.33(1)(a); reg. 13(2)(a)). A processor can leave this to the controller it works for."
-            initial={activity?.parentalConsent}
-            {...f}
-          />
+          <div className="group-has-[[name=childCounselling]:checked]:hidden">
+            <TextArea
+              name="parentalConsent"
+              label="How a parent or guardian consents"
+              hint="How they agree, such as signing the admission form, and how you check they're the child's parent or guardian, such as their ID against the birth certificate (s.33(1)(a); reg. 13(2)(a)). A processor can leave this to the controller it works for."
+              initial={activity?.parentalConsent}
+              {...f}
+            />
+          </div>
           <TextArea
             name="childSafeguards"
             label="How children are protected"

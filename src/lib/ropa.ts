@@ -278,7 +278,9 @@ export function parseActivityForm(formData: FormData) {
  * activity says it gets data from others, involves children, transfers data,
  * takes such decisions or markets to people, so unticking the box clears what
  * was entered under it. Likewise the sensitive data details go when no sensitive category
- * is ticked, and the health condition when health status isn't.
+ * is ticked, the health condition when health status isn't, and how a parent
+ * consents when the activity is counselling or child protection only (s.33(4)),
+ * since the form hides that question then.
  */
 export function activityToSave<T extends ActivityInput>(a: T): T {
   const sensitive = a.sensitiveCategories.length > 0;
@@ -293,7 +295,7 @@ export function activityToSave<T extends ActivityInput>(a: T): T {
     indirectCollectionNotice: a.indirectCollection ? a.indirectCollectionNotice : "",
     childAgeCheck: a.involvesChildren ? a.childAgeCheck : "",
     childCounselling: a.involvesChildren && a.childCounselling,
-    parentalConsent: a.involvesChildren ? a.parentalConsent : "",
+    parentalConsent: a.involvesChildren && !a.childCounselling ? a.parentalConsent : "",
     childSafeguards: a.involvesChildren ? a.childSafeguards : "",
     transferCountries: a.crossBorder ? a.transferCountries : "",
     transferSafeguards: a.crossBorder ? a.transferSafeguards : "",

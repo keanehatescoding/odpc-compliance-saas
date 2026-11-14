@@ -132,13 +132,23 @@ describe("the RoPA", () => {
       childSafeguards: "",
     });
     form.set("involvesChildren", "on");
+    form.delete("childCounselling");
     const ticked = parseActivityForm(form);
     expect(activityToSave(ticked.data as ActivityInput)).toMatchObject({
       involvesChildren: true,
       childAgeCheck: "Birth certificate",
-      childCounselling: true,
+      childCounselling: false,
       parentalConsent: "Admission form",
       childSafeguards: "Locked file",
+    });
+  });
+
+  it("drops how a parent consents when the activity is counselling or child protection only, as the form hides it (s.33(4))", () => {
+    expect(activityToSave({ ...template, childCounselling: true })).toMatchObject({
+      childCounselling: true,
+      parentalConsent: "",
+      childAgeCheck: template.childAgeCheck,
+      childSafeguards: template.childSafeguards,
     });
   });
 
