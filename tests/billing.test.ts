@@ -1,8 +1,5 @@
 import { createHmac } from "node:crypto";
-import { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "@/db";
 import * as schema from "@/db/schema";
@@ -24,6 +21,7 @@ import {
 import type { EmailMessage } from "@/lib/email";
 import { createPaystack, PaystackError, parseTransaction, verifyWebhookSignature, type Paystack, type PaystackTransaction } from "@/lib/paystack";
 import { accessFor, addPeriod, TRIAL_DAYS } from "@/lib/plans";
+import { openTestDb } from "./helpers/db";
 
 const { memberships, organizations, payments, users } = schema;
 
@@ -90,10 +88,7 @@ const paid = (p: { reference: string; amount: number }, extra: Partial<PaystackT
 });
 
 beforeEach(async () => {
-  const client = new PGlite();
-  const pg = drizzle({ client, schema });
-  await migrate(pg, { migrationsFolder: "drizzle" });
-  db = pg as unknown as Db;
+  db = await openTestDb();
 
   const [o] = await db
     .insert(organizations)

@@ -1,7 +1,4 @@
-import { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Db } from "@/db";
 import * as schema from "@/db/schema";
@@ -12,6 +9,7 @@ import type { Paystack } from "@/lib/paystack";
 import { TRIAL_DAYS } from "@/lib/plans";
 import { sendServiceOrderNotice, serviceOrdersFor, setServiceOrderStatus } from "@/lib/service-orders";
 import { SERVICES } from "@/lib/services";
+import { openTestDb } from "./helpers/db";
 
 const { memberships, organizations, payments, serviceOrders, users } = schema;
 
@@ -71,10 +69,7 @@ async function orderStatus(id: string) {
 }
 
 beforeEach(async () => {
-  const client = new PGlite();
-  const pg = drizzle({ client, schema });
-  await migrate(pg, { migrationsFolder: "drizzle" });
-  db = pg as unknown as Db;
+  db = await openTestDb();
 
   const [o] = await db
     .insert(organizations)

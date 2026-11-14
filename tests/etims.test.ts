@@ -1,7 +1,4 @@
-import { PGlite } from "@electric-sql/pglite";
 import { and, eq, isNull } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "@/db";
 import * as schema from "@/db/schema";
@@ -31,6 +28,7 @@ import {
 import { createPaystack, type Paystack, type PaystackRefund } from "@/lib/paystack";
 import { recordRefunds, refundsFor } from "@/lib/refunds";
 import { TRIAL_DAYS } from "@/lib/plans";
+import { openTestDb } from "./helpers/db";
 
 const { etimsInvoices, memberships, organizations, payments, refunds, users } = schema;
 
@@ -97,10 +95,7 @@ async function invoiceOf(paymentId: string) {
 }
 
 beforeEach(async () => {
-  const client = new PGlite();
-  const pg = drizzle({ client, schema });
-  await migrate(pg, { migrationsFolder: "drizzle" });
-  db = pg as unknown as Db;
+  db = await openTestDb();
   const [o] = await db
     .insert(organizations)
     .values({ name: "Sunrise Academy", sector: "education", size: "medium", kraPin: "P051234567X", trialEndsAt: later(TRIAL_DAYS * DAY) })

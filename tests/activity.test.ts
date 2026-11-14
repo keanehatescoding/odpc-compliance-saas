@@ -1,7 +1,4 @@
-import { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "@/db";
 import * as schema from "@/db/schema";
@@ -17,6 +14,7 @@ import {
   subjectLinks,
 } from "@/lib/activity";
 import { changeMemberRole, createAccountFromInvitation, issueInvitation, removeMember, revokeInvitation } from "@/lib/team";
+import { openTestDb } from "./helpers/db";
 
 const { activityLog, invitations, memberships, organizations, processingActivities, users } = schema;
 
@@ -44,10 +42,7 @@ const summaries = async () =>
   (await db.select({ summary: activityLog.summary }).from(activityLog).orderBy(activityLog.createdAt, activityLog.summary)).map((r) => r.summary);
 
 beforeEach(async () => {
-  const client = new PGlite();
-  const pg = drizzle({ client, schema });
-  await migrate(pg, { migrationsFolder: "drizzle" });
-  db = pg as unknown as Db;
+  db = await openTestDb();
 
   orgId = await addOrg("Sunrise Academy");
   otherOrgId = await addOrg("Moonset College");

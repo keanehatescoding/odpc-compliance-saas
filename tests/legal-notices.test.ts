@@ -1,12 +1,10 @@
-import { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Db } from "@/db";
 import * as schema from "@/db/schema";
 import type { EmailMessage } from "@/lib/email";
 import { createLegalNotice, legalNoticeError, legalNoticeRecipients, pendingLegalNotices, runLegalNotices } from "@/lib/legal-notices";
+import { openTestDb } from "./helpers/db";
 
 const { legalNoticeLog, memberships, organizations, users } = schema;
 
@@ -46,10 +44,7 @@ async function notice(effectiveOn = "2026-11-08", summary = "We're adding Resend
 }
 
 beforeEach(async () => {
-  const client = new PGlite();
-  const pg = drizzle({ client, schema });
-  await migrate(pg, { migrationsFolder: "drizzle" });
-  db = pg as unknown as Db;
+  db = await openTestDb();
 });
 
 describe("legalNoticeError", () => {
