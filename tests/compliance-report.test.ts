@@ -33,6 +33,10 @@ function activity(over: Partial<ReportActivity> = {}): ReportActivity {
     sensitiveDataBasis: "",
     healthDataCondition: null,
     sensitiveDataSafeguards: "",
+    indirectCollection: false,
+    indirectSources: "",
+    indirectCollectionGrounds: [],
+    indirectCollectionNotice: "",
     recipients: "",
     crossBorder: false,
     transferCountries: "",
@@ -229,7 +233,7 @@ describe("buildComplianceReport", () => {
   it("finds nothing open when every record is in order", () => {
     const report = buildComplianceReport(input());
     expect(report.openCount).toBe(0);
-    expect(report.sections.map((s) => s.key)).toEqual(["registration", "ropa", "notice", "dpo", "consent", "lia", "dpia", "sensitive", "automated", "marketing", "breach", "request", "complaint", "processor", "transfer", "disposal", "training", "policy"]);
+    expect(report.sections.map((s) => s.key)).toEqual(["registration", "ropa", "notice", "dpo", "consent", "lia", "dpia", "sensitive", "indirect", "automated", "marketing", "breach", "request", "complaint", "processor", "transfer", "disposal", "training", "policy"]);
     expect(report.preparedOn).toBe("2026-10-10");
     expect(report.periodFrom).toBe("2025-10-10");
   });
@@ -603,6 +607,51 @@ describe("sensitive personal data", () => {
       "sensitive",
     );
     expect(s.table!.rows[0]).toEqual(["Payroll for clients", "Marital status", "For the controller to say", "No", "No health data", "Yes"]);
+    expect(s.open).toEqual([]);
+  });
+});
+
+describe("data collected from others", () => {
+  const references = activity({
+    name: "Recruitment",
+    indirectCollection: true,
+    indirectSources: "References from former employers the applicant names",
+    indirectCollectionGrounds: ["no_prejudice", "consent"],
+    indirectCollectionNotice: "The application form says we'll ask",
+  });
+
+  it("has nothing to report when all data comes from the person", () => {
+    const s = section({}, "indirect");
+    expect(fact(s, "Activities collecting data from someone other than the person")).toBe("0");
+    expect(s.table).toBeUndefined();
+    expect(s.open).toEqual([]);
+  });
+
+  it("lists where the data comes from, what allows it and how people are told", () => {
+    const s = section({ activities: [references] }, "indirect");
+    expect(s.href).toBe("/ropa?filter=indirect");
+    expect(fact(s, "Of those, fully recorded")).toBe("1");
+    expect(s.table!.rows[0]).toEqual([
+      "Recruitment",
+      "References from former employers the applicant names",
+      "The person consented to it being collected from another source; Collecting it from another source doesn't prejudice the person's interests",
+      "The application form says we'll ask",
+    ]);
+    expect(s.open).toEqual([]);
+  });
+
+  it("reports what a record leaves out", () => {
+    const s = section({ activities: [{ ...references, indirectSources: "", indirectCollectionGrounds: [], indirectCollectionNotice: " " }] }, "indirect");
+    expect(fact(s, "Of those, fully recorded")).toBe("0");
+    expect(s.table!.rows[0]).toEqual(["Recruitment", "Not recorded", "Not recorded", "Not recorded"]);
+    expect(s.open).toEqual([
+      "Recruitment collects data from someone other than the person it's about, and the record doesn't say where it comes from, what s.28(2) ground allows it and how people are told within 14 days.",
+    ]);
+  });
+
+  it("leaves the ground to the controller when the organisation is a processor", () => {
+    const s = section({ activities: [{ ...references, role: "processor", indirectCollectionGrounds: [] }] }, "indirect");
+    expect(s.table!.rows[0][2]).toBe("For the controller to say");
     expect(s.open).toEqual([]);
   });
 });

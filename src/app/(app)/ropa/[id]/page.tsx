@@ -23,6 +23,15 @@ import {
   MARKETING_GROUNDS,
 } from "@/lib/direct-marketing";
 import { dpiaStatus } from "@/lib/dpia";
+import {
+  INDIRECT_COLLECTION_CHECKLIST,
+  INDIRECT_COLLECTION_GAP,
+  INDIRECT_COLLECTION_GROUND_DETAIL,
+  INDIRECT_COLLECTION_GROUND_KEYS,
+  INDIRECT_COLLECTION_GROUND_SECTION,
+  INDIRECT_COLLECTION_GROUNDS,
+  indirectCollectionIssues,
+} from "@/lib/indirect-collection";
 import { consentStatus, reliesOnConsent } from "@/lib/consent";
 import { liaStatus, reliesOnLegitimateInterests } from "@/lib/lia";
 import { processorStatus } from "@/lib/processor";
@@ -68,6 +77,8 @@ export default async function EditActivityPage({ params }: PageProps<"/ropa/[id]
   const decisionGaps = automatedDecisionIssues(activity);
   const marketingGaps = directMarketingIssues(activity);
   const sensitiveGaps = sensitiveDataIssues(activity);
+  const indirectGaps = indirectCollectionIssues(activity);
+  const indirectGrounds = INDIRECT_COLLECTION_GROUND_KEYS.filter((k) => activity.indirectCollectionGrounds.includes(k));
   const sensitiveGround = describeSensitiveDataGround(activity.sensitiveDataGround);
   const healthCondition = describeHealthDataCondition(activity.healthDataCondition);
 
@@ -252,6 +263,52 @@ export default async function EditActivityPage({ params }: PageProps<"/ropa/[id]
             <summary className="cursor-pointer font-medium">What the Act and the Regulations ask</summary>
             <ul className="mt-2 list-disc pl-5 text-stone-700">
               {SENSITIVE_DATA_CHECKLIST.map((c) => (
+                <li key={c}>{c}</li>
+              ))}
+            </ul>
+          </details>
+        </Card>
+      )}
+      {activity.indirectCollection && (
+        <Card className={`mb-6 max-w-3xl ${indirectGaps.length > 0 ? "border-amber-300 bg-amber-50" : ""}`}>
+          <h2 className="font-semibold">Data collected from others</h2>
+          <p className="mt-1 text-sm text-stone-700">
+            {activity.indirectSources
+              ? `Comes from: ${activity.indirectSources}`
+              : "Some of this activity's data comes from someone other than the person it's about. Section 28 of the Act expects data to come from the person, unless one of the grounds in s.28(2) applies."}
+          </p>
+          {indirectGrounds.length > 0 && (
+            <>
+              <h3 className="mt-3 text-sm font-medium">Allowed because</h3>
+              <ul className="mt-1 list-disc pl-5 text-sm text-stone-700">
+                {indirectGrounds.map((g) => (
+                  <li key={g}>
+                    {INDIRECT_COLLECTION_GROUNDS[g]} ({INDIRECT_COLLECTION_GROUND_SECTION[g]}). {INDIRECT_COLLECTION_GROUND_DETAIL[g]}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {activity.role === "processor" && indirectGrounds.length === 0 && (
+            <p className="mt-1 text-sm text-stone-700">As a processor, you collect on the controller&apos;s instructions; the controller says what allows it.</p>
+          )}
+          {activity.indirectCollectionNotice && (
+            <p className="mt-1 text-sm text-stone-700">How people are told: {activity.indirectCollectionNotice}</p>
+          )}
+          {indirectGaps.length > 0 && (
+            <>
+              <h3 className="mt-3 text-sm font-medium">What the record still needs</h3>
+              <ul className="mt-1 list-disc pl-5 text-sm text-stone-700">
+                {indirectGaps.map((g) => (
+                  <li key={g}>{INDIRECT_COLLECTION_GAP[g]}</li>
+                ))}
+              </ul>
+            </>
+          )}
+          <details className="mt-3 text-sm">
+            <summary className="cursor-pointer font-medium">What the Act and the Regulations ask</summary>
+            <ul className="mt-2 list-disc pl-5 text-stone-700">
+              {INDIRECT_COLLECTION_CHECKLIST.map((c) => (
                 <li key={c}>{c}</li>
               ))}
             </ul>

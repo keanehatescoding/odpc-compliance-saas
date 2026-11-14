@@ -20,6 +20,7 @@ import { BREACH_KIND_KEYS, BREACH_RISK_KEYS } from "../lib/breach";
 import { COMPLAINT_KIND_KEYS } from "../lib/complaint";
 import { CONSENT_METHOD_KEYS } from "../lib/consent";
 import { MARKETING_GROUND_KEYS, type MarketingGround } from "../lib/direct-marketing";
+import { INDIRECT_COLLECTION_GROUND_KEYS, type IndirectCollectionGround } from "../lib/indirect-collection";
 import {
   HEALTH_CATEGORY,
   HEALTH_DATA_CONDITION_KEYS,
@@ -55,6 +56,10 @@ export const automatedDecisionGroundEnum = pgEnum(
 export const marketingGroundEnum = pgEnum("marketing_ground", MARKETING_GROUND_KEYS as [MarketingGround, ...MarketingGround[]]);
 export const sensitiveDataGroundEnum = pgEnum("sensitive_data_ground", SENSITIVE_DATA_GROUND_KEYS as [SensitiveDataGround, ...SensitiveDataGround[]]);
 export const healthDataConditionEnum = pgEnum("health_data_condition", HEALTH_DATA_CONDITION_KEYS as [HealthDataCondition, ...HealthDataCondition[]]);
+export const indirectCollectionGroundEnum = pgEnum(
+  "indirect_collection_ground",
+  INDIRECT_COLLECTION_GROUND_KEYS as [IndirectCollectionGround, ...IndirectCollectionGround[]],
+);
 export const policyKindEnum = pgEnum("policy_kind", POLICY_KIND_KEYS as [string, ...string[]]);
 export const liaOutcomeEnum = pgEnum("lia_outcome", LIA_OUTCOME_KEYS as [string, ...string[]]);
 export const transferBasisEnum = pgEnum("transfer_basis", TRANSFER_BASIS_KEYS as [string, ...string[]]);
@@ -487,6 +492,18 @@ export const processingActivities = pgTable(
     healthDataCondition: healthDataConditionEnum("health_data_condition"),
     // How the sensitive data is protected and kept apart from the rest (reg. 32(i)).
     sensitiveDataSafeguards: text("sensitive_data_safeguards").notNull().default(""),
+    // Data collected from someone other than the person it's about (s.28 of the
+    // Act, reg. 6 of the General Regulations). The details are empty unless it is.
+    indirectCollection: boolean("indirect_collection").notNull().default(false),
+    // Where it comes from: other people, databases, cameras, browsing, biometrics (reg. 6(1)).
+    indirectSources: text("indirect_sources").notNull().default(""),
+    // What s.28(2) allows it under. Empty until someone says.
+    indirectCollectionGrounds: indirectCollectionGroundEnum("indirect_collection_grounds")
+      .array()
+      .notNull()
+      .default(sql`'{}'`),
+    // How people are told within 14 days (reg. 6(3)).
+    indirectCollectionNotice: text("indirect_collection_notice").notNull().default(""),
     recipients: text("recipients").notNull().default(""),
     crossBorder: boolean("cross_border").notNull().default(false),
     transferCountries: text("transfer_countries").notNull().default(""),
@@ -540,6 +557,10 @@ export const processingActivities = pgTable(
     check(
       "processing_activities_sensitive_data_check",
       sql`cardinality(${t.sensitiveCategories}) > 0 or (${t.sensitiveDataGround} is null and ${t.sensitiveDataBasis} = '' and ${t.sensitiveDataSafeguards} = '')`,
+    ),
+    check(
+      "processing_activities_indirect_collection_check",
+      sql`${t.indirectCollection} or (${t.indirectSources} = '' and cardinality(${t.indirectCollectionGrounds}) = 0 and ${t.indirectCollectionNotice} = '')`,
     ),
     check(
       "processing_activities_health_data_check",

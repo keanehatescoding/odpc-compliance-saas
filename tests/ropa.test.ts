@@ -83,6 +83,31 @@ describe("parseActivityForm", () => {
     expect(r.error!.issues.map((i) => i.path.join("."))).toEqual(expect.arrayContaining(["sensitiveDataGround", "healthDataCondition"]));
   });
 
+  it("reads where the data comes from and keeps the s.28(2) grounds in the Act's order", () => {
+    const r = parseActivityForm(
+      form({
+        ...valid,
+        indirectCollection: "on",
+        indirectSources: " Next of kin, from the employee ",
+        indirectCollectionGrounds: ["no_prejudice", "consent"],
+        indirectCollectionNotice: "Employees tell them",
+      }),
+    );
+    expect(r.data).toMatchObject({
+      indirectCollection: true,
+      indirectSources: "Next of kin, from the employee",
+      indirectCollectionGrounds: ["consent", "no_prejudice"],
+      indirectCollectionNotice: "Employees tell them",
+    });
+    expect(parseActivityForm(form(valid)).data).toMatchObject({ indirectCollection: false, indirectCollectionGrounds: [] });
+  });
+
+  it("rejects a ground for collecting from others that s.28(2) doesn't list", () => {
+    const r = parseActivityForm(form({ ...valid, indirectCollection: "on", indirectCollectionGrounds: ["consent", "convenience"] }));
+    expect(r.success).toBe(false);
+    expect(r.error!.issues.map((i) => i.path[0])).toContain("indirectCollectionGrounds");
+  });
+
   it("rejects sensitive categories outside the statutory list", () => {
     const r = parseActivityForm(form({ ...valid, sensitiveCategories: ["Health status", "Shoe size"] }));
     expect(r.success).toBe(false);
@@ -239,6 +264,10 @@ describe("activityToSave", () => {
         sensitiveDataBasis: "Employment Act, 2007",
         healthDataCondition: "confidentiality",
         sensitiveDataSafeguards: "Locked HR file",
+        indirectCollection: "on",
+        indirectSources: "Next of kin, from the employee",
+        indirectCollectionGrounds: ["no_prejudice"],
+        indirectCollectionNotice: "Employees tell them",
       }),
     ).data!;
 
@@ -259,6 +288,14 @@ describe("activityToSave", () => {
       marketingChannels: "",
       marketingOptOut: "",
       marketingOptOutRecords: "",
+    });
+  });
+
+  it("drops where the data comes from when collection from others isn't ticked", () => {
+    expect(activityToSave({ ...parsed(), indirectCollection: false })).toMatchObject({
+      indirectSources: "",
+      indirectCollectionGrounds: [],
+      indirectCollectionNotice: "",
     });
   });
 
@@ -336,6 +373,24 @@ describe("ropaToCsv", () => {
     const plain = ACTIVITY_TEMPLATES.find((t) => t.id === "cctv")!;
     expect(row(plain)).toContain('"None","","","",""');
   });
+
+  it("says where data that isn't from the person comes from, what allows it and how people are told", () => {
+    const tpl = ACTIVITY_TEMPLATES.find((t) => t.id === "credit-scoring")!;
+    const header = ropaToCsv([]).trim().slice(1).split(",");
+    const at = header.indexOf('"Collected from others"');
+    expect(header.slice(at, at + 3)).toEqual([
+      '"Collected from others"',
+      '"What allows collecting it from others (s.28(2))"',
+      '"How people are told it came from others"',
+    ]);
+    const row = (a: typeof tpl) => ropaToCsv([a]).trim().split("\r\n")[1];
+    expect(row(tpl)).toContain(
+      `"Yes: ${tpl.indirectSources}","The person consented to it being collected from another source","${tpl.indirectCollectionNotice}"`,
+    );
+    expect(row({ ...tpl, indirectSources: "", indirectCollectionGrounds: [] })).toContain('"Yes: sources not recorded","Not recorded"');
+    expect(row({ ...tpl, role: "processor", indirectCollectionGrounds: [] })).toContain('"For the controller to say"');
+    expect(row({ ...tpl, indirectCollection: false })).toContain('"No","",""');
+  });
 });
 
 describe("templates", () => {
@@ -346,6 +401,7 @@ describe("templates", () => {
         dataSubjects: t.dataSubjects.join(","),
         dataCategories: t.dataCategories.join(","),
         crossBorder: String(t.crossBorder),
+        indirectCollection: String(t.indirectCollection),
         largeScale: String(t.largeScale),
         systematicMonitoring: String(t.systematicMonitoring),
         involvesChildren: String(t.involvesChildren),
