@@ -8,6 +8,7 @@ import type { ProcessingActivity } from "@/db/schema";
 import { AUTOMATED_DECISION_GROUNDS } from "@/lib/automated-decision";
 import { MARKETING_GROUNDS } from "@/lib/direct-marketing";
 import { LAWFUL_BASES, SENSITIVE_CATEGORIES } from "@/lib/dpa";
+import { INDIRECT_COLLECTION_GROUND_SECTION, INDIRECT_COLLECTION_GROUNDS, type IndirectCollectionGround } from "@/lib/indirect-collection";
 import { RETENTION_UNITS } from "@/lib/retention";
 import { ACTIVITY_ROLES } from "@/lib/ropa";
 import { HEALTH_DATA_CONDITIONS, SENSITIVE_DATA_GROUNDS } from "@/lib/sensitive-data";
@@ -18,6 +19,8 @@ export function ActivityForm({ activity }: { activity?: ProcessingActivity }) {
 
   const submittedSensitive = state?.values ? [state.values.sensitiveCategories ?? []].flat() : null;
   const sensitive = new Set(submittedSensitive ?? activity?.sensitiveCategories ?? []);
+  const submittedGrounds = state?.values ? [state.values.indirectCollectionGrounds ?? []].flat() : null;
+  const grounds = new Set<string>(submittedGrounds ?? activity?.indirectCollectionGrounds ?? []);
 
   return (
     <form action={action} className="max-w-3xl space-y-6">
@@ -123,6 +126,71 @@ export function ActivityForm({ activity }: { activity?: ProcessingActivity }) {
             label="How the sensitive data is protected"
             hint="What protects it beyond the rest of the data, and whether it's kept apart, such as a separate file or system only named people can open (reg. 32(i))."
             initial={activity?.sensitiveDataSafeguards}
+            {...f}
+          />
+        </div>
+      </Card>
+
+      {/* Like the transfer fields, the details are shown by CSS so they work before JS loads. */}
+      <Card className="group space-y-5">
+        <h2 className="font-semibold">Where the data comes from</h2>
+        <label className="flex items-start gap-3 text-sm">
+          <input
+            type="checkbox"
+            name="indirectCollection"
+            defaultChecked={state?.values ? state.values.indirectCollection === "on" : Boolean(activity?.indirectCollection)}
+            className="mt-0.5 size-4 accent-brand-600"
+          />
+          <span>
+            <span className="font-medium text-stone-800">Some of it comes from someone other than the person it&apos;s about</span>
+            <span className="block text-xs text-stone-500">
+              Such as a parent giving a child&apos;s details, an employee giving their next of kin&apos;s, a credit report, a referral from
+              another clinic, CCTV, or data from web browsing or biometric technology (s.28; reg. 6(1)). The Act expects data to come from
+              the person unless one of the grounds below applies.
+            </span>
+          </span>
+        </label>
+        <div className="hidden space-y-5 group-has-[[name=indirectCollection]:checked]:block">
+          <TextArea
+            name="indirectSources"
+            label="Where it comes from"
+            hint="Each source and what it gives you. You'll need this to answer an access request (reg. 9(1)(e)), and the privacy notice shows it."
+            initial={activity?.indirectSources}
+            {...f}
+          />
+          <fieldset>
+            <legend className="text-sm font-medium text-stone-800">What allows it (s.28(2))</legend>
+            <p className="mt-1 text-xs text-stone-500">
+              Tick each that applies to a source. If none does, collect the data from the person. A processor can leave this to the
+              controller it works for.
+            </p>
+            <div className="mt-2 grid gap-2">
+              {(Object.entries(INDIRECT_COLLECTION_GROUNDS) as [IndirectCollectionGround, string][]).map(([key, label]) => (
+                <label key={key} className="flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    name="indirectCollectionGrounds"
+                    value={key}
+                    defaultChecked={grounds.has(key)}
+                    className="mt-0.5 size-4 accent-brand-600"
+                  />
+                  <span>
+                    {label} <span className="text-xs text-stone-500">({INDIRECT_COLLECTION_GROUND_SECTION[key]})</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            {f.errors?.indirectCollectionGrounds?.map((e) => (
+              <p key={e} className="mt-1 text-xs text-red-700">
+                {e}
+              </p>
+            ))}
+          </fieldset>
+          <TextArea
+            name="indirectCollectionNotice"
+            label="How people are told"
+            hint="How, and how soon, people learn their data came from somewhere else. It must be within 14 days (reg. 6(3)): a letter or SMS, a form they sign, or signs where cameras record."
+            initial={activity?.indirectCollectionNotice}
             {...f}
           />
         </div>

@@ -14,6 +14,10 @@ const activity = (over: Partial<NoticeActivity>): NoticeActivity => ({
   sensitiveDataBasis: "",
   healthDataCondition: null,
   sensitiveDataSafeguards: "",
+  indirectCollection: false,
+  indirectSources: "",
+  indirectCollectionGrounds: [],
+  indirectCollectionNotice: "",
   recipients: "",
   crossBorder: false,
   transferCountries: "",
@@ -245,6 +249,50 @@ describe("direct marketing", () => {
     expect(marketing(n)).toBeUndefined();
     expect(rights(n)).not.toContain("opt out of our marketing");
     expect(n.checks.join(" ")).not.toContain("marketing");
+  });
+});
+
+describe("data collected from others", () => {
+  const admissions = activity({
+    indirectCollection: true,
+    indirectSources: "Parents give their children's details on the admission form",
+    indirectCollectionGrounds: ["no_prejudice"],
+    indirectCollectionNotice: "The admission form says so",
+  });
+  const source = (n: ReturnType<typeof build>) =>
+    section(n, "What we collect and why")!
+      .blocks.flatMap((b) => (b.kind === "facts" ? b.items : []))
+      .find((f) => f.label === "Where it comes from")?.value;
+
+  it("tells people where data that isn't from them comes from", () => {
+    const n = build({ activities: [admissions] });
+    expect(source(n)).toBe("Some of it doesn't come from the person it's about. Parents give their children's details on the admission form.");
+    expect(n.checks.join(" ")).not.toContain("Where the data comes from");
+  });
+
+  it("doesn't tell parents that the data they gave came from someone else", () => {
+    const n = build({ activities: [admissions], audience: "Parents" });
+    expect(source(n)).toBe("Some of it doesn't come from the person it's about. Parents give their children's details on the admission form.");
+    expect(source(n)).not.toContain("not from you");
+  });
+
+  it("asks where it comes from when the record doesn't say", () => {
+    const n = build({ activities: [{ ...admissions, indirectSources: "" }] });
+    expect(source(n)).toBe("Some of it doesn't come from the person it's about.");
+    expect(n.checks).toContain(
+      "Say where the data that doesn't come from the person comes from (Where the data comes from), for: Admissions.",
+    );
+  });
+
+  it("asks for the data used for marketing to have come from the person (reg. 15(1)(a))", () => {
+    const n = build({ activities: [{ ...admissions, directMarketing: true, marketingGround: "consent", marketingOptOut: "Reply STOP" }] });
+    expect(n.checks).toContain(
+      "Make sure the data used for marketing was collected from the person, not from others (Direct marketing), for: Admissions.",
+    );
+  });
+
+  it("says nothing when all the data comes from the person", () => {
+    expect(source(build())).toBeUndefined();
   });
 });
 

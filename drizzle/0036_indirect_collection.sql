@@ -1,0 +1,6 @@
+CREATE TYPE "public"."indirect_collection_ground" AS ENUM('public_record', 'made_public', 'consent', 'guardian_consent', 'no_prejudice', 'crime', 'pecuniary_penalty', 'protect_interests');--> statement-breakpoint
+ALTER TABLE "processing_activities" ADD COLUMN "indirect_collection" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "processing_activities" ADD COLUMN "indirect_sources" text DEFAULT '' NOT NULL;--> statement-breakpoint
+ALTER TABLE "processing_activities" ADD COLUMN "indirect_collection_grounds" "indirect_collection_ground"[] DEFAULT '{}' NOT NULL;--> statement-breakpoint
+ALTER TABLE "processing_activities" ADD COLUMN "indirect_collection_notice" text DEFAULT '' NOT NULL;--> statement-breakpoint
+ALTER TABLE "processing_activities" ADD CONSTRAINT "processing_activities_indirect_collection_check" CHECK ("processing_activities"."indirect_collection" or ("processing_activities"."indirect_sources" = '' and cardinality("processing_activities"."indirect_collection_grounds") = 0 and "processing_activities"."indirect_collection_notice" = ''));

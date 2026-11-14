@@ -253,6 +253,13 @@
       "when": 1794286038013,
       "tag": "0035_sensitive_data",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1794432115151,
+      "tag": "0036_indirect_collection",
+      "breakpoints": true
     }
   ]
 }

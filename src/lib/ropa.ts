@@ -2,6 +2,7 @@ import { z } from "zod";
 import { AUTOMATED_DECISION_GROUND_KEYS, AUTOMATED_DECISION_GROUNDS, type AutomatedDecisionGround } from "./automated-decision";
 import { MARKETING_GROUND_KEYS, MARKETING_GROUNDS, type MarketingGround } from "./direct-marketing";
 import { LAWFUL_BASES, LAWFUL_BASIS_KEYS, SENSITIVE_CATEGORIES, type LawfulBasis, type Sector } from "./dpa";
+import { describeIndirectCollectionGrounds, INDIRECT_COLLECTION_GROUND_KEYS, type IndirectCollectionGround } from "./indirect-collection";
 import { describeRetention, MAX_RETENTION_YEARS, RETENTION_UNIT_KEYS, type RetentionUnit } from "./retention";
 import {
   describeHealthDataCondition,
@@ -41,6 +42,14 @@ export interface ActivityInput {
   healthDataCondition: HealthDataCondition | null;
   /** How the sensitive data is protected and kept apart from the rest (reg. 32(i)). */
   sensitiveDataSafeguards: string;
+  /** Some of the data is collected from someone other than the person it's about (s.28; reg. 6 of the General Regulations). */
+  indirectCollection: boolean;
+  /** Where it comes from: other people, databases, cameras, browsing, biometrics (reg. 6(1)). */
+  indirectSources: string;
+  /** What s.28(2) allows it under, in the Act's order; empty until someone says. */
+  indirectCollectionGrounds: IndirectCollectionGround[];
+  /** How people are told within 14 days (reg. 6(3)). */
+  indirectCollectionNotice: string;
   recipients: string;
   crossBorder: boolean;
   transferCountries: string;
@@ -122,6 +131,14 @@ export const activityFormSchema = z
       .default("")
       .transform((v) => v || null),
     sensitiveDataSafeguards: z.string().trim().max(2000).default(""),
+    indirectCollection: checkbox,
+    indirectSources: z.string().trim().max(2000).default(""),
+    indirectCollectionGrounds: z
+      .array(z.enum(INDIRECT_COLLECTION_GROUND_KEYS as [IndirectCollectionGround, ...IndirectCollectionGround[]], { error: "Choose from the listed grounds." }))
+      .default([])
+      // In the Act's order, without repeats, so ticking the same boxes again isn't a change.
+      .transform((v) => INDIRECT_COLLECTION_GROUND_KEYS.filter((k) => v.includes(k))),
+    indirectCollectionNotice: z.string().trim().max(2000).default(""),
     recipients: z.string().trim().max(2000).default(""),
     crossBorder: checkbox,
     transferCountries: z.string().trim().max(500).default(""),
@@ -206,6 +223,10 @@ export function parseActivityForm(formData: FormData) {
     sensitiveDataBasis: get("sensitiveDataBasis"),
     healthDataCondition: get("healthDataCondition"),
     sensitiveDataSafeguards: get("sensitiveDataSafeguards"),
+    indirectCollection: get("indirectCollection"),
+    indirectSources: get("indirectSources"),
+    indirectCollectionGrounds: formData.getAll("indirectCollectionGrounds").map(String),
+    indirectCollectionNotice: get("indirectCollectionNotice"),
     recipients: get("recipients"),
     crossBorder: get("crossBorder"),
     transferCountries: get("transferCountries"),
@@ -234,10 +255,10 @@ export function parseActivityForm(formData: FormData) {
 }
 
 /**
- * The activity as saved: the transfer, automated decision and direct marketing
- * details are kept only when the activity says it transfers data, takes such
- * decisions or markets to people, so unticking the box clears what was entered
- * under it. Likewise the sensitive data details go when no sensitive category
+ * The activity as saved: the indirect collection, transfer, automated decision
+ * and direct marketing details are kept only when the activity says it gets
+ * data from others, transfers data, takes such decisions or markets to people,
+ * so unticking the box clears what was entered under it. Likewise the sensitive data details go when no sensitive category
  * is ticked, and the health condition when health status isn't.
  */
 export function activityToSave<T extends ActivityInput>(a: T): T {
@@ -248,6 +269,9 @@ export function activityToSave<T extends ActivityInput>(a: T): T {
     sensitiveDataBasis: sensitive ? a.sensitiveDataBasis : "",
     healthDataCondition: involvesHealthData(a) ? a.healthDataCondition : null,
     sensitiveDataSafeguards: sensitive ? a.sensitiveDataSafeguards : "",
+    indirectSources: a.indirectCollection ? a.indirectSources : "",
+    indirectCollectionGrounds: a.indirectCollection ? a.indirectCollectionGrounds : [],
+    indirectCollectionNotice: a.indirectCollection ? a.indirectCollectionNotice : "",
     transferCountries: a.crossBorder ? a.transferCountries : "",
     transferSafeguards: a.crossBorder ? a.transferSafeguards : "",
     automatedDecisionGround: a.automatedDecisions ? a.automatedDecisionGround : null,
@@ -324,6 +348,16 @@ export const ROPA_COLUMNS: { header: string; value: (a: ActivityInput) => string
     value: (a) => (involvesHealthData(a) ? (describeHealthDataCondition(a.healthDataCondition) ?? "Not recorded") : ""),
   },
   { header: "Sensitive data safeguards", value: (a) => (a.sensitiveCategories.length > 0 ? a.sensitiveDataSafeguards : "") },
+  { header: "Collected from others", value: (a) => (a.indirectCollection ? `Yes: ${a.indirectSources || "sources not recorded"}` : "No") },
+  {
+    header: "What allows collecting it from others (s.28(2))",
+    // As with s.45, the ground is the controller's to give.
+    value: (a) =>
+      a.indirectCollection
+        ? describeIndirectCollectionGrounds(a.indirectCollectionGrounds).join("; ") || (a.role === "processor" ? "For the controller to say" : "Not recorded")
+        : "",
+  },
+  { header: "How people are told it came from others", value: (a) => (a.indirectCollection ? a.indirectCollectionNotice : "") },
   { header: "Recipients", value: (a) => a.recipients },
   {
     header: "Transfers outside Kenya",
@@ -385,6 +419,10 @@ const base = {
   sensitiveDataBasis: "",
   healthDataCondition: null,
   sensitiveDataSafeguards: "",
+  indirectCollection: false,
+  indirectSources: "",
+  indirectCollectionGrounds: [],
+  indirectCollectionNotice: "",
   crossBorder: false,
   transferCountries: "",
   transferSafeguards: "",
@@ -431,6 +469,9 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
       "The Employment Act, 2007 (sick leave on a medical certificate) and the tax and social security laws that set deductions, reliefs and dependants' cover.",
     sensitiveDataSafeguards:
       "Medical certificates and dependants' details are kept in a separate, locked HR file, not in the payroll system, and only HR can open it.",
+    indirectCollection: true,
+    indirectSources: "Next of kin and dependants' details, given by the employee. References from former employers the applicant names.",
+    indirectCollectionGrounds: ["consent", "no_prejudice"],
     recipients: "KRA, NSSF, SHA, payroll provider, bank",
     retentionPeriod: "7 years after employment ends",
     ...keep(7, "years", "the end of employment"),
@@ -447,6 +488,10 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     lawfulBasis: "legitimate_interests",
     dataSubjects: ["Staff", "Visitors", "Customers"],
     dataCategories: ["Video footage"],
+    indirectCollection: true,
+    indirectSources: "The cameras on the premises.",
+    indirectCollectionGrounds: ["crime"],
+    indirectCollectionNotice: "Signs at each entrance and in the areas the cameras cover say that recording is taking place, why, and who to contact.",
     recipients: "Security contractor; police on lawful request",
     retentionPeriod: "30 days unless needed for an investigation",
     ...keep(30, "days", "recording"),
@@ -492,6 +537,12 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     sensitiveDataGround: "obligations",
     sensitiveDataBasis: "The Basic Education Act, 2013 and the Children Act, 2022: the school's duty of care for its pupils, including their health needs.",
     sensitiveDataSafeguards: "Medical forms are kept in a separate locked file held by the school nurse or the head teacher, not in the general student file.",
+    indirectCollection: true,
+    indirectSources:
+      "Parents and guardians give their children's details on the admission form. The pupil's previous school sends their records, such as the leaving certificate and report forms.",
+    indirectCollectionGrounds: ["no_prejudice"],
+    indirectCollectionNotice:
+      "Parents and guardians, who act for their children (s.27(a)), fill in the admission form themselves. It says what the school collects and why, and that it will ask the previous school for the pupil's records.",
     recipients: "Ministry of Education, KNEC, examination bodies",
     retentionPeriod: "Duration of enrolment plus 7 years; academic transcripts permanently",
     ...keep(7, "years", "the pupil leaving"),
@@ -510,6 +561,10 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     lawfulBasis: "contract",
     dataSubjects: ["Parents and guardians", "Students"],
     dataCategories: ["Name", "Phone number", "M-Pesa transaction details", "Fee balance"],
+    indirectCollection: true,
+    indirectSources: "Parents and guardians give their children's names and classes.",
+    indirectCollectionGrounds: ["no_prejudice"],
+    indirectCollectionNotice: "Parents and guardians, who act for their children (s.27(a)), give these details themselves.",
     recipients: "Bank, M-Pesa (Safaricom), auditors",
     retentionPeriod: "7 years (tax and audit requirements)",
     ...keep(7, "years", "the payment"),
@@ -533,6 +588,9 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     healthDataCondition: "health_care_provider",
     sensitiveDataSafeguards:
       "Clinical records are kept in the EMR, apart from billing and front-desk data. Each role sees only what it needs, and every access is logged.",
+    indirectCollection: true,
+    indirectSources: "Next of kin's details, given by the patient. Referral notes and results from other facilities and laboratories.",
+    indirectCollectionGrounds: ["no_prejudice", "protect_interests"],
     recipients: "Referral facilities, laboratories, SHA, insurers (with consent)",
     retentionPeriod: "Per Ministry of Health records retention guidelines",
     securityMeasures: "EMR with individual logins and audit trail; paper files in restricted records room",
@@ -576,6 +634,9 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
       "The Proceeds of Crime and Anti-Money Laundering Act, 2009 and its regulations, which require customers to be identified and verified, and the nominee rules for members' deposits.",
     sensitiveDataSafeguards:
       "Fingerprints are held encrypted in the verification system only and never exported. Nominee and family details sit in the member file, which only member services can open.",
+    indirectCollection: true,
+    indirectSources: "Identity details confirmed against IPRS. Nominees' details, given by the member.",
+    indirectCollectionGrounds: ["no_prejudice", "crime"],
     recipients: "SASRA / CBK on request, Financial Reporting Centre, IPRS verification",
     retentionPeriod: "7 years after the relationship ends (POCAMLA)",
     ...keep(7, "years", "the end of the relationship"),
@@ -593,6 +654,11 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     lawfulBasis: "contract",
     dataSubjects: ["Borrowers", "Guarantors"],
     dataCategories: ["Name", "National ID number", "Loan history", "M-Pesa statements", "Credit score"],
+    indirectCollection: true,
+    indirectSources: "Credit reports from the credit reference bureaus.",
+    indirectCollectionGrounds: ["consent"],
+    indirectCollectionNotice:
+      "The loan application form, which applicants and guarantors sign, says we'll get their credit reports from the credit reference bureaus and why.",
     recipients: "Credit reference bureaus (Metropol, TransUnion, Creditinfo)",
     retentionPeriod: "7 years after loan closure",
     ...keep(7, "years", "the loan closing"),
