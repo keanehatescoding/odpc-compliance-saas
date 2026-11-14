@@ -14,6 +14,11 @@ import { requireOrgContext } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Records of processing" };
 
+/** A flag whose record may have gaps. The words say so, not just the colour. */
+function FlagPill({ label, incomplete }: { label: string; incomplete: boolean }) {
+  return <Pill tone={incomplete ? "amber" : "stone"}>{incomplete ? `${label}: details missing` : label}</Pill>;
+}
+
 const FILTERS: Record<string, { label: string; test: (a: ProcessingActivity) => boolean }> = {
   all: { label: "All", test: () => true },
   dpia: { label: "DPIA recommended", test: dpiaRecommended },
@@ -118,11 +123,11 @@ export default async function RopaPage({ searchParams }: PageProps<"/ropa">) {
                       <div className="flex flex-wrap gap-1">
                         {assessed.has(a.id) ? <Pill>DPIA done</Pill> : dpiaRecommended(a) && <Pill tone="amber">DPIA</Pill>}
                         {a.sensitiveCategories.length > 0 && <Pill tone="red">Sensitive</Pill>}
-                        {a.indirectCollection && <Pill tone={indirectCollectionIssues(a).length > 0 ? "amber" : "stone"}>From others</Pill>}
+                        {a.indirectCollection && <FlagPill label="From others" incomplete={indirectCollectionIssues(a).length > 0} />}
                         {a.crossBorder && <Pill>Outside Kenya</Pill>}
                         {a.involvesChildren && <Pill>Children</Pill>}
-                        {a.automatedDecisions && <Pill tone={automatedDecisionIssues(a).length > 0 ? "amber" : "stone"}>Automated decisions</Pill>}
-                        {a.directMarketing && <Pill tone={directMarketingIssues(a).length > 0 ? "amber" : "stone"}>Marketing</Pill>}
+                        {a.automatedDecisions && <FlagPill label="Automated decisions" incomplete={automatedDecisionIssues(a).length > 0} />}
+                        {a.directMarketing && <FlagPill label="Marketing" incomplete={directMarketingIssues(a).length > 0} />}
                       </div>
                     </td>
                   </tr>
