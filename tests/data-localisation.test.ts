@@ -2,7 +2,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "@/db";
 import * as schema from "@/db/schema";
 import { changedFields, FIELD_LABELS } from "@/lib/activity";
@@ -186,9 +186,10 @@ describe("the RoPA", () => {
 describe("in the database", () => {
   let db: Db;
   let activityId: string;
+  let client: PGlite | undefined;
 
   beforeEach(async () => {
-    const client = new PGlite();
+    client = new PGlite();
     const pg = drizzle({ client, schema });
     await migrate(pg, { migrationsFolder: "drizzle" });
     db = pg as unknown as Db;
@@ -198,6 +199,11 @@ describe("in the database", () => {
       .values({ orgId: org.id, name: "Pupil records", purpose: "Teach pupils", lawfulBasis: "legal_obligation", retentionPeriod: "7 years" })
       .returning();
     activityId = activity.id;
+  });
+
+  afterEach(async () => {
+    await client?.close();
+    client = undefined;
   });
 
   const update = (set: Partial<typeof processingActivities.$inferInsert>) =>
