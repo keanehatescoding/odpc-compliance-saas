@@ -418,6 +418,8 @@ describe("templates", () => {
         healthDataCondition: t.healthDataCondition ?? "",
         retentionLength: t.retentionLength?.toString() ?? "",
         retentionUnit: t.retentionUnit ?? "",
+        kenyaDataPurpose: t.kenyaDataPurpose ?? "",
+        kenyaHosting: t.kenyaHosting ?? "",
       });
       expect(r.success, `${t.id}: ${r.error?.message}`).toBe(true);
     }

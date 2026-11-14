@@ -41,6 +41,9 @@ function activity(over: Partial<ReportActivity> = {}): ReportActivity {
     crossBorder: false,
     transferCountries: "",
     transferSafeguards: "",
+    kenyaDataPurpose: null,
+    kenyaHosting: null,
+    kenyaDataCentre: "",
     retentionPeriod: "7 years",
     retentionLength: null,
     retentionUnit: null,
@@ -237,7 +240,7 @@ describe("buildComplianceReport", () => {
   it("finds nothing open when every record is in order", () => {
     const report = buildComplianceReport(input());
     expect(report.openCount).toBe(0);
-    expect(report.sections.map((s) => s.key)).toEqual(["registration", "ropa", "notice", "dpo", "consent", "lia", "dpia", "sensitive", "indirect", "children", "automated", "marketing", "breach", "request", "complaint", "processor", "transfer", "disposal", "training", "policy"]);
+    expect(report.sections.map((s) => s.key)).toEqual(["registration", "ropa", "notice", "dpo", "consent", "lia", "dpia", "sensitive", "indirect", "children", "kenya", "automated", "marketing", "breach", "request", "complaint", "processor", "transfer", "disposal", "training", "policy"]);
     expect(report.preparedOn).toBe("2026-10-10");
     expect(report.periodFrom).toBe("2025-10-10");
   });
@@ -706,6 +709,56 @@ describe("children's data", () => {
     const processor = section({ activities: [{ ...pupils, parentalConsent: "", role: "processor" }] }, "children");
     expect(processor.table!.rows[0][2]).toBe("For the controller to get");
     expect(processor.open).toEqual([]);
+  });
+});
+
+describe("data kept in Kenya", () => {
+  const pupils = activity({
+    id: "a1",
+    name: "Pupil records",
+    kenyaDataPurpose: "basic_education",
+    kenyaHosting: "in_kenya",
+    kenyaDataCentre: "School management system hosted in Nairobi",
+  });
+
+  it("has nothing to report when reg. 26 covers no activity", () => {
+    const s = section({}, "kenya");
+    expect(fact(s, "Activities whose data has to be kept in Kenya")).toBe("0");
+    expect(s.table).toBeUndefined();
+    expect(s.open).toEqual([]);
+  });
+
+  it("lists the purpose, how the data is kept in Kenya and where", () => {
+    const s = section({ activities: [pupils] }, "kenya");
+    expect(s.href).toBe("/ropa?filter=kenya");
+    expect(s.basis).toContain("reg. 26");
+    expect(fact(s, "Of those, fully recorded")).toBe("1");
+    expect(s.table!.rows[0]).toEqual([
+      "Pupil records",
+      "Early childhood or basic education (Basic Education Act, 2013)",
+      "Processed through a server and data centre in Kenya",
+      "School management system hosted in Nairobi",
+    ]);
+    expect(s.open).toEqual([]);
+  });
+
+  it("reports what a record leaves out", () => {
+    const s = section({ activities: [{ ...pupils, kenyaHosting: null, kenyaDataCentre: "" }] }, "kenya");
+    expect(s.table!.rows[0].slice(2)).toEqual(["Not recorded", "Not recorded"]);
+    expect(s.open).toEqual([
+      "Pupil records has to be kept in Kenya (reg. 26(2)(e): Early childhood or basic education (Basic Education Act, 2013)), and the record doesn't say how (reg. 26(1)) and which data centre in Kenya holds it.",
+    ]);
+  });
+
+  it("reports a processor abroad on data recorded as processed only in Kenya, but not alongside a serving copy", () => {
+    const sms = processor({ id: "p2", name: "Bulk SMS", outsideKenya: true });
+    const links = [{ processorId: "p2", activityId: "a1" }];
+    const inKenya = section({ activities: [pupils], processors: [sms], processorLinks: links }, "kenya");
+    expect(inKenya.open).toEqual([
+      "Pupil records has to be kept in Kenya (reg. 26(2)(e): Early childhood or basic education (Basic Education Act, 2013)), and it's recorded as processed only in Kenya, but Bulk SMS holds the data outside Kenya.",
+    ]);
+    const copy = section({ activities: [{ ...pupils, kenyaHosting: "serving_copy" }], processors: [sms], processorLinks: links }, "kenya");
+    expect(copy.open).toEqual([]);
   });
 });
 

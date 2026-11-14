@@ -5,6 +5,7 @@ import { BreachStatusBadge, buttonClass, Card, cx, PageHeader, StatusBadge } fro
 import { activitiesWithAutomatedDecisionIssues, automatedDecisionTodo } from "@/lib/automated-decision";
 import { activitiesWithDirectMarketingIssues, directMarketingTodo } from "@/lib/direct-marketing";
 import { activitiesWithChildrenDataIssues, childrenDataTodo } from "@/lib/children-data";
+import { activitiesWithDataLocalisationIssues, dataLocalisationTodo, processorsByActivity } from "@/lib/data-localisation";
 import { activitiesWithIndirectCollectionIssues, indirectCollectionTodo } from "@/lib/indirect-collection";
 import { activitiesWithSensitiveDataIssues, sensitiveDataTodo } from "@/lib/sensitive-data";
 import { breachStatus, notificationDeadline, NOTIFY_WHOM, outstandingTasks } from "@/lib/breach";
@@ -31,6 +32,7 @@ import {
   listTransfers,
   listDisposals,
   listPolicies,
+  listProcessorLinks,
   listProcessors,
   listRegistrations,
   listSubjectRequests,
@@ -50,7 +52,7 @@ export default async function DashboardPage() {
   const { org } = await requireOrgContext();
   const today = todayInKenya();
   const now = new Date();
-  const [regs, changes, activities, reminders, breaches, dpias, requests, processors, training, consents, complaints, disposals, policies, assessments, transfers] = await Promise.all([
+  const [regs, changes, activities, reminders, breaches, dpias, requests, processors, training, consents, complaints, disposals, policies, assessments, transfers, processorLinks] = await Promise.all([
     listRegistrations(org.id),
     listParticularChanges(org.id),
     listActivities(org.id),
@@ -66,6 +68,7 @@ export default async function DashboardPage() {
     listPolicies(org.id),
     listInterestAssessments(org.id),
     listTransfers(org.id),
+    listProcessorLinks(org.id),
   ]);
   const urgentBreaches = breaches
     .map((b) => ({ ...b, status: breachStatus(b, now), deadline: notificationDeadline(b) }))
@@ -141,6 +144,10 @@ export default async function DashboardPage() {
   }
   for (const { activity, issues } of activitiesWithChildrenDataIssues(activities)) {
     todos.push({ text: childrenDataTodo(activity, issues), href: `/ropa/${activity.id}` });
+  }
+  const processorsOf = processorsByActivity(processors, processorLinks);
+  for (const { activity, issues } of activitiesWithDataLocalisationIssues(activities, (a) => processorsOf(a.id))) {
+    todos.push({ text: dataLocalisationTodo(activity, issues), href: `/ropa/${activity.id}` });
   }
   for (const a of activitiesWithoutConsent(activities, consents)) {
     todos.push({ text: `Record how you get consent for ${a.name}`, href: `/consents/new?activity=${a.id}` });

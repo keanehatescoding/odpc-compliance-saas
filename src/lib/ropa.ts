@@ -3,6 +3,14 @@ import { AUTOMATED_DECISION_GROUND_KEYS, AUTOMATED_DECISION_GROUNDS, type Automa
 import { describeParentalConsent } from "./children-data";
 import { MARKETING_GROUND_KEYS, MARKETING_GROUNDS, type MarketingGround } from "./direct-marketing";
 import { LAWFUL_BASES, LAWFUL_BASIS_KEYS, SENSITIVE_CATEGORIES, type LawfulBasis, type Sector } from "./dpa";
+import {
+  describeKenyaDataPurpose,
+  describeKenyaHosting,
+  KENYA_DATA_PURPOSE_KEYS,
+  KENYA_HOSTING_KEYS,
+  type KenyaDataPurpose,
+  type KenyaHosting,
+} from "./data-localisation";
 import { describeIndirectCollectionGrounds, INDIRECT_COLLECTION_GROUND_KEYS, type IndirectCollectionGround } from "./indirect-collection";
 import { describeRetention, MAX_RETENTION_YEARS, RETENTION_UNIT_KEYS, type RetentionUnit } from "./retention";
 import {
@@ -55,6 +63,12 @@ export interface ActivityInput {
   crossBorder: boolean;
   transferCountries: string;
   transferSafeguards: string;
+  /** The reg. 26(2) purpose that means the data has to be kept in Kenya. Null when none applies. */
+  kenyaDataPurpose: KenyaDataPurpose | null;
+  /** Which of reg. 26(1)(a) and (b) keeps it in Kenya. Null until someone says. */
+  kenyaHosting: KenyaHosting | null;
+  /** The data centre in Kenya, and for a serving copy how it's kept current. */
+  kenyaDataCentre: string;
   retentionPeriod: string;
   /** The period as a length Kinga can count with. Both null when it has no fixed length. */
   retentionLength: number | null;
@@ -153,6 +167,17 @@ export const activityFormSchema = z
     crossBorder: checkbox,
     transferCountries: z.string().trim().max(500).default(""),
     transferSafeguards: z.string().trim().max(2000).default(""),
+    kenyaDataPurpose: z
+      .union([z.literal(""), z.enum(KENYA_DATA_PURPOSE_KEYS as [KenyaDataPurpose, ...KenyaDataPurpose[]])], {
+        error: "Choose from the listed purposes.",
+      })
+      .default("")
+      .transform((v) => v || null),
+    kenyaHosting: z
+      .union([z.literal(""), z.enum(KENYA_HOSTING_KEYS as [KenyaHosting, ...KenyaHosting[]])], { error: "Choose how the data is kept in Kenya." })
+      .default("")
+      .transform((v) => v || null),
+    kenyaDataCentre: z.string().trim().max(2000).default(""),
     retentionPeriod: z.string().trim().min(1, { error: "State how long you keep the data." }).max(500),
     retentionLength: z
       .string()
@@ -245,6 +270,9 @@ export function parseActivityForm(formData: FormData) {
     crossBorder: get("crossBorder"),
     transferCountries: get("transferCountries"),
     transferSafeguards: get("transferSafeguards"),
+    kenyaDataPurpose: get("kenyaDataPurpose"),
+    kenyaHosting: get("kenyaHosting"),
+    kenyaDataCentre: get("kenyaDataCentre"),
     retentionPeriod: get("retentionPeriod"),
     retentionLength: get("retentionLength"),
     retentionUnit: get("retentionUnit"),
@@ -280,7 +308,8 @@ export function parseActivityForm(formData: FormData) {
  * was entered under it. Likewise the sensitive data details go when no sensitive category
  * is ticked, the health condition when health status isn't, and how a parent
  * consents when the activity is counselling or child protection only (s.33(4)),
- * since the form hides that question then.
+ * since the form hides that question then, and how the data is kept in Kenya
+ * when no reg. 26(2) purpose is chosen.
  */
 export function activityToSave<T extends ActivityInput>(a: T): T {
   const sensitive = a.sensitiveCategories.length > 0;
@@ -299,6 +328,8 @@ export function activityToSave<T extends ActivityInput>(a: T): T {
     childSafeguards: a.involvesChildren ? a.childSafeguards : "",
     transferCountries: a.crossBorder ? a.transferCountries : "",
     transferSafeguards: a.crossBorder ? a.transferSafeguards : "",
+    kenyaHosting: a.kenyaDataPurpose ? a.kenyaHosting : null,
+    kenyaDataCentre: a.kenyaDataPurpose ? a.kenyaDataCentre : "",
     automatedDecisionGround: a.automatedDecisions ? a.automatedDecisionGround : null,
     automatedDecisionLogic: a.automatedDecisions ? a.automatedDecisionLogic : "",
     automatedDecisionReview: a.automatedDecisions ? a.automatedDecisionReview : "",
@@ -394,6 +425,9 @@ export const ROPA_COLUMNS: { header: string; value: (a: ActivityInput) => string
     value: (a) => (a.crossBorder ? `Yes: ${a.transferCountries}` : "No"),
   },
   { header: "Transfer safeguards", value: (a) => (a.crossBorder ? a.transferSafeguards : "") },
+  { header: "Has to be kept in Kenya (reg. 26(2))", value: (a) => describeKenyaDataPurpose(a) || "No" },
+  { header: "How it's kept in Kenya (reg. 26(1))", value: (a) => describeKenyaHosting(a) },
+  { header: "Data centre in Kenya", value: (a) => (a.kenyaDataPurpose ? a.kenyaDataCentre : "") },
   { header: "Retention period", value: (a) => a.retentionPeriod },
   { header: "Retention period as a length", value: (a) => describeRetention(a) ?? "" },
   { header: "Security measures", value: (a) => a.securityMeasures },
@@ -456,6 +490,9 @@ const base = {
   crossBorder: false,
   transferCountries: "",
   transferSafeguards: "",
+  kenyaDataPurpose: null,
+  kenyaHosting: null,
+  kenyaDataCentre: "",
   largeScale: false,
   systematicMonitoring: false,
   involvesChildren: false,
@@ -582,6 +619,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     ...keep(7, "years", "the pupil leaving"),
     securityMeasures: "School management system with role-based access; paper files in locked cabinets",
     systems: "School management system, NEMIS",
+    kenyaDataPurpose: "basic_education",
     involvesChildren: true,
     childAgeCheck:
       "The admission form asks for the pupil's date of birth and birth certificate number, and the office checks them against the birth certificate.",
@@ -610,6 +648,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     ...keep(7, "years", "the payment"),
     securityMeasures: "Finance office access only",
     systems: "Accounting software",
+    kenyaDataPurpose: "basic_education",
     involvesChildren: true,
     childAgeCheck: "Fees are billed only for pupils the school has admitted, whose dates of birth the admission records hold.",
     parentalConsent:
@@ -640,6 +679,7 @@ export const ACTIVITY_TEMPLATES: ActivityTemplate[] = [
     retentionPeriod: "Per Ministry of Health records retention guidelines",
     securityMeasures: "EMR with individual logins and audit trail; paper files in restricted records room",
     systems: "Electronic medical records system",
+    kenyaDataPurpose: "health_care",
     largeScale: true,
   },
   {
