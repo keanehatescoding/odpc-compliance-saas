@@ -1,7 +1,4 @@
-import { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "@/db";
 import * as schema from "@/db/schema";
@@ -22,6 +19,7 @@ import {
 } from "@/lib/indirect-collection";
 import { ROPA_PARTICULARS } from "@/lib/particulars";
 import { ACTIVITY_TEMPLATES } from "@/lib/ropa";
+import { openTestDb } from "./helpers/db";
 
 const { organizations, processingActivities } = schema;
 
@@ -127,10 +125,7 @@ describe("in the database", () => {
   let activityId: string;
 
   beforeEach(async () => {
-    const client = new PGlite();
-    const pg = drizzle({ client, schema });
-    await migrate(pg, { migrationsFolder: "drizzle" });
-    db = pg as unknown as Db;
+    db = await openTestDb();
     const [org] = await db.insert(organizations).values({ name: "Afya Clinic", sector: "health", size: "micro_small" }).returning();
     const [activity] = await db
       .insert(processingActivities)

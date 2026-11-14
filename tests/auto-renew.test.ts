@@ -1,7 +1,4 @@
-import { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "@/db";
 import * as schema from "@/db/schema";
@@ -12,6 +9,7 @@ import { dueBillingAlert, recordPayment, runBillingAlerts, startCheckout } from 
 import type { EmailMessage, SendEmail } from "@/lib/email";
 import { createPaystack, PaystackError, type Paystack, type PaystackTransaction } from "@/lib/paystack";
 import { addPeriod, cardLabel, cardUsable, dueRenewalAttempt, TRIAL_DAYS } from "@/lib/plans";
+import { openTestDb } from "./helpers/db";
 
 const { activityLog, billingAlertLog, memberships, organizations, payments, renewalAttempts, savedCards, users } = schema;
 
@@ -137,10 +135,7 @@ function inbox() {
 }
 
 beforeEach(async () => {
-  const client = new PGlite();
-  const pg = drizzle({ client, schema });
-  await migrate(pg, { migrationsFolder: "drizzle" });
-  db = pg as unknown as Db;
+  db = await openTestDb();
 
   const [o] = await db
     .insert(organizations)

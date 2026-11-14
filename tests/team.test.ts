@@ -1,7 +1,4 @@
-import { PGlite } from "@electric-sql/pglite";
 import { and, eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "@/db";
 import * as schema from "@/db/schema";
@@ -22,6 +19,7 @@ import {
   revokeInvitation,
   teamMembers,
 } from "@/lib/team";
+import { openTestDb } from "./helpers/db";
 
 const { invitations, memberships, organizations, users } = schema;
 
@@ -60,10 +58,7 @@ async function invite(email: string, role: schema.MemberRole = "member", actorId
 }
 
 beforeEach(async () => {
-  const client = new PGlite();
-  const pg = drizzle({ client, schema });
-  await migrate(pg, { migrationsFolder: "drizzle" });
-  db = pg as unknown as Db;
+  db = await openTestDb();
 
   orgId = await addOrg("Sunrise Academy");
   owner = await addUser("owner@sunrise.ke");

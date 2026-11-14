@@ -1,8 +1,5 @@
-import { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "@/db";
 import * as schema from "@/db/schema";
 import { changedFields, FIELD_LABELS } from "@/lib/activity";
@@ -21,6 +18,7 @@ import {
 } from "@/lib/data-localisation";
 import { ROPA_PARTICULARS } from "@/lib/particulars";
 import { ACTIVITY_TEMPLATES, activityToSave, parseActivityForm, ROPA_COLUMNS, type ActivityInput } from "@/lib/ropa";
+import { openTestDb } from "./helpers/db";
 
 const { organizations, processingActivities } = schema;
 
@@ -186,24 +184,15 @@ describe("the RoPA", () => {
 describe("in the database", () => {
   let db: Db;
   let activityId: string;
-  let client: PGlite | undefined;
 
   beforeEach(async () => {
-    client = new PGlite();
-    const pg = drizzle({ client, schema });
-    await migrate(pg, { migrationsFolder: "drizzle" });
-    db = pg as unknown as Db;
+    db = await openTestDb();
     const [org] = await db.insert(organizations).values({ name: "Shule Bora", sector: "education", size: "micro_small" }).returning();
     const [activity] = await db
       .insert(processingActivities)
       .values({ orgId: org.id, name: "Pupil records", purpose: "Teach pupils", lawfulBasis: "legal_obligation", retentionPeriod: "7 years" })
       .returning();
     activityId = activity.id;
-  });
-
-  afterEach(async () => {
-    await client?.close();
-    client = undefined;
   });
 
   const update = (set: Partial<typeof processingActivities.$inferInsert>) =>

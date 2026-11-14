@@ -4,13 +4,14 @@ import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import type { Db } from "@/db";
 import * as schema from "@/db/schema";
 import { CLAIM_LEASE_MS, deliverClaimed, rejectedRecipients } from "@/lib/alert-delivery";
 import { exportOrganization } from "@/lib/account";
 import type { EmailMessage, SendEmail } from "@/lib/email";
 import { runReminders } from "@/lib/reminders";
+import { openTestDb } from "./helpers/db";
 
 const { memberships, organizations, registrations, reminderLog, users } = schema;
 
@@ -119,6 +120,7 @@ describe("migration 0030", () => {
       writeFileSync(journalPath, JSON.stringify(journal));
 
       const client = new PGlite();
+      onTestFinished(() => client.close());
       const pg = drizzle({ client, schema });
       await migrate(pg, { migrationsFolder: upTo0029 });
       // Plain SQL: the schema in code has columns later migrations add, which this database doesn't have yet.
@@ -159,10 +161,7 @@ describe("claims in the runners", () => {
   const ago = (ms: number) => new Date(now.getTime() - ms);
 
   beforeEach(async () => {
-    const client = new PGlite();
-    const pg = drizzle({ client, schema });
-    await migrate(pg, { migrationsFolder: "drizzle" });
-    db = pg as unknown as Db;
+    db = await openTestDb();
     outbox = [];
     const [o] = await db
       .insert(organizations)

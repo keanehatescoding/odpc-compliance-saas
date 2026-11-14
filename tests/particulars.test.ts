@@ -1,7 +1,4 @@
-import { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "@/db";
 import * as schema from "@/db/schema";
@@ -24,6 +21,7 @@ import {
 } from "@/lib/particulars";
 import { runParticularChangeAlerts } from "@/lib/particulars-alerts";
 import { parseParticularChangeForm } from "@/lib/particulars-form";
+import { openTestDb } from "./helpers/db";
 
 describe("deadlines", () => {
   const change = { changedOn: "2026-10-01", notifiedOn: null };
@@ -226,10 +224,7 @@ describe("runParticularChangeAlerts", () => {
   const on = (date: string) => new Date(`${date}T12:00:00+03:00`);
 
   beforeEach(async () => {
-    const client = new PGlite();
-    const pg = drizzle({ client, schema });
-    await migrate(pg, { migrationsFolder: "drizzle" });
-    db = pg as unknown as Db;
+    db = await openTestDb();
     outbox = [];
   });
 
