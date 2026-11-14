@@ -1,13 +1,11 @@
-import { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "@/db";
 import * as schema from "@/db/schema";
 import { changedFields, describe as describeRecord, FIELD_LABELS, recordActivity, subjectLinks } from "@/lib/activity";
 import { countsAsRound, daysToNextDisposal, disposalGaps, disposalStatus, followedUp, latestByActivity, latestRoundByActivity } from "@/lib/disposal";
 import { parseDisposalForm } from "@/lib/disposal-form";
+import { openTestDb } from "./helpers/db";
 
 const { activityLog, disposals, organizations, processingActivities, users } = schema;
 
@@ -144,10 +142,7 @@ describe("in the database", () => {
   let disposalId: string;
 
   beforeEach(async () => {
-    const client = new PGlite();
-    const pg = drizzle({ client, schema });
-    await migrate(pg, { migrationsFolder: "drizzle" });
-    db = pg as unknown as Db;
+    db = await openTestDb();
 
     const [org] = await db.insert(organizations).values({ name: "Sunrise Academy", sector: "education", size: "micro_small" }).returning();
     orgId = org.id;

@@ -1,6 +1,3 @@
-import { PGlite } from "@electric-sql/pglite";
-import { drizzle } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "@/db";
 import * as schema from "@/db/schema";
@@ -17,6 +14,7 @@ import {
   staffEmails,
   staffServiceOrders,
 } from "@/lib/staff";
+import { openTestDb } from "./helpers/db";
 
 const { invitations, memberships, organizations, payments, processingActivities, registrations, renewalAttempts, serviceOrders, users } =
   schema;
@@ -55,10 +53,7 @@ async function addServiceOrder(orgId: string, requestedBy: string, reference: st
 }
 
 beforeEach(async () => {
-  const client = new PGlite();
-  const pg = drizzle({ client, schema });
-  await migrate(pg, { migrationsFolder: "drizzle" });
-  db = pg as unknown as Db;
+  db = await openTestDb();
 });
 
 describe("who is staff", () => {

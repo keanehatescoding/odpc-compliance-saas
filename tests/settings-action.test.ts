@@ -1,14 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Db } from "@/db";
 import * as schema from "@/db/schema";
 import { deleteOrganization } from "@/lib/account";
 import { todayInKenya } from "@/lib/dates";
 import { dpoIssues } from "@/lib/dpo";
+import { openTestDb } from "./helpers/db";
 
 // The action reads the app's db and session; point them at an in-memory database and a fixed signed-in owner.
 const ctx = vi.hoisted(() => ({ db: undefined as unknown as Db, user: { id: "" }, org: { id: "" }, role: "owner" as "owner" | "admin" | "member" }));
@@ -64,9 +62,7 @@ async function stored() {
 }
 
 beforeEach(async () => {
-  const pg = drizzle({ client: new PGlite(), schema });
-  await migrate(pg, { migrationsFolder: "drizzle" });
-  ctx.db = pg as unknown as Db;
+  ctx.db = await openTestDb();
   const [u] = await ctx.db.insert(users).values({ email: "owner@sunrise.ke", name: "owner", passwordHash: "scrypt$x" }).returning({ id: users.id });
   const [o] = await ctx.db.insert(organizations).values(saved).returning({ id: organizations.id });
   await ctx.db.insert(memberships).values({ orgId: o.id, userId: u.id, role: "owner" });
