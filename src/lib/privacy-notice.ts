@@ -1,4 +1,5 @@
 import { automatedDecisionNotice } from "./automated-decision";
+import { needsParentalConsent } from "./children-data";
 import { asksForConsent } from "./consent";
 import { formatDate } from "./dates";
 import { directMarketingNotice } from "./direct-marketing";
@@ -293,17 +294,32 @@ export function buildPrivacyNotice(input: {
     checks.push(`Describe the security measures for: ${names(unprotected)}.`);
   }
 
-  if (activities.some((a) => a.involvesChildren)) {
-    sections.push({
-      heading: "Children",
-      blocks: [
-        {
-          kind: "p",
-          text: "Where we process a child's personal data, we do so in a way that protects and advances the child's rights and best interests. We ask for the consent of their parent or guardian first, unless the law doesn't require it, as when a child comes to us directly for counselling or child-protection services.",
-        },
-      ],
-    });
-    checks.push("Confirm the Children section matches what you do: it says you get a parent's or guardian's consent unless the law doesn't require it.");
+  // s.33(1) and reg. 13(2)(c): parents are told how their children's data is treated, and the safeguards in place.
+  const children = activities.filter((a) => a.involvesChildren);
+  if (children.length > 0) {
+    const consent = children.some((a) => a.childCounselling)
+      ? "We ask for the consent of their parent or guardian first, and check that the person agreeing is the child's parent or guardian, unless the law doesn't require it, as when a child comes to us directly for counselling or child-protection services."
+      : "We ask for the consent of their parent or guardian first, and check that the person agreeing is the child's parent or guardian.";
+    const blocks: NoticeBlock[] = [
+      { kind: "p", text: `Where we process a child's personal data, we do so in a way that protects and advances the child's rights and best interests. ${consent}` },
+    ];
+    const safeguards = children.filter((a) => a.childSafeguards.trim()).map((a) => ({ label: a.name, value: a.childSafeguards.trim() }));
+    if (safeguards.length > 0) blocks.push({ kind: "p", text: "How we protect children's data:" }, { kind: "facts", items: safeguards });
+    sections.push({ heading: "Children", blocks });
+
+    const unconsented = children.filter((a) => needsParentalConsent(a) && !a.parentalConsent.trim());
+    if (unconsented.length > 0) {
+      checks.push(`Say how a parent or guardian consents, as the Children section says they do (Children's data), for: ${names(unconsented)}.`);
+    }
+    const unprotectedChildren = children.filter((a) => !a.childSafeguards.trim());
+    if (unprotectedChildren.length > 0) {
+      checks.push(`Say how children are protected, so parents are told the safeguards (Children's data), for: ${names(unprotectedChildren)}.`);
+    }
+    // reg. 13(2)(b): profiling a child for direct marketing is prohibited.
+    const childMarketing = children.filter((a) => a.directMarketing);
+    if (childMarketing.length > 0) {
+      checks.push(`Make sure no child is profiled for marketing (Direct marketing), for: ${names(childMarketing)}.`);
+    }
   }
 
   sections.push({

@@ -394,7 +394,8 @@ await db.insert(trainingSessions).values([
 ]);
 
 // The admissions portal turns applicants away without anyone looking (s.35). The record doesn't yet say how the
-// shortlisting is checked for errors and bias, so it shows on the dashboard and in the compliance report.
+// shortlisting is checked for errors and bias, or how it protects the applicants, who are children (s.33(1)(b)), so it
+// shows on the dashboard and in the compliance report.
 await db.insert(processingActivities).values({
   orgId: org.id,
   name: "Online admissions shortlisting",
@@ -410,6 +411,9 @@ await db.insert(processingActivities).values({
   systems: "Admissions portal",
   owner: "Admissions office",
   involvesChildren: true,
+  childAgeCheck: "Applicants give their date of birth and KJSEA assessment number, which the portal checks against the results list.",
+  parentalConsent:
+    "A parent or guardian opens the portal account and submits the application, and the admissions office checks their ID against the applicant's birth certificate at interview.",
   automatedDecisions: true,
   automatedDecisionGround: "contract",
   automatedDecisionLogic:
@@ -461,6 +465,11 @@ const [photos] = await db
     systems: "School website, shared drive",
     owner: "Communications teacher",
     involvesChildren: true,
+    childAgeCheck: "The admission records hold each pupil's date of birth, so the school knows which pupils are under 18.",
+    parentalConsent:
+      "A parent or guardian signs the photographs consent form at admission and again each year. The office checks the signature against the admission form.",
+    childSafeguards:
+      "Photographs show first names only, never with a class or a home area, and never of a pupil whose parent hasn't agreed. The consent form tells parents where the photographs appear and that they can have any taken down.",
   })
   .returning({ id: processingActivities.id });
 await db.insert(consentRecords).values([

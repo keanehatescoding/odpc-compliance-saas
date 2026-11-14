@@ -196,6 +196,64 @@ export function ActivityForm({ activity }: { activity?: ProcessingActivity }) {
         </div>
       </Card>
 
+      {/* Like the transfer fields, the details are shown by CSS so they work before JS loads. */}
+      <Card className="group space-y-5">
+        <h2 className="font-semibold">Children&apos;s data</h2>
+        <label className="flex items-start gap-3 text-sm">
+          <input
+            type="checkbox"
+            name="involvesChildren"
+            defaultChecked={state?.values ? state.values.involvesChildren === "on" : Boolean(activity?.involvesChildren)}
+            className="mt-0.5 size-4 accent-brand-600"
+          />
+          <span>
+            <span className="font-medium text-stone-800">Involves children&apos;s data</span>
+            <span className="block text-xs text-stone-500">
+              Anyone under 18, such as pupils, young patients or a member&apos;s children. A parent or guardian has to consent, and the
+              processing has to protect the child&apos;s best interests (s.33). It also counts towards a DPIA (reg. 49(1)(e)).
+            </span>
+          </span>
+        </label>
+        <div className="hidden space-y-5 group-has-[[name=involvesChildren]:checked]:block">
+          <TextArea
+            name="childAgeCheck"
+            label="How you know which data is a child's"
+            hint="Such as a date of birth on the form checked against a birth certificate, or an age question before an account is opened. Match it to the risk: how much data, how much of it is children's and the harm that could follow (s.33(2) and (3))."
+            initial={activity?.childAgeCheck}
+            {...f}
+          />
+          <label className="flex items-start gap-3 text-sm">
+            <input
+              type="checkbox"
+              name="childCounselling"
+              defaultChecked={state?.values ? state.values.childCounselling === "on" : Boolean(activity?.childCounselling)}
+              className="mt-0.5 size-4 accent-brand-600"
+            />
+            <span>
+              <span className="font-medium text-stone-800">Only counselling or child protection services for children</span>
+              <span className="block text-xs text-stone-500">
+                Then a parent&apos;s consent may not be needed (s.33(4)). Leave it unticked for anything else, such as a school that also
+                has a counsellor.
+              </span>
+            </span>
+          </label>
+          <TextArea
+            name="parentalConsent"
+            label="How a parent or guardian consents"
+            hint="How they agree, such as signing the admission form, and how you check they're the child's parent or guardian, such as their ID against the birth certificate (s.33(1)(a); reg. 13(2)(a)). A processor can leave this to the controller it works for."
+            initial={activity?.parentalConsent}
+            {...f}
+          />
+          <TextArea
+            name="childSafeguards"
+            label="How children are protected"
+            hint="How the processing protects the child's best interests, such as who can see the data and what it's never used for, and how parents are told the risks and the safeguards (s.33(1)(b); reg. 13(2)(c)). The privacy notice shows this."
+            initial={activity?.childSafeguards}
+            {...f}
+          />
+        </div>
+      </Card>
+
       {/* The transfer fields are shown by CSS, so they also work before JS loads. */}
       <Card className="group space-y-5">
         <h2 className="font-semibold">Sharing and transfers</h2>
@@ -281,7 +339,6 @@ export function ActivityForm({ activity }: { activity?: ProcessingActivity }) {
           initial={activity?.largeScale}
           values={f.values}
         />
-        <CheckboxField name="involvesChildren" label="Involves children's data" initial={activity?.involvesChildren} values={f.values} />
       </Card>
 
       {/* Like the transfer fields, the details are shown by CSS so they work before JS loads. */}

@@ -19,6 +19,7 @@ import {
   sensitiveDataFinding,
   sensitiveDataIssues,
 } from "./sensitive-data";
+import { CHILDREN_DATA_PROVISION, childrenDataFinding, childrenDataIssues, describeParentalConsent } from "./children-data";
 import {
   describeIndirectCollectionGrounds,
   INDIRECT_COLLECTION_PROVISION,
@@ -223,7 +224,7 @@ export interface ReportInput {
   now: Date;
 }
 
-export type ReportSectionKey = "registration" | "ropa" | "notice" | "dpo" | "consent" | "lia" | "dpia" | "sensitive" | "indirect" | "automated" | "marketing" | "breach" | "request" | "complaint" | "processor" | "transfer" | "disposal" | "training" | "policy";
+export type ReportSectionKey = "registration" | "ropa" | "notice" | "dpo" | "consent" | "lia" | "dpia" | "sensitive" | "indirect" | "children" | "automated" | "marketing" | "breach" | "request" | "complaint" | "processor" | "transfer" | "disposal" | "training" | "policy";
 
 export interface ReportSection {
   key: ReportSectionKey;
@@ -538,6 +539,29 @@ function indirectSection(input: ReportInput): ReportSection {
       { label: "Of those, fully recorded", value: count(indirect.length - open.length) },
     ],
     table: rows.length > 0 ? { columns: ["Activity", "Where it comes from", "Allowed because", "How people are told"], rows } : undefined,
+    open,
+  };
+}
+
+/** Activities that involve children's data, and what s.33 and reg. 13(2) still need. */
+function childrenSection(input: ReportInput): ReportSection {
+  const children = input.activities.filter((a) => a.involvesChildren);
+  const open: string[] = [];
+  const rows = children.map((a) => {
+    const issues = childrenDataIssues(a);
+    if (issues.length > 0) open.push(childrenDataFinding(a, issues));
+    return [a.name, a.childAgeCheck.trim() || "Not recorded", describeParentalConsent(a), a.childSafeguards.trim() || "Not recorded"];
+  });
+  return {
+    key: "children",
+    heading: "Children's data",
+    basis: CHILDREN_DATA_PROVISION,
+    href: "/ropa?filter=children",
+    facts: [
+      { label: "Activities involving children's data", value: count(children.length) },
+      { label: "Of those, fully recorded", value: count(children.length - open.length) },
+    ],
+    table: rows.length > 0 ? { columns: ["Activity", "How a child's data is told apart", "How a parent consents", "How children are protected"], rows } : undefined,
     open,
   };
 }
@@ -1141,6 +1165,7 @@ export function buildComplianceReport(input: ReportInput): ComplianceReport {
     dpiaSection(input, today),
     sensitiveSection(input),
     indirectSection(input),
+    childrenSection(input),
     automatedSection(input),
     marketingSection(input),
     breachSection(input, periodFrom),
