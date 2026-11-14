@@ -102,9 +102,9 @@ describe("wording", () => {
   it("tells people in the privacy notice where data that isn't from them comes from", () => {
     expect(indirectCollectionNotice(direct)).toBeNull();
     expect(indirectCollectionNotice(payroll)).toBe(
-      "Some of it comes from others, not from you. Next of kin's names and phone numbers, given by the employee.",
+      "Some of it doesn't come from the person it's about. Next of kin's names and phone numbers, given by the employee.",
     );
-    expect(indirectCollectionNotice({ ...payroll, indirectSources: "  " })).toBe("Some of it comes from others, not from you.");
+    expect(indirectCollectionNotice({ ...payroll, indirectSources: "  " })).toBe("Some of it doesn't come from the person it's about.");
   });
 });
 

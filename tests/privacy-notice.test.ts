@@ -266,13 +266,19 @@ describe("data collected from others", () => {
 
   it("tells people where data that isn't from them comes from", () => {
     const n = build({ activities: [admissions] });
-    expect(source(n)).toBe("Some of it comes from others, not from you. Parents give their children's details on the admission form.");
+    expect(source(n)).toBe("Some of it doesn't come from the person it's about. Parents give their children's details on the admission form.");
     expect(n.checks.join(" ")).not.toContain("Where the data comes from");
+  });
+
+  it("doesn't tell parents that the data they gave came from someone else", () => {
+    const n = build({ activities: [admissions], audience: "Parents" });
+    expect(source(n)).toBe("Some of it doesn't come from the person it's about. Parents give their children's details on the admission form.");
+    expect(source(n)).not.toContain("not from you");
   });
 
   it("asks where it comes from when the record doesn't say", () => {
     const n = build({ activities: [{ ...admissions, indirectSources: "" }] });
-    expect(source(n)).toBe("Some of it comes from others, not from you.");
+    expect(source(n)).toBe("Some of it doesn't come from the person it's about.");
     expect(n.checks).toContain(
       "Say where the data that doesn't come from the person comes from (Where the data comes from), for: Admissions.",
     );

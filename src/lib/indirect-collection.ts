@@ -150,11 +150,18 @@ const asSentence = (text: string) => {
   return !t || /[.!?)"”]$/.test(t) ? t : `${t}.`;
 };
 
-/** What a person is told about where their data comes from in the privacy notice, or null when it all comes from them. */
+/**
+ * What the privacy notice says about where an activity's data comes from, or
+ * null when it all comes from the people it's about. A notice for one audience
+ * covers every activity that touches it, and the reader may be the source (a
+ * parent giving a child's details), so the wording mustn't say the data didn't
+ * come from them.
+ */
 export function indirectCollectionNotice(a: Pick<IndirectCollectionLike, "indirectCollection" | "indirectSources">): string | null {
   if (!a.indirectCollection) return null;
+  const opening = "Some of it doesn't come from the person it's about.";
   const sources = asSentence(a.indirectSources);
-  return sources ? `Some of it comes from others, not from you. ${sources}` : "Some of it comes from others, not from you.";
+  return sources ? `${opening} ${sources}` : opening;
 }
 
 /** What s.28 and reg. 6 ask when data comes from someone other than the person, as a checklist on the activity's page. */
