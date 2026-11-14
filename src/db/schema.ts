@@ -21,6 +21,7 @@ import { COMPLAINT_KIND_KEYS } from "../lib/complaint";
 import { CONSENT_METHOD_KEYS } from "../lib/consent";
 import { MARKETING_GROUND_KEYS, type MarketingGround } from "../lib/direct-marketing";
 import { INDIRECT_COLLECTION_GROUND_KEYS, type IndirectCollectionGround } from "../lib/indirect-collection";
+import { KENYA_DATA_PURPOSE_KEYS, KENYA_HOSTING_KEYS, type KenyaDataPurpose, type KenyaHosting } from "../lib/data-localisation";
 import {
   HEALTH_CATEGORY,
   HEALTH_DATA_CONDITION_KEYS,
@@ -60,6 +61,8 @@ export const indirectCollectionGroundEnum = pgEnum(
   "indirect_collection_ground",
   INDIRECT_COLLECTION_GROUND_KEYS as [IndirectCollectionGround, ...IndirectCollectionGround[]],
 );
+export const kenyaDataPurposeEnum = pgEnum("kenya_data_purpose", KENYA_DATA_PURPOSE_KEYS as [KenyaDataPurpose, ...KenyaDataPurpose[]]);
+export const kenyaHostingEnum = pgEnum("kenya_hosting", KENYA_HOSTING_KEYS as [KenyaHosting, ...KenyaHosting[]]);
 export const policyKindEnum = pgEnum("policy_kind", POLICY_KIND_KEYS as [string, ...string[]]);
 export const liaOutcomeEnum = pgEnum("lia_outcome", LIA_OUTCOME_KEYS as [string, ...string[]]);
 export const transferBasisEnum = pgEnum("transfer_basis", TRANSFER_BASIS_KEYS as [string, ...string[]]);
@@ -508,6 +511,14 @@ export const processingActivities = pgTable(
     crossBorder: boolean("cross_border").notNull().default(false),
     transferCountries: text("transfer_countries").notNull().default(""),
     transferSafeguards: text("transfer_safeguards").notNull().default(""),
+    // Data that has to be kept in Kenya (s.50 of the Act, reg. 26 of the General
+    // Regulations). The purpose in reg. 26(2) the activity serves, null when
+    // none does; the details are empty unless one does.
+    kenyaDataPurpose: kenyaDataPurposeEnum("kenya_data_purpose"),
+    // Processed through a server and data centre in Kenya, or a serving copy kept in one (reg. 26(1)). Null until someone says.
+    kenyaHosting: kenyaHostingEnum("kenya_hosting"),
+    // The data centre in Kenya, and for a serving copy how it's kept current.
+    kenyaDataCentre: text("kenya_data_centre").notNull().default(""),
     // In the organisation's own words, as the privacy notice shows it.
     retentionPeriod: text("retention_period").notNull(),
     // The same period as a length Kinga can count with, such as 7 years from
@@ -575,6 +586,10 @@ export const processingActivities = pgTable(
     check(
       "processing_activities_indirect_collection_check",
       sql`${t.indirectCollection} or (${t.indirectSources} = '' and cardinality(${t.indirectCollectionGrounds}) = 0 and ${t.indirectCollectionNotice} = '')`,
+    ),
+    check(
+      "processing_activities_data_localisation_check",
+      sql`${t.kenyaDataPurpose} is not null or (${t.kenyaHosting} is null and ${t.kenyaDataCentre} = '')`,
     ),
     check(
       "processing_activities_health_data_check",

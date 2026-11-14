@@ -171,8 +171,24 @@ await db.insert(registrations).values([
 // The school nurse keeps the pupils' medical forms, so the student records say a health care provider handles the
 // health data (s.46). The staff records don't yet say who handles the sick notes, or how next of kin and referees are
 // told the school has their details (reg. 6(3)), so they show on the dashboard and in the compliance report.
+// Pupil and fee records are for basic education, so reg. 26 keeps them in Kenya. The student records say they're
+// processed only in Kenya, on Elimu Systems' servers, but the SMS service linked to them below hosts in Ireland, so
+// that shows as a gap; the fee records are complete.
 const templates = templatesForSector("education").map((t) =>
-  t.id === "student-records" ? { ...t, healthDataCondition: "health_care_provider" as const } : t,
+  t.id === "student-records"
+    ? {
+        ...t,
+        healthDataCondition: "health_care_provider" as const,
+        kenyaHosting: "in_kenya" as const,
+        kenyaDataCentre: "Elimu Systems' servers in a data centre in Nairobi",
+      }
+    : t.id === "school-fees"
+      ? {
+          ...t,
+          kenyaHosting: "serving_copy" as const,
+          kenyaDataCentre: "Elimu Systems' data centre in Nairobi keeps a live copy of the fee ledger from the accounting software.",
+        }
+      : t,
 );
 const activities = await db
   .insert(processingActivities)

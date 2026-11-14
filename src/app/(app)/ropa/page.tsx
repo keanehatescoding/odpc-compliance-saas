@@ -7,9 +7,10 @@ import { automatedDecisionIssues } from "@/lib/automated-decision";
 import { directMarketingIssues } from "@/lib/direct-marketing";
 import { LAWFUL_BASES, type LawfulBasis } from "@/lib/dpa";
 import { childrenDataIssues } from "@/lib/children-data";
+import { dataLocalisationIssues, processorsByActivity } from "@/lib/data-localisation";
 import { indirectCollectionIssues } from "@/lib/indirect-collection";
 import { suggestionFromQuery } from "@/lib/particulars";
-import { listActivities, listDpias } from "@/lib/queries";
+import { listActivities, listDpias, listProcessorLinks, listProcessors } from "@/lib/queries";
 import { dpiaRecommended } from "@/lib/ropa";
 import { requireOrgContext } from "@/lib/session";
 
@@ -27,6 +28,7 @@ const FILTERS: Record<string, { label: string; test: (a: ProcessingActivity) => 
   indirect: { label: "Collected from others", test: (a) => a.indirectCollection },
   children: { label: "Children's data", test: (a) => a.involvesChildren },
   "cross-border": { label: "Outside Kenya", test: (a) => a.crossBorder },
+  kenya: { label: "Kept in Kenya", test: (a) => a.kenyaDataPurpose !== null },
   automated: { label: "Automated decisions", test: (a) => a.automatedDecisions },
   marketing: { label: "Direct marketing", test: (a) => a.directMarketing },
 };
@@ -37,7 +39,8 @@ export default async function RopaPage({ searchParams }: PageProps<"/ropa">) {
   const raw = query.filter;
   const suggestion = suggestionFromQuery(query);
   const filter = typeof raw === "string" && raw in FILTERS ? raw : "all";
-  const [all, dpias] = await Promise.all([listActivities(org.id), listDpias(org.id)]);
+  const [all, dpias, processors, links] = await Promise.all([listActivities(org.id), listDpias(org.id), listProcessors(org.id), listProcessorLinks(org.id)]);
+  const processorsOf = processorsByActivity(processors, links);
   const assessed = new Set(dpias.map((d) => d.dpia.activityId));
   const shown = all.filter(FILTERS[filter].test);
 
@@ -127,6 +130,7 @@ export default async function RopaPage({ searchParams }: PageProps<"/ropa">) {
                         {a.sensitiveCategories.length > 0 && <Pill tone="red">Sensitive</Pill>}
                         {a.indirectCollection && <FlagPill label="From others" incomplete={indirectCollectionIssues(a).length > 0} />}
                         {a.crossBorder && <Pill>Outside Kenya</Pill>}
+                        {a.kenyaDataPurpose && <FlagPill label="Kept in Kenya" incomplete={dataLocalisationIssues(a, processorsOf(a.id)).length > 0} />}
                         {a.involvesChildren && <FlagPill label="Children" incomplete={childrenDataIssues(a).length > 0} />}
                         {a.automatedDecisions && <FlagPill label="Automated decisions" incomplete={automatedDecisionIssues(a).length > 0} />}
                         {a.directMarketing && <FlagPill label="Marketing" incomplete={directMarketingIssues(a).length > 0} />}

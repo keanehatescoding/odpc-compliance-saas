@@ -6,6 +6,7 @@ import { SubmitButton } from "@/components/submit-button";
 import { Card, CheckboxField, FormMessage, SelectField, TextArea, TextField } from "@/components/ui";
 import type { ProcessingActivity } from "@/db/schema";
 import { AUTOMATED_DECISION_GROUNDS } from "@/lib/automated-decision";
+import { KENYA_DATA_PURPOSES, KENYA_HOSTING } from "@/lib/data-localisation";
 import { MARKETING_GROUNDS } from "@/lib/direct-marketing";
 import { LAWFUL_BASES, SENSITIVE_CATEGORIES } from "@/lib/dpa";
 import { INDIRECT_COLLECTION_GROUND_SECTION, INDIRECT_COLLECTION_GROUNDS, type IndirectCollectionGround } from "@/lib/indirect-collection";
@@ -279,6 +280,38 @@ export function ActivityForm({ activity }: { activity?: ProcessingActivity }) {
             label="Safeguards"
             hint="e.g. contractual clauses, adequacy, consent"
             initial={activity?.transferSafeguards}
+            {...f}
+          />
+        </div>
+      </Card>
+
+      {/* The hosting fields are shown by CSS once a purpose is chosen, so they also work before JS loads. */}
+      <Card className="group space-y-5">
+        <h2 className="font-semibold">Kept in Kenya</h2>
+        <SelectField
+          name="kenyaDataPurpose"
+          label="Is this for a purpose whose data has to stay in Kenya?"
+          hint="Regulation 26 names these. A school offering early childhood or basic education, or a clinic providing primary or secondary health care, keeps that data in Kenya. A college or university isn't under the Basic Education Act."
+          options={KENYA_DATA_PURPOSES}
+          placeholder="No, none of these"
+          initial={activity ? (activity.kenyaDataPurpose ?? "") : ""}
+          {...f}
+        />
+        <div className="hidden space-y-5 group-has-[[name=kenyaDataPurpose]_option:checked:not([value=''])]:block">
+          <SelectField
+            name="kenyaHosting"
+            label="How it's kept in Kenya"
+            hint="Either is enough (reg. 26(1)). A serving copy is a current copy the service could run from, not an old backup."
+            options={KENYA_HOSTING}
+            placeholder="Choose one"
+            initial={activity?.kenyaHosting ?? ""}
+            {...f}
+          />
+          <TextArea
+            name="kenyaDataCentre"
+            label="Data centre in Kenya"
+            hint="Such as the hosting provider and town, or your own server room. For a serving copy, say how it's kept up to date."
+            initial={activity?.kenyaDataCentre}
             {...f}
           />
         </div>

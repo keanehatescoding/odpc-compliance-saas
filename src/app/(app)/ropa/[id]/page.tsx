@@ -15,6 +15,18 @@ import {
   automatedDecisionIssues,
 } from "@/lib/automated-decision";
 import { CHILDREN_DATA_CHECKLIST, CHILDREN_DATA_GAP, childrenDataIssues } from "@/lib/children-data";
+import {
+  DATA_LOCALISATION_CHECKLIST,
+  DATA_LOCALISATION_GAP,
+  dataLocalisationIssues,
+  describeKenyaDataPurpose,
+  KENYA_DATA_PURPOSE_SECTION,
+  KENYA_HOSTING,
+  KENYA_HOSTING_SECTION,
+  type KenyaDataPurpose,
+  type KenyaHosting,
+  offshoreProcessors,
+} from "@/lib/data-localisation";
 import { formatDate, todayInKenya } from "@/lib/dates";
 import {
   DIRECT_MARKETING_CHECKLIST,
@@ -80,6 +92,7 @@ export default async function EditActivityPage({ params }: PageProps<"/ropa/[id]
   const sensitiveGaps = sensitiveDataIssues(activity);
   const indirectGaps = indirectCollectionIssues(activity);
   const childrenGaps = childrenDataIssues(activity);
+  const kenyaGaps = dataLocalisationIssues(activity, processors);
   const indirectGrounds = INDIRECT_COLLECTION_GROUND_KEYS.filter((k) => activity.indirectCollectionGrounds.includes(k));
   const sensitiveGround = describeSensitiveDataGround(activity.sensitiveDataGround);
   const healthCondition = describeHealthDataCondition(activity.healthDataCondition);
@@ -353,6 +366,44 @@ export default async function EditActivityPage({ params }: PageProps<"/ropa/[id]
             <summary className="cursor-pointer font-medium">What the Act and the Regulations ask</summary>
             <ul className="mt-2 list-disc pl-5 text-stone-700">
               {CHILDREN_DATA_CHECKLIST.map((c) => (
+                <li key={c}>{c}</li>
+              ))}
+            </ul>
+          </details>
+        </Card>
+      )}
+      {activity.kenyaDataPurpose && (
+        <Card className={`mb-6 max-w-3xl ${kenyaGaps.length > 0 ? "border-amber-300 bg-amber-50" : ""}`}>
+          <h2 className="font-semibold">Kept in Kenya</h2>
+          <p className="mt-1 text-sm text-stone-700">
+            For: {describeKenyaDataPurpose(activity)} ({KENYA_DATA_PURPOSE_SECTION[activity.kenyaDataPurpose as KenyaDataPurpose]}). Regulation 26
+            says this data is processed through a server and data centre in Kenya, or has at least one serving copy kept in a data centre in Kenya.
+          </p>
+          {activity.kenyaHosting && (
+            <p className="mt-1 text-sm text-stone-700">
+              {KENYA_HOSTING[activity.kenyaHosting as KenyaHosting]} ({KENYA_HOSTING_SECTION[activity.kenyaHosting as KenyaHosting]}).
+            </p>
+          )}
+          {activity.kenyaDataCentre && <p className="mt-1 text-sm text-stone-700">Data centre in Kenya: {activity.kenyaDataCentre}</p>}
+          {offshoreProcessors(processors).length > 0 && (
+            <p className="mt-1 text-sm text-stone-700">
+              Processors holding the data outside Kenya: {offshoreProcessors(processors).map((p) => p.name).join(", ")}.
+            </p>
+          )}
+          {kenyaGaps.length > 0 && (
+            <>
+              <h3 className="mt-3 text-sm font-medium">What the record still needs</h3>
+              <ul className="mt-1 list-disc pl-5 text-sm text-stone-700">
+                {kenyaGaps.map((g) => (
+                  <li key={g}>{DATA_LOCALISATION_GAP[g]}</li>
+                ))}
+              </ul>
+            </>
+          )}
+          <details className="mt-3 text-sm">
+            <summary className="cursor-pointer font-medium">What the Act and the Regulations ask</summary>
+            <ul className="mt-2 list-disc pl-5 text-stone-700">
+              {DATA_LOCALISATION_CHECKLIST.map((c) => (
                 <li key={c}>{c}</li>
               ))}
             </ul>

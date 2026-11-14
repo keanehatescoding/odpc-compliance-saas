@@ -21,6 +21,14 @@ import {
 } from "./sensitive-data";
 import { CHILDREN_DATA_PROVISION, childrenDataFinding, childrenDataIssues, describeParentalConsent } from "./children-data";
 import {
+  DATA_LOCALISATION_PROVISION,
+  dataLocalisationFinding,
+  dataLocalisationIssues,
+  describeKenyaDataPurpose,
+  describeKenyaHosting,
+  processorsByActivity,
+} from "./data-localisation";
+import {
   describeIndirectCollectionGrounds,
   INDIRECT_COLLECTION_PROVISION,
   indirectCollectionFinding,
@@ -224,7 +232,7 @@ export interface ReportInput {
   now: Date;
 }
 
-export type ReportSectionKey = "registration" | "ropa" | "notice" | "dpo" | "consent" | "lia" | "dpia" | "sensitive" | "indirect" | "children" | "automated" | "marketing" | "breach" | "request" | "complaint" | "processor" | "transfer" | "disposal" | "training" | "policy";
+export type ReportSectionKey = "registration" | "ropa" | "notice" | "dpo" | "consent" | "lia" | "dpia" | "sensitive" | "indirect" | "children" | "kenya" | "automated" | "marketing" | "breach" | "request" | "complaint" | "processor" | "transfer" | "disposal" | "training" | "policy";
 
 export interface ReportSection {
   key: ReportSectionKey;
@@ -562,6 +570,31 @@ function childrenSection(input: ReportInput): ReportSection {
       { label: "Of those, fully recorded", value: count(children.length - open.length) },
     ],
     table: rows.length > 0 ? { columns: ["Activity", "How a child's data is told apart", "How a parent consents", "How children are protected"], rows } : undefined,
+    open,
+  };
+}
+
+/** Activities whose data reg. 26 says has to be kept in Kenya, and what the record still needs. */
+function kenyaSection(input: ReportInput): ReportSection {
+  const kept = input.activities.filter((a) => a.kenyaDataPurpose !== null);
+  const processorsOf = processorsByActivity(input.processors, input.processorLinks);
+  const open: string[] = [];
+  const rows = kept.map((a) => {
+    const processors = processorsOf(a.id);
+    const issues = dataLocalisationIssues(a, processors);
+    if (issues.length > 0) open.push(dataLocalisationFinding(a, issues, processors));
+    return [a.name, describeKenyaDataPurpose(a), describeKenyaHosting(a), a.kenyaDataCentre.trim() || "Not recorded"];
+  });
+  return {
+    key: "kenya",
+    heading: "Data kept in Kenya",
+    basis: DATA_LOCALISATION_PROVISION,
+    href: "/ropa?filter=kenya",
+    facts: [
+      { label: "Activities whose data has to be kept in Kenya", value: count(kept.length) },
+      { label: "Of those, fully recorded", value: count(kept.length - open.length) },
+    ],
+    table: rows.length > 0 ? { columns: ["Activity", "Purpose (reg. 26(2))", "How it's kept in Kenya", "Data centre in Kenya"], rows } : undefined,
     open,
   };
 }
@@ -1166,6 +1199,7 @@ export function buildComplianceReport(input: ReportInput): ComplianceReport {
     sensitiveSection(input),
     indirectSection(input),
     childrenSection(input),
+    kenyaSection(input),
     automatedSection(input),
     marketingSection(input),
     breachSection(input, periodFrom),
