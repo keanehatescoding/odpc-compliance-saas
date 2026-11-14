@@ -14,6 +14,7 @@ import {
   AUTOMATED_DECISION_GROUNDS,
   automatedDecisionIssues,
 } from "@/lib/automated-decision";
+import { CHILDREN_DATA_CHECKLIST, CHILDREN_DATA_GAP, childrenDataIssues } from "@/lib/children-data";
 import { formatDate, todayInKenya } from "@/lib/dates";
 import {
   DIRECT_MARKETING_CHECKLIST,
@@ -78,6 +79,7 @@ export default async function EditActivityPage({ params }: PageProps<"/ropa/[id]
   const marketingGaps = directMarketingIssues(activity);
   const sensitiveGaps = sensitiveDataIssues(activity);
   const indirectGaps = indirectCollectionIssues(activity);
+  const childrenGaps = childrenDataIssues(activity);
   const indirectGrounds = INDIRECT_COLLECTION_GROUND_KEYS.filter((k) => activity.indirectCollectionGrounds.includes(k));
   const sensitiveGround = describeSensitiveDataGround(activity.sensitiveDataGround);
   const healthCondition = describeHealthDataCondition(activity.healthDataCondition);
@@ -309,6 +311,48 @@ export default async function EditActivityPage({ params }: PageProps<"/ropa/[id]
             <summary className="cursor-pointer font-medium">What the Act and the Regulations ask</summary>
             <ul className="mt-2 list-disc pl-5 text-stone-700">
               {INDIRECT_COLLECTION_CHECKLIST.map((c) => (
+                <li key={c}>{c}</li>
+              ))}
+            </ul>
+          </details>
+        </Card>
+      )}
+      {activity.involvesChildren && (
+        <Card className={`mb-6 max-w-3xl ${childrenGaps.length > 0 ? "border-amber-300 bg-amber-50" : ""}`}>
+          <h2 className="font-semibold">Children&apos;s data</h2>
+          <p className="mt-1 text-sm text-stone-700">
+            Section 33 of the Act lets a child&apos;s data be processed only with a parent&apos;s or guardian&apos;s consent, and in a way
+            that protects and advances the child&apos;s rights and best interests.
+          </p>
+          {activity.childAgeCheck && <p className="mt-1 text-sm text-stone-700">How a child&apos;s data is told apart: {activity.childAgeCheck}</p>}
+          {activity.childCounselling && (
+            <p className="mt-1 text-sm text-stone-700">
+              Only counselling or child protection services for children, so a parent&apos;s consent may not be needed (s.33(4)).
+            </p>
+          )}
+          {activity.parentalConsent ? (
+            <p className="mt-1 text-sm text-stone-700">How a parent or guardian consents: {activity.parentalConsent}</p>
+          ) : (
+            activity.role === "processor" &&
+            !activity.childCounselling && (
+              <p className="mt-1 text-sm text-stone-700">As a processor, you act on the controller&apos;s instructions; the controller gets the parent&apos;s consent.</p>
+            )
+          )}
+          {activity.childSafeguards && <p className="mt-1 text-sm text-stone-700">How children are protected: {activity.childSafeguards}</p>}
+          {childrenGaps.length > 0 && (
+            <>
+              <h3 className="mt-3 text-sm font-medium">What the record still needs</h3>
+              <ul className="mt-1 list-disc pl-5 text-sm text-stone-700">
+                {childrenGaps.map((g) => (
+                  <li key={g}>{CHILDREN_DATA_GAP[g]}</li>
+                ))}
+              </ul>
+            </>
+          )}
+          <details className="mt-3 text-sm">
+            <summary className="cursor-pointer font-medium">What the Act and the Regulations ask</summary>
+            <ul className="mt-2 list-disc pl-5 text-stone-700">
+              {CHILDREN_DATA_CHECKLIST.map((c) => (
                 <li key={c}>{c}</li>
               ))}
             </ul>

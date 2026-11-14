@@ -32,6 +32,10 @@ const activity = (over: Partial<NoticeActivity>): NoticeActivity => ({
   largeScale: false,
   systematicMonitoring: false,
   involvesChildren: false,
+  childAgeCheck: "",
+  childCounselling: false,
+  parentalConsent: "",
+  childSafeguards: "",
   automatedDecisions: false,
   automatedDecisionGround: null,
   automatedDecisionLogic: "",
@@ -422,12 +426,51 @@ describe("buildPrivacyNotice", () => {
     expect(n.checks).toEqual(["Describe the security measures for: Fees."]);
   });
 
-  it("adds a children section when an activity involves them, to be confirmed", () => {
-    expect(section(build(), "Children")).toBeUndefined();
-    const n = build({ activities: [activity({ involvesChildren: true })] });
-    expect(JSON.stringify(section(n, "Children"))).toContain("unless the law doesn't require it");
-    expect(n.checks).toHaveLength(1);
-    expect(n.checks[0]).toContain("Children section");
+  describe("children", () => {
+    const pupils = activity({
+      name: "Pupil records",
+      involvesChildren: true,
+      childAgeCheck: "Date of birth checked against the birth certificate",
+      parentalConsent: "A parent signs the admission form",
+      childSafeguards: "Only the class teacher and the office open the file.",
+    });
+
+    it("adds a children section when an activity involves them, with each activity's safeguards", () => {
+      expect(section(build(), "Children")).toBeUndefined();
+      const n = build({ activities: [pupils, activity({ name: "Fees" })] });
+      const children = JSON.stringify(section(n, "Children"));
+      expect(children).toContain("We ask for the consent of their parent or guardian first");
+      expect(children).not.toContain("unless the law doesn't require it");
+      expect(children).toContain('{"label":"Pupil records","value":"Only the class teacher and the office open the file."}');
+      expect(children).not.toContain("Fees");
+      expect(n.checks).toEqual([]);
+    });
+
+    it("mentions the s.33(4) exception only when an activity relies on it", () => {
+      const n = build({ activities: [{ ...pupils, name: "Counselling", parentalConsent: "", childCounselling: true }] });
+      expect(JSON.stringify(section(n, "Children"))).toContain("unless the law doesn't require it");
+      expect(n.checks).toEqual([]);
+    });
+
+    it("asks for the consent and the safeguards the section relies on", () => {
+      const n = build({ activities: [{ ...pupils, parentalConsent: "", childSafeguards: " " }] });
+      expect(JSON.stringify(section(n, "Children"))).not.toContain("How we protect children's data");
+      expect(n.checks).toEqual([
+        "Say how a parent or guardian consents, as the Children section says they do (Children's data), for: Pupil records.",
+        "Say how children are protected, so parents are told the safeguards (Children's data), for: Pupil records.",
+      ]);
+    });
+
+    it("leaves a processor's children's data to the controller's notice", () => {
+      const n = build({ activities: [{ ...pupils, role: "processor", parentalConsent: "" }] });
+      expect(section(n, "Children")).toBeUndefined();
+      expect(n.checks.join(" ")).not.toContain("parent or guardian consents");
+    });
+
+    it("asks to make sure no child is profiled for marketing (reg. 13(2)(b))", () => {
+      const n = build({ activities: [{ ...pupils, directMarketing: true, marketingGround: "consent", marketingChannels: "SMS", marketingOptOut: "Reply STOP" }] });
+      expect(n.checks).toContain("Make sure no child is profiled for marketing (Direct marketing), for: Pupil records.");
+    });
   });
 
   it("cites a current controller certificate, not an expired one", () => {

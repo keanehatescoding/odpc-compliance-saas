@@ -4,6 +4,7 @@ import { Countdown } from "@/components/countdown";
 import { BreachStatusBadge, buttonClass, Card, cx, PageHeader, StatusBadge } from "@/components/ui";
 import { activitiesWithAutomatedDecisionIssues, automatedDecisionTodo } from "@/lib/automated-decision";
 import { activitiesWithDirectMarketingIssues, directMarketingTodo } from "@/lib/direct-marketing";
+import { activitiesWithChildrenDataIssues, childrenDataTodo } from "@/lib/children-data";
 import { activitiesWithIndirectCollectionIssues, indirectCollectionTodo } from "@/lib/indirect-collection";
 import { activitiesWithSensitiveDataIssues, sensitiveDataTodo } from "@/lib/sensitive-data";
 import { breachStatus, notificationDeadline, NOTIFY_WHOM, outstandingTasks } from "@/lib/breach";
@@ -137,6 +138,9 @@ export default async function DashboardPage() {
   }
   for (const { activity, issues } of activitiesWithIndirectCollectionIssues(activities)) {
     todos.push({ text: indirectCollectionTodo(activity, issues), href: `/ropa/${activity.id}` });
+  }
+  for (const { activity, issues } of activitiesWithChildrenDataIssues(activities)) {
+    todos.push({ text: childrenDataTodo(activity, issues), href: `/ropa/${activity.id}` });
   }
   for (const a of activitiesWithoutConsent(activities, consents)) {
     todos.push({ text: `Record how you get consent for ${a.name}`, href: `/consents/new?activity=${a.id}` });

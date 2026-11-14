@@ -520,7 +520,17 @@ export const processingActivities = pgTable(
     owner: text("owner").notNull().default(""),
     largeScale: boolean("large_scale").notNull().default(false),
     systematicMonitoring: boolean("systematic_monitoring").notNull().default(false),
+    // Children's data (s.33 of the Act, reg. 13(2) of the General Regulations).
+    // The details are empty unless the activity involves children.
     involvesChildren: boolean("involves_children").notNull().default(false),
+    // How a child's data is told apart, such as a date of birth checked against a birth certificate (s.33(2)).
+    childAgeCheck: text("child_age_check").notNull().default(""),
+    // Only counselling or child protection services for children, so parental consent may not be needed (s.33(4)).
+    childCounselling: boolean("child_counselling").notNull().default(false),
+    // How a parent or guardian consents, and how they're identified (s.33(1)(a); reg. 13(2)(a)).
+    parentalConsent: text("parental_consent").notNull().default(""),
+    // How the processing protects the child, and how parents are told the risks and safeguards (s.33(1)(b); reg. 13(2)(c)).
+    childSafeguards: text("child_safeguards").notNull().default(""),
     // Decisions about people taken by automated means alone, with legal or
     // similarly significant effects (s.35 of the Act, reg. 22 of the General
     // Regulations). The details are empty unless the activity takes them.
@@ -557,6 +567,10 @@ export const processingActivities = pgTable(
     check(
       "processing_activities_sensitive_data_check",
       sql`cardinality(${t.sensitiveCategories}) > 0 or (${t.sensitiveDataGround} is null and ${t.sensitiveDataBasis} = '' and ${t.sensitiveDataSafeguards} = '')`,
+    ),
+    check(
+      "processing_activities_children_data_check",
+      sql`${t.involvesChildren} or (${t.childAgeCheck} = '' and not ${t.childCounselling} and ${t.parentalConsent} = '' and ${t.childSafeguards} = '')`,
     ),
     check(
       "processing_activities_indirect_collection_check",

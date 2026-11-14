@@ -217,6 +217,10 @@ describe("DPIA screening", () => {
     largeScale: false,
     systematicMonitoring: false,
     involvesChildren: false,
+    childAgeCheck: "",
+    childCounselling: false,
+    parentalConsent: "",
+    childSafeguards: "",
     automatedDecisions: false,
   };
 
@@ -405,6 +409,7 @@ describe("templates", () => {
         largeScale: String(t.largeScale),
         systematicMonitoring: String(t.systematicMonitoring),
         involvesChildren: String(t.involvesChildren),
+        childCounselling: String(t.childCounselling),
         automatedDecisions: String(t.automatedDecisions),
         automatedDecisionGround: t.automatedDecisionGround ?? "",
         directMarketing: String(t.directMarketing),
