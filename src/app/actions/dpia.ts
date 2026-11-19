@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/db";
 import { dpiaRisks, dpias, processingActivities } from "@/db/schema";
 import { changedFields, describe, editSummary, FIELD_LABELS, recordActivity } from "@/lib/activity";
-import { formatDate } from "@/lib/dates";
+import { formatDate, todayInKenya } from "@/lib/dates";
 import { isUniqueViolation } from "@/lib/db-errors";
 import { draftDpia, getDpiaTemplate, type RiskInput } from "@/lib/dpia";
 import { parseDpiaForm } from "@/lib/dpia-form";
@@ -83,7 +83,7 @@ export async function saveDpia(_prev: FormState, formData: FormData): Promise<Fo
   const { user, org } = await requireActiveOrg();
   const id = String(formData.get("id") ?? "");
   if (!isUuid(id)) return { message: "DPIA not found." };
-  const parsed = parseDpiaForm(formData);
+  const parsed = parseDpiaForm(formData, todayInKenya());
   if (!parsed.success) return { errors: fieldErrors(parsed.error), values: formValues(formData) };
   const { risks, ...data } = parsed.data;
 
