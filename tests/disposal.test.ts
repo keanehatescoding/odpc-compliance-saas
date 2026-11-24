@@ -125,6 +125,7 @@ describe("parseDisposalForm", () => {
   it("puts the next round after the disposal", () => {
     expect(errors(form({ nextOn: "2026-10-01" })).nextOn).toBe("This must be after the disposal.");
     expect(errors(form({ nextOn: "2026-10-02" }))).toEqual({});
+    expect(errors(form({ nextOn: "2026-10-11" }))).toEqual({ nextOn: "This can't be in the future." });
   });
 
   it("rejects a count that isn't a positive whole number, an unknown method and a made-up activity", () => {

@@ -145,6 +145,7 @@ describe("parseLiaForm", () => {
     expect(errors(form({ decidedOn: "2026-06-01" }))).toHaveProperty("decidedOn");
     expect(errors(form({ outcome: "justified", decidedOn: "2026-06-01", reviewOn: "2026-05-01" }))).toHaveProperty("reviewOn");
     expect(errors(form({ reviewOn: "2026-13-01" }))).toHaveProperty("reviewOn");
+    expect(errors(form({ reviewOn: "2026-10-11" }))).toEqual({ reviewOn: "This can't be in the future." });
   });
 });
 

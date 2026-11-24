@@ -38,6 +38,7 @@ export function liaSchema(today: string) {
       const issue = (path: string, message: string) => ctx.addIssue({ code: "custom", path: [path], message });
       if (v.decidedOn && v.decidedOn > today) issue("decidedOn", "This can't be in the future.");
       if (v.decidedOn && v.outcome === "pending") issue("decidedOn", "Choose the decision, or leave this blank until there is one.");
+      if (v.reviewOn && v.reviewOn > today) issue("reviewOn", "This can't be in the future.");
       if (v.reviewOn && v.decidedOn && v.reviewOn < v.decidedOn) issue("reviewOn", "This can't be before the decision.");
     });
 }

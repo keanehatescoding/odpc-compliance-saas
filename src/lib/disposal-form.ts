@@ -51,6 +51,7 @@ export function disposalSchema(today: string) {
       const issue = (path: string, message: string) => ctx.addIssue({ code: "custom", path: [path], message });
       if (!isIsoDate(v.disposedOn)) return;
       if (v.disposedOn > today) issue("disposedOn", "This can't be in the future. Record the disposal once it has been done.");
+      if (v.nextOn && v.nextOn > today) issue("nextOn", "This can't be in the future.");
       if (v.nextOn && v.nextOn <= v.disposedOn) issue("nextOn", "This must be after the disposal.");
     });
 }

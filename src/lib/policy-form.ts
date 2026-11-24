@@ -32,6 +32,7 @@ export function policySchema(today: string) {
       const issue = (path: string, message: string) => ctx.addIssue({ code: "custom", path: [path], message });
       if (v.approvedOn && !isIsoDate(v.approvedOn)) return;
       if (v.approvedOn && v.approvedOn > today) issue("approvedOn", "This can't be in the future. Leave it blank until the policy is approved.");
+      if (v.reviewOn && v.reviewOn > today) issue("reviewOn", "This can't be in the future.");
       if (v.approvedOn && v.reviewOn && isIsoDate(v.reviewOn) && v.reviewOn <= v.approvedOn) issue("reviewOn", "This must be after the approval.");
     });
 }

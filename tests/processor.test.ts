@@ -100,6 +100,7 @@ describe("parseProcessorForm", () => {
     expect(errors(form({ contractSignedOn: "2026-10-11" }))).toHaveProperty("contractSignedOn");
     expect(errors(form({ contractSignedOn: "2026-01-15", contractReviewOn: "2026-01-14" }))).toHaveProperty("contractReviewOn");
     expect(errors(form({ contractSignedOn: "not a date" }))).toHaveProperty("contractSignedOn");
+    expect(errors(form({ contractReviewOn: "2026-10-11" }))).toEqual({ contractReviewOn: "This can't be in the future." });
   });
 
   it("won't take a review date without a signed contract", () => {

@@ -104,6 +104,7 @@ describe("parseTrainingForm", () => {
   it("wants the refresher after the session", () => {
     expect(errors(form({ refresherOn: "2026-03-02" }))).toHaveProperty("refresherOn");
     expect(errors(form({ refresherOn: "2026-03-03" }))).toEqual({});
+    expect(errors(form({ refresherOn: "2026-10-11" }))).toEqual({ refresherOn: "This can't be in the future." });
   });
 
   it("rejects a count that isn't a positive whole number", () => {
