@@ -22,15 +22,20 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         # Nothing here pushes, so don't leave the token where npm's install
-        # scripts could read it.
+        # scripts could read it. gitleaks scans a commit range, so keep history.
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
       - run: npm ci
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc # v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - run: npm run lint
       - run: npm run typecheck
-      - run: npm test
+      - run: npm test -- --coverage
       - run: npm run build
