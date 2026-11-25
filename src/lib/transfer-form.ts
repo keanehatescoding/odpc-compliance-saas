@@ -36,7 +36,6 @@ export function transferSchema(today: string) {
     .superRefine((v, ctx) => {
       const issue = (path: string, message: string) => ctx.addIssue({ code: "custom", path: [path], message });
       if (v.startedOn && v.startedOn > today) issue("startedOn", "This can't be in the future.");
-      if (v.reviewOn && v.reviewOn > today) issue("reviewOn", "This can't be in the future.");
       if (v.reviewOn && v.startedOn && v.reviewOn < v.startedOn) issue("reviewOn", "This can't be before the transfer began.");
     });
 }

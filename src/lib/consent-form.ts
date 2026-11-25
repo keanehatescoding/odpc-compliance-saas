@@ -42,7 +42,6 @@ export function consentSchema(today: string) {
     .superRefine((v, ctx) => {
       const issue = (path: string, message: string) => ctx.addIssue({ code: "custom", path: [path], message });
       if (v.inUseFrom && v.inUseFrom > today) issue("inUseFrom", "This can't be in the future.");
-      if (v.reviewOn && v.reviewOn > today) issue("reviewOn", "This can't be in the future.");
       if (v.reviewOn && v.inUseFrom && v.reviewOn < v.inUseFrom) issue("reviewOn", "This can't be before the wording came into use.");
     });
 }

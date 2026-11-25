@@ -34,7 +34,6 @@ export function processorSchema(today: string) {
     .superRefine((v, ctx) => {
       const issue = (path: string, message: string) => ctx.addIssue({ code: "custom", path: [path], message });
       if (v.contractSignedOn && v.contractSignedOn > today) issue("contractSignedOn", "This can't be in the future.");
-      if (v.contractReviewOn && v.contractReviewOn > today) issue("contractReviewOn", "This can't be in the future.");
       if (v.contractReviewOn) {
         if (!v.contractSignedOn) issue("contractReviewOn", "Enter the date the contract was signed first.");
         else if (v.contractReviewOn < v.contractSignedOn) issue("contractReviewOn", "This can't be before the contract was signed.");

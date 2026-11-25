@@ -49,7 +49,6 @@ export function trainingSchema(today: string) {
       const issue = (path: string, message: string) => ctx.addIssue({ code: "custom", path: [path], message });
       if (!isIsoDate(v.heldOn)) return;
       if (v.heldOn > today) issue("heldOn", "This can't be in the future. Record the session once it has been held.");
-      if (v.refresherOn && v.refresherOn > today) issue("refresherOn", "This can't be in the future.");
       if (v.refresherOn && v.refresherOn <= v.heldOn) issue("refresherOn", "This must be after the session was held.");
     });
 }

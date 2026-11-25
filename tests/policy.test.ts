@@ -116,7 +116,6 @@ describe("parsePolicyForm", () => {
     expect(errors(form({ approvedOn: "2026-02-01", reviewOn: "2026-02-02" }))).toEqual({});
     expect(errors(form({ reviewOn: "2027-01-01" }))).toEqual({});
     expect(errors(form({ reviewOn: "soon" })).reviewOn).toBe("Enter a valid date.");
-    expect(errors(form({ reviewOn: "2026-10-11" }))).toEqual({ reviewOn: "This can't be in the future." });
   });
 });
 
