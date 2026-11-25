@@ -2,20 +2,21 @@
 
 ## Supported Versions
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
+This project is pre-release (`0.1.0` in `package.json`) and does not publish
+supported release lines yet. No version is currently receiving security
+updates. This table will be updated when release lines exist.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+| 0.1.x (pre-release) | :x:        |
 
 ## Reporting a Vulnerability
 
-Use this section to tell people how to report a vulnerability.
+Please report vulnerabilities privately using GitHub's private vulnerability
+reporting for this repository: open the **Security** tab and select **Report a
+vulnerability**. Do not file a public issue for a security problem.
 
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+You can expect an acknowledgement within 5 business days. After triage we will
+tell you whether the report is accepted, and if it is, share a remediation
+timeline. If it is declined we will explain why. Please give us 90 days to
+ship a fix before public disclosure.
