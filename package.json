@@ -39,7 +39,7 @@
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.17",
     "@tailwindcss/postcss": "^4",
-    "@types/node": "^24.19.0",
+    "@types/node": "^26.6.6",
     "@types/nodemailer": "^8.0.2",
     "@types/pg": "^8.23.1",
     "@types/qrcode": "^1.5.6",
@@ -48,8 +48,8 @@
     "@vitest/coverage-v8": "^5.1.1",
     "drizzle-kit": "^0.31.11",
     "eslint": "^9",
-    "eslint-config-next": "16.4.2",
-    "railway": "^3.15.0",
+    "eslint-config-next": "16.4.6",
+    "railway": "^3.17.0",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^5.1.0"
